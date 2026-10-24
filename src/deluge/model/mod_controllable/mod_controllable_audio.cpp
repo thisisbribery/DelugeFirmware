@@ -413,10 +413,6 @@ void ModControllableAudio::writeAttributesToFile(Serializer& writer) {
 	if (!(saturation == deluge::dsp::SaturationSettings{})) {
 		writer.writeAttribute("satType", deluge::dsp::saturationTypeToString(saturation.type));
 		writer.writeAttribute("satDrive", (int32_t)saturation.drive);
-		writer.writeAttribute("satBias", (int32_t)saturation.bias);
-		writer.writeAttribute("satTone", (int32_t)saturation.tone);
-		writer.writeAttribute("satLowCut", (int32_t)saturation.lowCut);
-		writer.writeAttribute("satMix", (int32_t)saturation.mix);
 	}
 }
 
@@ -755,26 +751,6 @@ Error ModControllableAudio::readTagFromFile(Deserializer& reader, char const* ta
 		saturation.drive =
 		    std::clamp<int32_t>(reader.readTagOrAttributeValueInt(), 0, deluge::dsp::SaturationSettings::kMaxDrive);
 		reader.exitTag("satDrive");
-	}
-	else if (!strcmp(tagName, "satBias")) {
-		int32_t max = deluge::dsp::SaturationSettings::kMaxBias;
-		saturation.bias = std::clamp<int32_t>(reader.readTagOrAttributeValueInt(), -max, max);
-		reader.exitTag("satBias");
-	}
-	else if (!strcmp(tagName, "satTone")) {
-		saturation.tone =
-		    std::clamp<int32_t>(reader.readTagOrAttributeValueInt(), 0, deluge::dsp::SaturationSettings::kMaxTone);
-		reader.exitTag("satTone");
-	}
-	else if (!strcmp(tagName, "satLowCut")) {
-		saturation.lowCut =
-		    std::clamp<int32_t>(reader.readTagOrAttributeValueInt(), 0, deluge::dsp::SaturationSettings::kMaxLowCut);
-		reader.exitTag("satLowCut");
-	}
-	else if (!strcmp(tagName, "satMix")) {
-		saturation.mix =
-		    std::clamp<int32_t>(reader.readTagOrAttributeValueInt(), 0, deluge::dsp::SaturationSettings::kMaxMix);
-		reader.exitTag("satMix");
 	}
 
 	// Arpeggiator

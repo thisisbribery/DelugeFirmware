@@ -16,7 +16,6 @@
  */
 #pragma once
 #include "dsp/saturator.h"
-#include "gui/menu_item/integer.h"
 #include "gui/menu_item/selection.h"
 #include "gui/ui/sound_editor.h"
 #include "model/instrument/kit.h"
@@ -42,31 +41,6 @@ void applyToSaturation(Apply apply) {
 		apply(soundEditor.currentModControllable->saturation);
 	}
 }
-
-/// One of the saturation's integer settings
-template <auto Member, int32_t Min, int32_t Max, typename Base, RenderingStyle Style>
-class SaturationInteger final : public Base {
-public:
-	using Base::Base;
-
-	void readCurrentValue() override { this->setValue(soundEditor.currentModControllable->saturation.*Member); }
-	bool usesAffectEntire() override { return true; }
-	void writeCurrentValue() override {
-		int32_t value = this->getValue();
-		applyToSaturation([value](dsp::SaturationSettings& s) { s.*Member = value; });
-	}
-	[[nodiscard]] int32_t getMinValue() const override { return Min; }
-	[[nodiscard]] int32_t getMaxValue() const override { return Max; }
-	[[nodiscard]] RenderingStyle getRenderingStyle() const override { return Style; }
-};
-
-using dsp::SaturationSettings;
-using SaturationTone = SaturationInteger<&SaturationSettings::tone, 0, SaturationSettings::kMaxTone, Integer, BAR>;
-using SaturationLowCut =
-    SaturationInteger<&SaturationSettings::lowCut, 0, SaturationSettings::kMaxLowCut, IntegerWithOff, BAR>;
-using SaturationBias = SaturationInteger<&SaturationSettings::bias, -SaturationSettings::kMaxBias,
-                                         SaturationSettings::kMaxBias, Integer, NUMBER>;
-using SaturationMix = SaturationInteger<&SaturationSettings::mix, 0, SaturationSettings::kMaxMix, Integer, BAR>;
 
 class SaturationType final : public Selection {
 public:

@@ -639,10 +639,6 @@ PLACE_SDRAM_BSS HorizontalMenuGroup filtersMenuGroup{{&lpfMenu, &hpfMenu, &routi
 // FX ----------------------------------------------------------------------------------------
 PLACE_SDRAM_BSS fx::Clipping clippingMenu{STRING_FOR_SATURATION};
 PLACE_SDRAM_BSS fx::SaturationType saturationTypeMenu{STRING_FOR_TYPE, STRING_FOR_SAT_TYPE};
-PLACE_SDRAM_BSS fx::SaturationTone saturationToneMenu{STRING_FOR_SAT_TONE};
-PLACE_SDRAM_BSS fx::SaturationLowCut saturationLowCutMenu{STRING_FOR_SAT_LOW_CUT};
-PLACE_SDRAM_BSS fx::SaturationBias saturationBiasMenu{STRING_FOR_SAT_BIAS};
-PLACE_SDRAM_BSS fx::SaturationMix saturationMixMenu{STRING_FOR_SAT_MIX};
 PLACE_SDRAM_BSS UnpatchedParam srrMenu{STRING_FOR_DECIMATION, params::UNPATCHED_SAMPLE_RATE_REDUCTION,
                                        RenderingStyle::BAR};
 PLACE_SDRAM_BSS UnpatchedParam bitcrushMenu{STRING_FOR_BITCRUSH, params::UNPATCHED_BITCRUSHING, RenderingStyle::BAR};
@@ -654,10 +650,6 @@ PLACE_SDRAM_BSS HorizontalMenu soundDistortionMenu{
     {
         &clippingMenu,
         &saturationTypeMenu,
-        &saturationToneMenu,
-        &saturationLowCutMenu,
-        &saturationBiasMenu,
-        &saturationMixMenu,
         &bitcrushMenu,
         &srrMenu,
         &foldMenu,
@@ -878,10 +870,6 @@ PLACE_SDRAM_BSS HorizontalMenu kitDistortionMenu{
     {
         &clippingMenu,
         &saturationTypeMenu,
-        &saturationToneMenu,
-        &saturationLowCutMenu,
-        &saturationBiasMenu,
-        &saturationMixMenu,
         &srrMenu,
         &bitcrushMenu,
     },
@@ -955,10 +943,6 @@ PLACE_SDRAM_BSS HorizontalMenu audioClipDistortionMenu{
     {
         &clippingMenu,
         &saturationTypeMenu,
-        &saturationToneMenu,
-        &saturationLowCutMenu,
-        &saturationBiasMenu,
-        &saturationMixMenu,
         &bitcrushMenu,
         &srrMenu,
     },

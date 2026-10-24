@@ -1569,7 +1569,8 @@ skipUnisonPart: {}
 					p[1] = multiply_32x32_rshift32_rounded(p[1], overallOscAmplitudeNow) << 1;
 				}
 			}
-			sound.getSaturator().processStereo(oscBuffer, numSamples, saturatorChannels[0], saturatorChannels[1]);
+			sound.getSaturator(dsp::Saturator::kVoiceUnit)
+			    .processStereo(oscBuffer, numSamples, saturatorChannels[0], saturatorChannels[1]);
 
 			int32_t const* __restrict__ oscBufferPos = oscBuffer; // For traversal
 			StereoSample* __restrict__ outputSample = (StereoSample*)soundBuffer;
@@ -1683,7 +1684,7 @@ skipUnisonPart: {}
 					*p = multiply_32x32_rshift32_rounded(*p, overallOscAmplitudeNow) << 1;
 				}
 			}
-			sound.getSaturator().process(oscBuffer, numSamples, saturatorChannels[0]);
+			sound.getSaturator(dsp::Saturator::kVoiceUnit).process(oscBuffer, numSamples, saturatorChannels[0]);
 
 			int32_t const* __restrict__ oscBufferPos = oscBuffer; // For traversal
 			int32_t* __restrict__ outputSample = soundBuffer;

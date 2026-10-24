@@ -114,16 +114,19 @@ public:
 	int32_t getLegacyClippingAmount() const {
 		return deluge::dsp::SaturationSettings::legacyFromDrive(saturation.drive);
 	}
-	/// Saturator set up for the current settings, only recalculated when they change
-	const deluge::dsp::Saturator& getSaturator() {
-		if (!(saturation == saturatorConfiguredFor_)) {
-			saturator_.configure(saturation);
+	/// Saturator set up for the current settings, only recalculated when they change.
+	/// unit is Saturator::kVoiceUnit for a synth voice, kClipUnit for a whole kit or audio clip.
+	const deluge::dsp::Saturator& getSaturator(float unit) {
+		if (!(saturation == saturatorConfiguredFor_) || unit != saturatorConfiguredUnit_) {
+			saturator_.configure(saturation, unit);
 			saturatorConfiguredFor_ = saturation;
+			saturatorConfiguredUnit_ = unit;
 		}
 		return saturator_;
 	}
 	deluge::dsp::Saturator saturator_;
 	deluge::dsp::SaturationSettings saturatorConfiguredFor_{.drive = 255}; // forces the first configure
+	float saturatorConfiguredUnit_ = 0.f;
 	FilterMode lpfMode;
 	FilterMode hpfMode;
 	FilterRoute filterRoute;

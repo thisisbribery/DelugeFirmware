@@ -127,8 +127,9 @@ GlobalEffectableForClip::GlobalEffectableForClip() {
 			}
 		}
 		else {
-			getSaturator().processStereo(reinterpret_cast<int32_t*>(global_effectable_audio.data()),
-			                             global_effectable_audio.size(), saturatorChannels[0], saturatorChannels[1]);
+			getSaturator(deluge::dsp::Saturator::kClipUnit)
+			    .processStereo(reinterpret_cast<int32_t*>(global_effectable_audio.data()),
+			                   global_effectable_audio.size(), saturatorChannels[0], saturatorChannels[1]);
 		}
 	}
 

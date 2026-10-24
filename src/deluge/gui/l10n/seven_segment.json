@@ -562,14 +562,6 @@
 
         "STRING_FOR_SAT_TYPE": "STYP",
 
-        "STRING_FOR_SAT_TONE": "STON",
-
-        "STRING_FOR_SAT_LOW_CUT": "SLOW",
-
-        "STRING_FOR_SAT_BIAS": "SBIA",
-
-        "STRING_FOR_SAT_MIX": "SMIX",
-
         "STRING_FOR_SAT_CLASSIC": "CLAS",
 
         "STRING_FOR_SAT_TAPE": "TAPE",
