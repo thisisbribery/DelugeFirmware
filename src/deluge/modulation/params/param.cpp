@@ -32,7 +32,11 @@ bool isParamBipolar(Kind kind, int32_t paramID) {
 		return true;
 	}
 	return (kind == Kind::PATCH_CABLE) || isParamPan(kind, paramID) || isParamPitch(kind, paramID)
-	       || isParamPitchBend(kind, paramID);
+	       || isParamPitchBend(kind, paramID) || isParamDelayTone(kind, paramID);
+}
+
+bool isParamDelayTone(Kind kind, int32_t paramID) {
+	return (kind == Kind::UNPATCHED_SOUND || kind == Kind::UNPATCHED_GLOBAL) && paramID == UNPATCHED_DELAY_TONE;
 }
 
 bool isParamPan(Kind kind, int32_t paramID) {
@@ -295,6 +299,7 @@ char const* getParamDisplayName(Kind kind, int32_t p) {
 		    [UNPATCHED_SIDECHAIN_SHAPE] = STRING_FOR_SIDECHAIN_SHAPE,
 		    [UNPATCHED_COMPRESSOR_THRESHOLD] = STRING_FOR_THRESHOLD,
 		    [UNPATCHED_DELAY_FEEDBACK] = STRING_FOR_DELAY_FEEDBACK,
+		    [UNPATCHED_DELAY_TONE] = STRING_FOR_DELAY_TONE,
 		    [UNPATCHED_ARP_GATE] = STRING_FOR_ARP_GATE_MENU_TITLE,
 		    [UNPATCHED_ARP_RHYTHM] = STRING_FOR_ARP_RHYTHM_MENU_TITLE,
 		    [UNPATCHED_ARP_SEQUENCE_LENGTH] = STRING_FOR_ARP_SEQUENCE_LENGTH_MENU_TITLE,
@@ -560,6 +565,9 @@ constexpr char const* paramNameForFileConst(Kind const kind, ParamType const par
 
 		case UNPATCHED_DELAY_FEEDBACK:
 			return "delayRegen";
+
+		case UNPATCHED_DELAY_TONE:
+			return "delayTone";
 
 		case UNPATCHED_ARP_GATE:
 			return "arpGate";

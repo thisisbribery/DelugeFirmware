@@ -65,6 +65,7 @@
 #include "gui/menu_item/delay/feedback.h"
 #include "gui/menu_item/delay/ping_pong.h"
 #include "gui/menu_item/delay/sync.h"
+#include "gui/menu_item/delay/tone.h"
 #include "gui/menu_item/drum_synth/editor.h"
 #include "gui/menu_item/drum_synth/param.h"
 #include "gui/menu_item/dx/browse.h"
@@ -525,6 +526,7 @@ PLACE_SDRAM_BSS delay::Amount delayFeedbackMenu{STRING_FOR_AMOUNT, STRING_FOR_DE
 // The real feedback (delayFeedbackMenu above is the amount). Shared by sounds and global effectables.
 PLACE_SDRAM_BSS delay::Feedback delayRegenMenu{STRING_FOR_FEEDBACK, STRING_FOR_DELAY_FEEDBACK,
                                                params::UNPATCHED_DELAY_FEEDBACK};
+PLACE_SDRAM_BSS delay::Tone delayToneMenu{STRING_FOR_TONE, STRING_FOR_DELAY_TONE, params::UNPATCHED_DELAY_TONE};
 PLACE_SDRAM_BSS patched_param::Integer delayRateMenu{STRING_FOR_RATE, STRING_FOR_DELAY_RATE, params::GLOBAL_DELAY_RATE};
 PLACE_SDRAM_BSS delay::PingPong delayPingPongMenu{STRING_FOR_PINGPONG, STRING_FOR_DELAY_PINGPONG};
 PLACE_SDRAM_BSS delay::Analog delayAnalogMenu{STRING_FOR_TYPE, STRING_FOR_DELAY_TYPE};
@@ -535,6 +537,7 @@ PLACE_SDRAM_BSS HorizontalMenu delayMenu{
     {
         &delayFeedbackMenu,
         &delayRegenMenu,
+        &delayToneMenu,
         &delayPingPongMenu,
         &delaySyncMenu,
         &delayRateMenu,
@@ -789,6 +792,7 @@ PLACE_SDRAM_BSS HorizontalMenu globalDelayMenu{
     {
         &globalDelayFeedbackMenu,
         &delayRegenMenu,
+        &delayToneMenu,
         &delayPingPongMenu,
         &delaySyncMenu,
         &globalDelayRateMenu,
@@ -2401,9 +2405,31 @@ PLACE_SDRAM_DATA MenuItem* paramShortcutsForSoundsSecondLayer[][kDisplayHeight] 
     {nullptr,	        nullptr,	            nullptr,	        nullptr,	        nullptr,					nullptr,	nullptr,	nullptr              },
     {&lfo3RateMenu,	    &lfo3SyncMenu,	        &lfo3TypeMenu,	    nullptr,	        nullptr,	                nullptr,	nullptr,	nullptr              },
     {&lfo4RateMenu,	    &lfo4SyncMenu,	        &lfo4TypeMenu,	    nullptr,	        nullptr,	                nullptr,	nullptr,	nullptr              },
-    {nullptr,	        nullptr,	            nullptr,	        nullptr,	        nullptr,                    nullptr,	nullptr,	nullptr              },
+    {&delayToneMenu,	nullptr,	            nullptr,	        &delayRegenMenu,	nullptr,                    nullptr,	nullptr,	nullptr              },
     {nullptr,	        nullptr,	            nullptr,	        nullptr,	        nullptr,                    nullptr,	nullptr,	nullptr              },
 };
+
+// Kits (affect entire), audio clips and song view have no second layer table. Their delay amount and rate pads get
+// delay feedback and tone one press deeper, as on sounds.
+MenuItem* globalDelaySecondLayer(MenuItem const* item) {
+	if (item == &globalDelayFeedbackMenu) {
+		return &delayRegenMenu;
+	}
+	if (item == &globalDelayRateMenu) {
+		return &delayToneMenu;
+	}
+	return nullptr;
+}
+
+MenuItem* globalDelayFirstLayer(MenuItem const* item) {
+	if (item == &delayRegenMenu) {
+		return &globalDelayFeedbackMenu;
+	}
+	if (item == &delayToneMenu) {
+		return &globalDelayRateMenu;
+	}
+	return nullptr;
+}
 
 PLACE_SDRAM_DATA MenuItem* paramShortcutsForAudioClips[kDisplayWidth][kDisplayHeight] = {
     {nullptr,                 &audioClipReverseMenu,   nullptr,                    &sample0PitchSpeedMenu,       nullptr,             &file0SelectorMenu,  &audioClipInterpolationMenu,&audioClipSampleMarkerEditorMenuEnd},

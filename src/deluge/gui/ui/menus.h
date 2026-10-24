@@ -121,6 +121,10 @@ MenuItem* tb303ShortcutAt(int32_t x, int32_t y);
 /// The shortcut pad of a 303 mode menu item, if it has one
 bool tb303ShortcutFor(MenuItem* item, int32_t* x, int32_t* y);
 extern MenuItem* paramShortcutsForSoundsSecondLayer[kDisplayWidth][kDisplayHeight];
+/// Delay feedback / tone for a kit, audio clip or song delay amount / rate pad pressed twice, or nullptr
+MenuItem* globalDelaySecondLayer(MenuItem const* item);
+/// The delay amount / rate pad item that delay feedback / tone sit under, or nullptr
+MenuItem* globalDelayFirstLayer(MenuItem const* item);
 class Sound;
 /// On drum synth sounds, some sound shortcut pads open the engine's settings instead (see menus.cpp). nullptr = the
 /// normal shortcut.

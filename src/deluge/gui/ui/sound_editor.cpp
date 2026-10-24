@@ -1073,6 +1073,17 @@ void SoundEditor::updateSourceBlinks(MenuItem* currentItem) {
 
 void SoundEditor::setupShortcutsBlinkFromTable(MenuItem const* const currentItem,
                                                MenuItem const* const items[kDisplayWidth][kDisplayHeight]) {
+	// Delay feedback / tone sit one press deeper on the delay amount / rate pads: blink that pad yellow
+	if (MenuItem const* firstLayer = globalDelayFirstLayer(currentItem)) {
+		for (auto x = 0; x < kDisplayWidth; ++x) {
+			for (auto y = 0; y < kDisplayHeight; ++y) {
+				if (items[x][y] == firstLayer) {
+					setupShortcutBlink(x, y, 0, 0b00000011 /* yellow */);
+					return;
+				}
+			}
+		}
+	}
 	for (auto x = 0; x < kDisplayWidth; ++x) {
 		for (auto y = 0; y < kDisplayHeight; ++y) {
 			if (items[x][y] == currentItem) {
@@ -1678,6 +1689,19 @@ ActionResult SoundEditor::potentialShortcutPadAction(int32_t x, int32_t y, bool 
 						}
 					}
 
+			}
+		}
+		// Kits, audio clips and song view: delay feedback / tone on the delay amount / rate pads pressed twice
+		else if (item) {
+			secondLayerShortcutsToggled =
+			    getCurrentMenuItem() != nullptr && x == currentParamShortcutX && y == currentParamShortcutY
+			        ? !secondLayerShortcutsToggled
+			        : false;
+
+			if (secondLayerShortcutsToggled) {
+				if (MenuItem* secondLayerItem = globalDelaySecondLayer(item)) {
+					item = secondLayerItem;
+				}
 			}
 		}
 

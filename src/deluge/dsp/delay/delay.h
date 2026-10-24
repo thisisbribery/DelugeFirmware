@@ -35,6 +35,8 @@ public:
 		/// Wet level: how loud the repeats come out. Same scale as delayFeedbackAmount; when the two are equal the
 		/// delay behaves exactly like the original single-knob delay.
 		int32_t delayAmount;
+		/// Filter in the loop: 0 is flat, negative lowpass, positive highpass (the delay tone param, as is)
+		int32_t tone = 0;
 		int32_t analog_saturation = 8;
 	};
 
@@ -82,6 +84,9 @@ public:
 	// HPF state for the wet output, used when it's scaled separately from the feedback
 	int32_t postLPFWetL = 0;
 	int32_t postLPFWetR = 0;
+	// One-pole state for the tone filter
+	int32_t toneL = 0;
+	int32_t toneR = 0;
 
 	int32_t prevFeedback = 0;
 
@@ -91,5 +96,6 @@ public:
 
 private:
 	void prepareToBeginWriting();
+	void applyTone(std::span<StereoSample> samples, int32_t tone);
 	[[nodiscard]] constexpr int32_t getAmountToWriteBeforeReadingBegins() const { return secondaryBuffer.size(); }
 };

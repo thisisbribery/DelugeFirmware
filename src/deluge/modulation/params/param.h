@@ -190,6 +190,9 @@ enum UnpatchedShared : ParamType {
 	UNPATCHED_COMPRESSOR_THRESHOLD,
 	/// Delay feedback, separate from the delay amount (wet level). SHIFT + the delay amount knob.
 	UNPATCHED_DELAY_FEEDBACK,
+	/// Filter in the delay's loop: centre flat, lowpass to the left, highpass to the right. SHIFT + the delay rate
+	/// knob.
+	UNPATCHED_DELAY_TONE,
 	// Arp
 	UNPATCHED_FIRST_ARP_PARAM,
 	UNPATCHED_ARP_GATE = UNPATCHED_FIRST_ARP_PARAM,
@@ -267,6 +270,7 @@ static_assert(kMaxNumUnpatchedParams < STATIC_START, "Error: Too many UNPATCHED 
 
 bool isParamBipolar(Kind kind, int32_t paramID);
 bool isParamPan(Kind kind, int32_t paramID);
+bool isParamDelayTone(Kind kind, int32_t paramID);
 bool isParamPitch(Kind kind, int32_t paramID);
 bool isParamPitchBend(Kind kind, int32_t paramID);
 bool isParamArpRhythm(Kind kind, int32_t paramID);

@@ -23,6 +23,7 @@
 #include "memory/general_memory_allocator.h"
 #include "model/sync.h"
 #include "processing/engines/audio_engine.h"
+#include <cmath>
 #include <cstdlib>
 #include <ranges>
 
@@ -223,6 +224,30 @@ void Delay::initializeSecondaryBuffer(int32_t newNativeRate, bool makeNativeRate
 	sizeLeftUntilBufferSwap = secondaryBuffer.size() + 5;
 }
 
+// DJ-style one-pole filter. From the centre out, the lowpass sweeps down from 20 kHz to 150 Hz and the highpass up
+// from 20 Hz to 5 kHz.
+void Delay::applyTone(std::span<StereoSample> samples, int32_t tone) {
+	float amount = std::abs(static_cast<float>(tone)) / 2147483648.f;
+	bool highpass = tone > 0;
+	float cutoff = highpass ? 20.f * std::pow(250.f, amount) : 20000.f * std::pow(0.0075f, amount);
+	float coefficient = 1.f - std::exp(-6.2831853f * cutoff / kSampleRate);
+	int32_t a = static_cast<int32_t>(coefficient * 2147483647.f);
+
+	for (StereoSample& sample : samples) {
+		// Halved before the difference so it can't overflow
+		toneL += multiply_32x32_rshift32((sample.l >> 1) - (toneL >> 1), a) << 2;
+		toneR += multiply_32x32_rshift32((sample.r >> 1) - (toneR >> 1), a) << 2;
+		if (highpass) {
+			sample.l -= toneL;
+			sample.r -= toneR;
+		}
+		else {
+			sample.l = toneL;
+			sample.r = toneR;
+		}
+	}
+}
+
 void Delay::process(std::span<StereoSample> buffer, const State& delayWorkingState) {
 	if (!delayWorkingState.doDelay) {
 		return;
@@ -332,6 +357,16 @@ void Delay::process(std::span<StereoSample> buffer, const State& delayWorkingSta
 		for (StereoSample& sample : working_buffer) {
 			ir_processor.process(sample, sample);
 		}
+	}
+
+	// Tone filters what's read back, before it's split into output and feedback, so each repeat goes through it
+	// again
+	if (delayWorkingState.tone != 0) {
+		applyTone(working_buffer, delayWorkingState.tone);
+	}
+	else {
+		toneL = 0;
+		toneR = 0;
 	}
 
 	auto applyLevel = [&](std::span<StereoSample> samples, int32_t level) {

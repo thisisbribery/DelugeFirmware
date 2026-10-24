@@ -2808,6 +2808,7 @@ void Sound::render(ModelStackWithThreeMainThings* modelStack, std::span<StereoSa
 	delayWorkingState.delayFeedbackAmount = getFinalParameterValueLinear(
 	    paramNeutralValues[params::GLOBAL_DELAY_FEEDBACK],
 	    cableToLinearParamShortcut(paramManager->getUnpatchedParamSet()->getValue(params::UNPATCHED_DELAY_FEEDBACK)));
+	delayWorkingState.tone = paramManager->getUnpatchedParamSet()->getValue(params::UNPATCHED_DELAY_TONE);
 	if (shouldLimitDelayFeedback) {
 		delayWorkingState.delayAmount = std::min(delayWorkingState.delayAmount, (q31_t)(1 << 30) - (1 << 26));
 		delayWorkingState.delayFeedbackAmount =
@@ -4520,6 +4521,10 @@ bool Sound::readParamTagFromFile(Deserializer& reader, char const* tagName, Para
 		                           readAutomationUpToPos);
 		reader.exitTag("delayRegen");
 	}
+	else if (!strcmp(tagName, "delayTone")) {
+		unpatchedParams->readParam(reader, unpatchedParamsSummary, params::UNPATCHED_DELAY_TONE, readAutomationUpToPos);
+		reader.exitTag("delayTone");
+	}
 	else if (!strcmp(tagName, "reverbAmount")) {
 		patchedParams->readParam(reader, patchedParamsSummary, params::GLOBAL_REVERB_AMOUNT, readAutomationUpToPos);
 		reader.exitTag("reverbAmount");
@@ -4601,6 +4606,8 @@ void Sound::writeParamsToFile(Serializer& writer, ParamManager* paramManager, bo
 	patchedParams->writeParamAsAttribute(writer, "delayFeedback", params::GLOBAL_DELAY_FEEDBACK, writeAutomation);
 	// Must come after delayFeedback (the amount), which sets it when loading older files
 	paramManager->getUnpatchedParamSet()->writeParamAsAttribute(writer, "delayRegen", params::UNPATCHED_DELAY_FEEDBACK,
+	                                                            writeAutomation);
+	paramManager->getUnpatchedParamSet()->writeParamAsAttribute(writer, "delayTone", params::UNPATCHED_DELAY_TONE,
 	                                                            writeAutomation);
 
 	patchedParams->writeParamAsAttribute(writer, "reverbAmount", params::GLOBAL_REVERB_AMOUNT, writeAutomation);
@@ -4930,14 +4937,19 @@ ModelStackWithAutoParam* Sound::getParamFromModEncoder(int32_t whichModEncoder,
 		return modelStack->addParam(nullptr, nullptr, 0, nullptr); // "none"
 	}
 
-	// SHIFT + the delay amount knob sets the delay feedback
-	if (Buttons::isShiftButtonPressed()
-	    && modKnobs[*getModKnobMode()][whichModEncoder].paramDescriptor.isSetToParamWithNoSource(
-	        params::GLOBAL_DELAY_FEEDBACK)) {
-		ParamCollectionSummary* summary = modelStack->paramManager->getUnpatchedParamSetSummary();
-		ModelStackWithParamId* newModelStack =
-		    modelStack->addParamCollectionAndId(summary->paramCollection, summary, params::UNPATCHED_DELAY_FEEDBACK);
-		return newModelStack->paramCollection->getAutoParamFromId(newModelStack, allowCreation);
+	// SHIFT + the delay amount knob sets the delay feedback, SHIFT + the delay rate knob the delay tone
+	if (Buttons::isShiftButtonPressed()) {
+		ParamDescriptor& knobParam = modKnobs[*getModKnobMode()][whichModEncoder].paramDescriptor;
+		int32_t shiftParam =
+		    knobParam.isSetToParamWithNoSource(params::GLOBAL_DELAY_FEEDBACK) ? params::UNPATCHED_DELAY_FEEDBACK
+		    : knobParam.isSetToParamWithNoSource(params::GLOBAL_DELAY_RATE)   ? params::UNPATCHED_DELAY_TONE
+		                                                                      : -1;
+		if (shiftParam >= 0) {
+			ParamCollectionSummary* summary = modelStack->paramManager->getUnpatchedParamSetSummary();
+			ModelStackWithParamId* newModelStack =
+			    modelStack->addParamCollectionAndId(summary->paramCollection, summary, shiftParam);
+			return newModelStack->paramCollection->getAutoParamFromId(newModelStack, allowCreation);
+		}
 	}
 
 	return getParamFromModEncoderDeeper(whichModEncoder, modelStack, allowCreation);

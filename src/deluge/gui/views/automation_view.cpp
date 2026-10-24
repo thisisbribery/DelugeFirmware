@@ -147,8 +147,8 @@ const uint32_t mutePadActionUIModes[] = {UI_MODE_NOTES_PRESSED, UI_MODE_AUDITION
 
 const uint32_t verticalScrollUIModes[] = {UI_MODE_NOTES_PRESSED, UI_MODE_AUDITIONING, UI_MODE_RECORD_COUNT_IN, 0};
 
-constexpr int32_t kNumNonGlobalParamsForAutomation = 86;
-constexpr int32_t kNumGlobalParamsForAutomation = 40;
+constexpr int32_t kNumNonGlobalParamsForAutomation = 87;
+constexpr int32_t kNumGlobalParamsForAutomation = 41;
 
 // synth and kit rows FX - sorted in the order that Parameters are scrolled through on the display
 const std::array<std::pair<params::Kind, ParamType>, kNumNonGlobalParamsForAutomation> nonGlobalParamsForAutomation{{
@@ -172,10 +172,11 @@ const std::array<std::pair<params::Kind, ParamType>, kNumNonGlobalParamsForAutom
     {params::Kind::UNPATCHED_SOUND, params::UNPATCHED_TREBLE_FREQ},
     // Reverb Amount
     {params::Kind::PATCHED, params::GLOBAL_REVERB_AMOUNT},
-    // Delay Rate, Amount, Feedback
+    // Delay Rate, Amount, Feedback, Tone
     {params::Kind::PATCHED, params::GLOBAL_DELAY_RATE},
     {params::Kind::PATCHED, params::GLOBAL_DELAY_FEEDBACK},
     {params::Kind::UNPATCHED_SOUND, params::UNPATCHED_DELAY_FEEDBACK},
+    {params::Kind::UNPATCHED_SOUND, params::UNPATCHED_DELAY_TONE},
     // Sidechain Shape
     {params::Kind::UNPATCHED_SOUND, params::UNPATCHED_SIDECHAIN_SHAPE},
     // Decimation, Bitcrush, Wavefolder
@@ -295,10 +296,11 @@ const std::array<std::pair<params::Kind, ParamType>, kNumGlobalParamsForAutomati
     {params::Kind::UNPATCHED_GLOBAL, params::UNPATCHED_TREBLE_FREQ},
     // Reverb Amount
     {params::Kind::UNPATCHED_GLOBAL, params::UNPATCHED_REVERB_SEND_AMOUNT},
-    // Delay Rate, Amount, Feedback
+    // Delay Rate, Amount, Feedback, Tone
     {params::Kind::UNPATCHED_GLOBAL, params::UNPATCHED_DELAY_RATE},
     {params::Kind::UNPATCHED_GLOBAL, params::UNPATCHED_DELAY_AMOUNT},
     {params::Kind::UNPATCHED_GLOBAL, params::UNPATCHED_DELAY_FEEDBACK},
+    {params::Kind::UNPATCHED_GLOBAL, params::UNPATCHED_DELAY_TONE},
     // Sidechain Send, Shape
     {params::Kind::UNPATCHED_GLOBAL, params::UNPATCHED_SIDECHAIN_VOLUME},
     {params::Kind::UNPATCHED_GLOBAL, params::UNPATCHED_SIDECHAIN_SHAPE},

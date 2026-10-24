@@ -710,9 +710,14 @@ ModelStackWithAutoParam* GlobalEffectable::getParamFromModEncoder(int32_t whichM
 
 	paramId = getParameterFromKnob(whichModEncoder);
 
-	// SHIFT + the delay amount knob sets the delay feedback
-	if (paramId == params::UNPATCHED_DELAY_AMOUNT && Buttons::isShiftButtonPressed()) {
-		paramId = params::UNPATCHED_DELAY_FEEDBACK;
+	// SHIFT + the delay amount knob sets the delay feedback, SHIFT + the delay rate knob the delay tone
+	if (Buttons::isShiftButtonPressed()) {
+		if (paramId == params::UNPATCHED_DELAY_AMOUNT) {
+			paramId = params::UNPATCHED_DELAY_FEEDBACK;
+		}
+		else if (paramId == params::UNPATCHED_DELAY_RATE) {
+			paramId = params::UNPATCHED_DELAY_TONE;
+		}
 	}
 
 	ModelStackWithParamId* newModelStack1 = modelStack->addParamCollectionAndId(paramCollection, summary, paramId);
@@ -870,6 +875,8 @@ void GlobalEffectable::writeParamTagsToFile(Serializer& writer, ParamManager* pa
 	// Must come after "feedback" (the amount), which sets it when loading older files
 	unpatchedParams->writeParamAsAttribute(writer, "regen", params::UNPATCHED_DELAY_FEEDBACK, writeAutomation, false,
 	                                       valuesForOverride);
+	unpatchedParams->writeParamAsAttribute(writer, "tone", params::UNPATCHED_DELAY_TONE, writeAutomation, false,
+	                                       valuesForOverride);
 	writer.closeTag();
 
 	writer.writeOpeningTagBeginning("lpf");
@@ -926,6 +933,11 @@ bool GlobalEffectable::readParamTagFromFile(Deserializer& reader, char const* ta
 				unpatchedParams->readParam(reader, unpatchedParamsSummary, params::UNPATCHED_DELAY_FEEDBACK,
 				                           readAutomationUpToPos);
 				reader.exitTag("regen");
+			}
+			else if (!strcmp(tagName, "tone")) {
+				unpatchedParams->readParam(reader, unpatchedParamsSummary, params::UNPATCHED_DELAY_TONE,
+				                           readAutomationUpToPos);
+				reader.exitTag("tone");
 			}
 		}
 		reader.exitTag("delay", true);
@@ -1147,6 +1159,7 @@ Delay::State GlobalEffectable::createDelayWorkingState(ParamManager& paramManage
 	delayWorkingState.delayFeedbackAmount = getFinalParameterValueLinear(
 	    paramNeutralValues[params::GLOBAL_DELAY_FEEDBACK],
 	    cableToLinearParamShortcut(unpatchedParams->getValue(params::UNPATCHED_DELAY_FEEDBACK)));
+	delayWorkingState.tone = unpatchedParams->getValue(params::UNPATCHED_DELAY_TONE);
 	if (shouldLimitDelayFeedback) {
 		delayWorkingState.delayAmount = std::min(delayWorkingState.delayAmount, (int32_t)(1 << 30) - (1 << 26));
 		delayWorkingState.delayFeedbackAmount =

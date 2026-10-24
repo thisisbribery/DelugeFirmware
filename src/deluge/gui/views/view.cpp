@@ -1234,12 +1234,26 @@ void View::displayModEncoderValuePopup(params::Kind kind, int32_t paramID, int32
 	}
 	else {
 		current_display_value = calculateKnobPosForDisplay(kind, paramID, newKnobPos + kKnobPosOffset);
-		// 7SEG has no room for a name: mark SHIFT + delay amount (delay feedback) with an F
-		if (!display->haveOLED() && (kind == params::Kind::UNPATCHED_SOUND || kind == params::Kind::UNPATCHED_GLOBAL)
-		    && paramID == params::UNPATCHED_DELAY_FEEDBACK) {
+		// 7SEG has no room for a name: mark delay feedback (SHIFT + delay amount) with an F, and show delay tone
+		// (SHIFT + delay rate) as L (lowpass) or H (highpass)
+		bool sevenSegUnpatched =
+		    !display->haveOLED() && (kind == params::Kind::UNPATCHED_SOUND || kind == params::Kind::UNPATCHED_GLOBAL);
+		if (sevenSegUnpatched && paramID == params::UNPATCHED_DELAY_FEEDBACK) {
 			parameter_value.append("F");
+			parameter_value.appendInt(current_display_value);
 		}
-		parameter_value.appendInt(current_display_value);
+		else if (sevenSegUnpatched && paramID == params::UNPATCHED_DELAY_TONE) {
+			if (current_display_value == 0) {
+				parameter_value.append("FLAT");
+			}
+			else {
+				parameter_value.append(current_display_value < 0 ? "L" : "H");
+				parameter_value.appendInt(std::abs(current_display_value));
+			}
+		}
+		else {
+			parameter_value.appendInt(current_display_value);
+		}
 	}
 
 	// Check if we need to update the notification (avoid excessive updates)
@@ -1366,7 +1380,7 @@ int32_t View::calculateKnobPosForDisplay(params::Kind kind, int32_t paramID, int
 	valueForDisplayFloat = (knobPosFloat / maxKnobPosFloat) * maxMenuValueFloat;
 
 	// check if parameter is pan or pitch, in which case, further adjust range from 0 - 50 to -25 to +25
-	if (isParamPan(kind, paramID) || isParamPitch(kind, paramID)) {
+	if (isParamPan(kind, paramID) || isParamPitch(kind, paramID) || isParamDelayTone(kind, paramID)) {
 		valueForDisplayFloat = valueForDisplayFloat - maxMenuRelativeValueFloat;
 	}
 

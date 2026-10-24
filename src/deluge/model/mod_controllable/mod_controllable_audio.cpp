@@ -137,6 +137,7 @@ void ModControllableAudio::initParams(ParamManager* paramManager) {
 
 	// Half gain (13 of 50): a few repeats. 25 is unity, endless repeats.
 	unpatchedParams->params[params::UNPATCHED_DELAY_FEEDBACK].setCurrentValueBasicForSetup(-1073741824);
+	unpatchedParams->params[params::UNPATCHED_DELAY_TONE].setCurrentValueBasicForSetup(0); // Flat
 }
 
 void ModControllableAudio::setDelayFeedbackFromOldAmount(ParamManager* paramManager, int32_t amount) {
