@@ -872,6 +872,33 @@ PLACE_SDRAM_BSS Submenu globalFXMenu{
     },
 };
 
+// Kits render saturation on the whole kit, the song doesn't, so kits get their own distortion menu
+PLACE_SDRAM_BSS HorizontalMenu kitDistortionMenu{
+    STRING_FOR_DISTORTION,
+    {
+        &clippingMenu,
+        &saturationTypeMenu,
+        &saturationToneMenu,
+        &saturationLowCutMenu,
+        &saturationBiasMenu,
+        &saturationMixMenu,
+        &srrMenu,
+        &bitcrushMenu,
+    },
+};
+
+PLACE_SDRAM_BSS Submenu kitFXMenu{
+    STRING_FOR_FX,
+    {
+        &globalEQMenu,
+        &globalDelayMenu,
+        &globalReverbMenu,
+        &stutterMenu,
+        &globalModFXMenu,
+        &kitDistortionMenu,
+    },
+};
+
 // Sidechain menu
 PLACE_SDRAM_BSS sidechain::GlobalVolume globalSidechainVolumeMenu{STRING_FOR_VOLUME_DUCKING,
                                                                   params::UNPATCHED_SIDECHAIN_VOLUME};
@@ -2232,7 +2259,7 @@ PLACE_SDRAM_BSS menu_item::Submenu soundEditorRootMenuKitGlobalFX{
         &kitArpMenu,
         &audioCompMenu,
         &globalFiltersMenu,
-        &globalFXMenu,
+        &kitFXMenu,
         &globalSidechainMenu,
     },
 };
@@ -2346,7 +2373,7 @@ PLACE_SDRAM_DATA MenuItem* paramShortcutsForKitGlobalFX[][kDisplayHeight] = {
     {nullptr,                 nullptr,                 nullptr,                        nullptr,                        nullptr,                     nullptr,                nullptr,                  nullptr                            },
     {nullptr,                 nullptr,                 nullptr,                        nullptr,                        nullptr,                     nullptr,                nullptr,                  nullptr                            },
     {nullptr,                 nullptr,                 nullptr,                        nullptr,                        nullptr,                     nullptr,                nullptr,                  nullptr             				 },
-    {&globalLevelMenu,        &globalPitchMenu,        nullptr,                        &globalPanMenu,                 nullptr,                     &srrMenu,               &bitcrushMenu,            nullptr                            },
+    {&globalLevelMenu,        &globalPitchMenu,        nullptr,                        &globalPanMenu,                 nullptr,                     &srrMenu,               &bitcrushMenu,            &clippingMenu                      },
     {nullptr,              	 nullptr,                 nullptr,                        nullptr,                        nullptr,                     &threshold,             nullptr,                  nullptr                            },
     {nullptr,                 nullptr,                 nullptr,                        nullptr,                        &globalLPFMorphMenu,         &lpfModeMenu,           &globalLPFResMenu,        &globalLPFFreqMenu                 },
     {nullptr,                 nullptr,                 nullptr,                        nullptr,                        &globalHPFMorphMenu,         &hpfModeMenu,           &globalHPFResMenu,        &globalHPFFreqMenu                 },
@@ -2370,7 +2397,7 @@ PLACE_SDRAM_BSS deluge::vector<HorizontalMenu*> horizontalMenusChainForSound = {
 PLACE_SDRAM_BSS deluge::vector<HorizontalMenu*> horizontalMenusChainForKit = {
 	&kitClipMasterMenu,
 	&globalFiltersMenuGroup, &globalEQMenu, &globalModFXMenu,
-	&globalReverbMenuGroup, &globalDelayMenu, &globalDistortionMenu,
+	&globalReverbMenuGroup, &globalDelayMenu, &kitDistortionMenu,
 	&globalSidechainMenu, &audioCompMenu, &stutterMenu,
 	&arpMenuGroupKit, &randomizerMenu
 };
