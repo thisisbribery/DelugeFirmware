@@ -402,6 +402,9 @@ private:
 	deluge::fast_vector<ActiveVoice> voices_;
 
 	std::unique_ptr<deluge::dsp::tb303::Open303> tb303_;
+	// The 303's saturation state, as each voice keeps its own
+	deluge::dsp::Saturator::Channel tb303Saturation_{};
+	uint32_t tb303ClassicSaturation_ = 2147483648u;
 	void renderTb303(ParamManagerForTimeline* paramManager, std::span<q31_t> buffer);
 
 	/// @brief Acquire a voice for use by a note

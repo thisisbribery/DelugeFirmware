@@ -3444,6 +3444,19 @@ void Sound::renderTb303(ParamManagerForTimeline* paramManager, std::span<q31_t> 
 	tb303_->setControls(controls);
 	tb303_->setPitchOffset((float)transpose + (float)cents * 0.01f);
 	tb303_->render(buffer, kOutputGain);
+
+	// The sound's saturation, at the same point and level the voices get it
+	if (saturation.drive) {
+		if (saturation.type != deluge::dsp::SaturationType::CLASSIC) {
+			getSaturator(deluge::dsp::Saturator::kVoiceUnit).process(buffer.data(), buffer.size(), tb303Saturation_);
+		}
+		else {
+			int32_t shiftAmount = getShiftAmountForSaturation();
+			for (q31_t& sample : buffer) {
+				saturate(&sample, &tb303ClassicSaturation_, shiftAmount);
+			}
+		}
+	}
 }
 
 void Sound::setModulatorTranspose(int32_t m, int32_t value, ModelStackWithSoundFlags* modelStack) {
