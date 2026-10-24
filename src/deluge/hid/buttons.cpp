@@ -176,6 +176,14 @@ ActionResult buttonAction(deluge::hid::Button b, bool on, bool inCardRoutine) {
 	// Shift button
 	else if (b == SHIFT) {
 		commandToggleShift(on);
+		// SHIFT turns the delay amount knob into delay feedback: show that level on the knob LEDs
+		ModControllable* modControllable = view.activeModControllableModelStack.modControllable;
+		if (modControllable) {
+			uint8_t* modKnobMode = modControllable->getModKnobMode();
+			if (modKnobMode && *modKnobMode == 3) {
+				view.setKnobIndicatorLevels();
+			}
+		}
 		// The swing popup stays up while SHIFT is held
 		if (!on && display->hasPopupOfType(PopupType::SWING)) {
 			display->cancelPopup();

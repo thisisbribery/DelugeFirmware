@@ -95,7 +95,8 @@ void Delay::setupWorkingState(Delay::State& workingState, uint32_t timePerIntern
 	// Set some stuff up that we need before we make some decisions
 	// BUG: we want to be able to reduce the 256 to 1, but for some reason, the
 	// patching engine spits out 112 even when this should be 0...
-	bool mightDoDelay = (workingState.delayFeedbackAmount >= 256 && (anySoundComingIn || repeatsUntilAbandon));
+	// The wet level decides whether anything is heard; with zero feedback there's still one repeat
+	bool mightDoDelay = (workingState.delayAmount >= 256 && (anySoundComingIn || repeatsUntilAbandon));
 
 	if (mightDoDelay) {
 
@@ -328,49 +329,68 @@ void Delay::process(std::span<StereoSample> buffer, const State& delayWorkingSta
 	}
 
 	if (analog) {
-
 		for (StereoSample& sample : working_buffer) {
 			ir_processor.process(sample, sample);
 		}
-
-		for (StereoSample& sample : working_buffer) {
-			// impulseResponseProcessor.process(sample, sample);
-
-			// Reduce headroom, since this sounds ok with analog sim
-			sample.l = getTanHUnknown(multiply_32x32_rshift32(sample.l, delayWorkingState.delayFeedbackAmount),
-			                          delayWorkingState.analog_saturation)
-			           << 2;
-			sample.r = getTanHUnknown(multiply_32x32_rshift32(sample.r, delayWorkingState.delayFeedbackAmount),
-			                          delayWorkingState.analog_saturation)
-			           << 2;
-		}
 	}
 
-	else {
-		for (StereoSample& sample : working_buffer) {
-			// Leave more headroom, because making it clip sounds bad with pure digital
-			sample.l = signed_saturate<32 - 3>(multiply_32x32_rshift32(sample.l, delayWorkingState.delayFeedbackAmount))
-			           << 2;
-			sample.r = signed_saturate<32 - 3>(multiply_32x32_rshift32(sample.r, delayWorkingState.delayFeedbackAmount))
-			           << 2;
+	auto applyLevel = [&](std::span<StereoSample> samples, int32_t level) {
+		if (analog) {
+			for (StereoSample& sample : samples) {
+				// Reduce headroom, since this sounds ok with analog sim
+				sample.l = getTanHUnknown(multiply_32x32_rshift32(sample.l, level), delayWorkingState.analog_saturation)
+				           << 2;
+				sample.r = getTanHUnknown(multiply_32x32_rshift32(sample.r, level), delayWorkingState.analog_saturation)
+				           << 2;
+			}
 		}
-	}
+		else {
+			for (StereoSample& sample : samples) {
+				// Leave more headroom, because making it clip sounds bad with pure digital
+				sample.l = signed_saturate<32 - 3>(multiply_32x32_rshift32(sample.l, level)) << 2;
+				sample.r = signed_saturate<32 - 3>(multiply_32x32_rshift32(sample.r, level)) << 2;
+			}
+		}
+	};
 
 	// HPF on delay output, to stop it "farting out". Corner frequency is somewhere around 40Hz after many
 	// repetitions
-	for (StereoSample& sample : working_buffer) {
-		int32_t distanceToGoL = sample.l - postLPFL;
-		postLPFL += distanceToGoL >> 11;
-		sample.l -= postLPFL;
+	auto applyHPF = [](std::span<StereoSample> samples, int32_t& stateL, int32_t& stateR) {
+		for (StereoSample& sample : samples) {
+			int32_t distanceToGoL = sample.l - stateL;
+			stateL += distanceToGoL >> 11;
+			sample.l -= stateL;
 
-		int32_t distanceToGoR = sample.r - postLPFR;
-		postLPFR += distanceToGoR >> 11;
-		sample.r -= postLPFR;
+			int32_t distanceToGoR = sample.r - stateR;
+			stateR += distanceToGoR >> 11;
+			sample.r -= stateR;
+		}
+	};
+
+	// When the wet level differs from the feedback, scale a copy of what was read for the output. Otherwise the
+	// feedback signal is the output too, as in the original delay.
+	bool separateWet = delayWorkingState.delayAmount != delayWorkingState.delayFeedbackAmount;
+	std::span<StereoSample> wet_buffer{reinterpret_cast<StereoSample*>(spareRenderingBuffer[2]), buffer.size()};
+	if (separateWet) {
+		std::copy(working_buffer.begin(), working_buffer.end(), wet_buffer.begin());
+		applyLevel(wet_buffer, delayWorkingState.delayAmount);
+		applyHPF(wet_buffer, postLPFWetL, postLPFWetR);
+	}
+
+	applyLevel(working_buffer, delayWorkingState.delayFeedbackAmount);
+	applyHPF(working_buffer, postLPFL, postLPFR);
+
+	if (!separateWet) {
+		// Keep the wet HPF in step so splitting the two later doesn't click
+		postLPFWetL = postLPFL;
+		postLPFWetR = postLPFR;
 	}
 
 	// Go through what we grabbed, sending it to the audio output buffer, and also preparing it to be fed back
 	// into the delay
-	for (auto [input, output] : std::views::zip(working_buffer, buffer)) {
+	for (size_t i = 0; i < buffer.size(); i++) {
+		StereoSample& input = working_buffer[i];
+		StereoSample& output = buffer[i];
 		StereoSample current = input;
 
 		// Feedback calculation, and combination with input
@@ -383,7 +403,7 @@ void Delay::process(std::span<StereoSample> buffer, const State& delayWorkingSta
 		}
 
 		// Output
-		output += current;
+		output += separateWet ? wet_buffer[i] : current;
 	}
 
 	// And actually feedback being applied back into the actual delay primary buffer...

@@ -710,6 +710,11 @@ ModelStackWithAutoParam* GlobalEffectable::getParamFromModEncoder(int32_t whichM
 
 	paramId = getParameterFromKnob(whichModEncoder);
 
+	// SHIFT + the delay amount knob sets the delay feedback
+	if (paramId == params::UNPATCHED_DELAY_AMOUNT && Buttons::isShiftButtonPressed()) {
+		paramId = params::UNPATCHED_DELAY_FEEDBACK;
+	}
+
 	ModelStackWithParamId* newModelStack1 = modelStack->addParamCollectionAndId(paramCollection, summary, paramId);
 
 	if (paramId == 255) {
@@ -862,6 +867,9 @@ void GlobalEffectable::writeParamTagsToFile(Serializer& writer, ParamManager* pa
 	                                       valuesForOverride);
 	unpatchedParams->writeParamAsAttribute(writer, "feedback", params::UNPATCHED_DELAY_AMOUNT, writeAutomation, false,
 	                                       valuesForOverride);
+	// Must come after "feedback" (the amount), which sets it when loading older files
+	unpatchedParams->writeParamAsAttribute(writer, "regen", params::UNPATCHED_DELAY_FEEDBACK, writeAutomation, false,
+	                                       valuesForOverride);
 	writer.closeTag();
 
 	writer.writeOpeningTagBeginning("lpf");
@@ -908,9 +916,16 @@ bool GlobalEffectable::readParamTagFromFile(Deserializer& reader, char const* ta
 				reader.exitTag("rate");
 			}
 			else if (!strcmp(tagName, "feedback")) {
+				// The delay amount; older firmware called it feedback
 				unpatchedParams->readParam(reader, unpatchedParamsSummary, params::UNPATCHED_DELAY_AMOUNT,
 				                           readAutomationUpToPos);
+				setDelayFeedbackFromOldAmount(paramManager, unpatchedParams->getValue(params::UNPATCHED_DELAY_AMOUNT));
 				reader.exitTag("feedback");
+			}
+			else if (!strcmp(tagName, "regen")) {
+				unpatchedParams->readParam(reader, unpatchedParamsSummary, params::UNPATCHED_DELAY_FEEDBACK,
+				                           readAutomationUpToPos);
+				reader.exitTag("regen");
 			}
 		}
 		reader.exitTag("delay", true);
@@ -1126,10 +1141,14 @@ Delay::State GlobalEffectable::createDelayWorkingState(ParamManager& paramManage
 	Delay::State delayWorkingState;
 	UnpatchedParamSet* unpatchedParams = paramManager.getUnpatchedParamSet();
 
-	delayWorkingState.delayFeedbackAmount = getFinalParameterValueLinear(
+	delayWorkingState.delayAmount = getFinalParameterValueLinear(
 	    paramNeutralValues[params::GLOBAL_DELAY_FEEDBACK],
 	    cableToLinearParamShortcut(unpatchedParams->getValue(params::UNPATCHED_DELAY_AMOUNT)));
+	delayWorkingState.delayFeedbackAmount = getFinalParameterValueLinear(
+	    paramNeutralValues[params::GLOBAL_DELAY_FEEDBACK],
+	    cableToLinearParamShortcut(unpatchedParams->getValue(params::UNPATCHED_DELAY_FEEDBACK)));
 	if (shouldLimitDelayFeedback) {
+		delayWorkingState.delayAmount = std::min(delayWorkingState.delayAmount, (int32_t)(1 << 30) - (1 << 26));
 		delayWorkingState.delayFeedbackAmount =
 		    std::min(delayWorkingState.delayFeedbackAmount, (int32_t)(1 << 30) - (1 << 26));
 	}

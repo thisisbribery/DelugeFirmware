@@ -134,6 +134,16 @@ void ModControllableAudio::initParams(ParamManager* paramManager) {
 
 	unpatchedParams->params[params::UNPATCHED_SIDECHAIN_SHAPE].setCurrentValueBasicForSetup(-601295438);
 	unpatchedParams->params[params::UNPATCHED_COMPRESSOR_THRESHOLD].setCurrentValueBasicForSetup(0);
+
+	// Half gain (13 of 50): a few repeats. 25 is unity, endless repeats.
+	unpatchedParams->params[params::UNPATCHED_DELAY_FEEDBACK].setCurrentValueBasicForSetup(-1073741824);
+}
+
+void ModControllableAudio::setDelayFeedbackFromOldAmount(ParamManager* paramManager, int32_t amount) {
+	if (amount != -2147483648) {
+		paramManager->getUnpatchedParamSet()->params[params::UNPATCHED_DELAY_FEEDBACK].setCurrentValueBasicForSetup(
+		    amount);
+	}
 }
 
 bool ModControllableAudio::hasBassAdjusted(ParamManager* paramManager) {
@@ -821,6 +831,7 @@ doReadPatchedParam:
 					PatchedParamSet* patchedParams = (PatchedParamSet*)patchedParamsSummary->paramCollection;
 					patchedParams->readParam(reader, patchedParamsSummary, params::GLOBAL_DELAY_FEEDBACK,
 					                         readAutomationUpToPos);
+					setDelayFeedbackFromOldAmount(paramManager, patchedParams->getValue(params::GLOBAL_DELAY_FEEDBACK));
 				}
 				reader.exitTag();
 			}

@@ -67,6 +67,9 @@ public:
 	static bool readParamTagFromFile(Deserializer& reader, char const* tagName, ParamManagerForTimeline* paramManager,
 	                                 int32_t readAutomationUpToPos);
 	static void initParams(ParamManager* paramManager);
+	/// Files from before the separate delay feedback: a delay that was in use gets feedback = its amount, so it
+	/// sounds as it did. Call straight after reading the amount; a saved feedback is read after it and wins.
+	static void setDelayFeedbackFromOldAmount(ParamManager* paramManager, int32_t amount);
 	virtual void wontBeRenderedForAWhile();
 	void beginStutter(ParamManagerForTimeline* paramManager);
 	void endStutter(ParamManagerForTimeline* paramManager);

@@ -19,7 +19,7 @@
 #include "gui/menu_item/integer.h"
 
 namespace deluge::gui::menu_item::delay {
-class Amount_Unpatched final : public UnpatchedParam {
+class Amount_Unpatched : public UnpatchedParam {
 public:
 	using UnpatchedParam::UnpatchedParam;
 

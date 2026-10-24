@@ -30,7 +30,11 @@ public:
 	struct State {
 		bool doDelay;
 		int32_t userDelayRate;
+		/// How much of each repeat is fed back into the buffer
 		int32_t delayFeedbackAmount;
+		/// Wet level: how loud the repeats come out. Same scale as delayFeedbackAmount; when the two are equal the
+		/// delay behaves exactly like the original single-knob delay.
+		int32_t delayAmount;
 		int32_t analog_saturation = 8;
 	};
 
@@ -75,6 +79,9 @@ public:
 
 	int32_t postLPFL;
 	int32_t postLPFR;
+	// HPF state for the wet output, used when it's scaled separately from the feedback
+	int32_t postLPFWetL = 0;
+	int32_t postLPFWetR = 0;
 
 	int32_t prevFeedback = 0;
 

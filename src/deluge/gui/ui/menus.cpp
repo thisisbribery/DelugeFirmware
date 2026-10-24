@@ -62,6 +62,7 @@
 #include "gui/menu_item/delay/amount.h"
 #include "gui/menu_item/delay/amount_unpatched.h"
 #include "gui/menu_item/delay/analog.h"
+#include "gui/menu_item/delay/feedback.h"
 #include "gui/menu_item/delay/ping_pong.h"
 #include "gui/menu_item/delay/sync.h"
 #include "gui/menu_item/drum_synth/editor.h"
@@ -521,6 +522,9 @@ PLACE_SDRAM_BSS eq::EqMenu eqMenu{
 // Delay ---------------------------------------------------------------------------------
 PLACE_SDRAM_BSS delay::Amount delayFeedbackMenu{STRING_FOR_AMOUNT, STRING_FOR_DELAY_AMOUNT,
                                                 params::GLOBAL_DELAY_FEEDBACK};
+// The real feedback (delayFeedbackMenu above is the amount). Shared by sounds and global effectables.
+PLACE_SDRAM_BSS delay::Feedback delayRegenMenu{STRING_FOR_FEEDBACK, STRING_FOR_DELAY_FEEDBACK,
+                                               params::UNPATCHED_DELAY_FEEDBACK};
 PLACE_SDRAM_BSS patched_param::Integer delayRateMenu{STRING_FOR_RATE, STRING_FOR_DELAY_RATE, params::GLOBAL_DELAY_RATE};
 PLACE_SDRAM_BSS delay::PingPong delayPingPongMenu{STRING_FOR_PINGPONG, STRING_FOR_DELAY_PINGPONG};
 PLACE_SDRAM_BSS delay::Analog delayAnalogMenu{STRING_FOR_TYPE, STRING_FOR_DELAY_TYPE};
@@ -530,6 +534,7 @@ PLACE_SDRAM_BSS HorizontalMenu delayMenu{
     STRING_FOR_DELAY,
     {
         &delayFeedbackMenu,
+        &delayRegenMenu,
         &delayPingPongMenu,
         &delaySyncMenu,
         &delayRateMenu,
@@ -783,6 +788,7 @@ PLACE_SDRAM_BSS HorizontalMenu globalDelayMenu{
     STRING_FOR_DELAY,
     {
         &globalDelayFeedbackMenu,
+        &delayRegenMenu,
         &delayPingPongMenu,
         &delaySyncMenu,
         &globalDelayRateMenu,

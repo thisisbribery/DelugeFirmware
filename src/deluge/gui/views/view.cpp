@@ -1234,6 +1234,11 @@ void View::displayModEncoderValuePopup(params::Kind kind, int32_t paramID, int32
 	}
 	else {
 		current_display_value = calculateKnobPosForDisplay(kind, paramID, newKnobPos + kKnobPosOffset);
+		// 7SEG has no room for a name: mark SHIFT + delay amount (delay feedback) with an F
+		if (!display->haveOLED() && (kind == params::Kind::UNPATCHED_SOUND || kind == params::Kind::UNPATCHED_GLOBAL)
+		    && paramID == params::UNPATCHED_DELAY_FEEDBACK) {
+			parameter_value.append("F");
+		}
 		parameter_value.appendInt(current_display_value);
 	}
 
