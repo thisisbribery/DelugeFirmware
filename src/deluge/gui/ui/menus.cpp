@@ -1482,33 +1482,39 @@ PLACE_SDRAM_BSS menu_item::Submenu dxMenu{STRING_FOR_DX_1, dxMenuItems};
 
 // Drum synth (osc 1 only)
 using DrumParam = deluge::dsp::drum_synth::Patch;
+PLACE_SDRAM_BSS drum_synth::EngineSelect drumEngineMenu{STRING_FOR_DRUM_ENGINE};
+PLACE_SDRAM_BSS drum_synth::PresetSelect drumPresetMenu{STRING_FOR_DRUM_PRESET};
 PLACE_SDRAM_BSS drum_synth::Wave drumOscWaveMenu{STRING_FOR_DRUM_OSC_WAVE, DrumParam::OSC_WAVE};
+PLACE_SDRAM_BSS drum_synth::Value drumPitchAmountMenu{STRING_FOR_DRUM_PITCH_AMOUNT, DrumParam::PITCH_AMOUNT};
+PLACE_SDRAM_BSS drum_synth::Value drumPitchDecayMenu{STRING_FOR_DRUM_PITCH_DECAY, DrumParam::PITCH_DECAY};
+PLACE_SDRAM_BSS drum_synth::Value drumPitchSlopeMenu{STRING_FOR_DRUM_PITCH_SLOPE, DrumParam::PITCH_SLOPE};
+PLACE_SDRAM_BSS drum_synth::MixMode drumMixModeMenu{STRING_FOR_DRUM_MIX_MODE};
+PLACE_SDRAM_BSS drum_synth::Value drumFmAmountMenu{STRING_FOR_DRUM_FM_AMOUNT, DrumParam::FM_AMOUNT};
 PLACE_SDRAM_BSS drum_synth::Wave drumModWaveMenu{STRING_FOR_DRUM_MOD_WAVE, DrumParam::MOD_WAVE};
 PLACE_SDRAM_BSS drum_synth::Value drumModCoarseMenu{STRING_FOR_DRUM_MOD_COARSE, DrumParam::MOD_COARSE};
 PLACE_SDRAM_BSS drum_synth::Value drumModFineMenu{STRING_FOR_DRUM_MOD_FINE, DrumParam::MOD_FINE};
-PLACE_SDRAM_BSS drum_synth::Value drumFmAmountMenu{STRING_FOR_DRUM_FM_AMOUNT, DrumParam::FM_AMOUNT};
-PLACE_SDRAM_BSS drum_synth::MixMode drumMixModeMenu{STRING_FOR_DRUM_MIX_MODE};
-PLACE_SDRAM_BSS drum_synth::Value drumPitchDecayMenu{STRING_FOR_DRUM_PITCH_DECAY, DrumParam::PITCH_DECAY};
-PLACE_SDRAM_BSS drum_synth::Value drumPitchSlopeMenu{STRING_FOR_DRUM_PITCH_SLOPE, DrumParam::PITCH_SLOPE};
-PLACE_SDRAM_BSS drum_synth::Value drumPitchAmountMenu{STRING_FOR_DRUM_PITCH_AMOUNT, DrumParam::PITCH_AMOUNT};
-PLACE_SDRAM_BSS drum_synth::Value drumTransientMenu{STRING_FOR_DRUM_TRANSIENT, DrumParam::TRANS_MODE};
+PLACE_SDRAM_BSS drum_synth::Value drumFm2AmountMenu{STRING_FOR_DRUM_FM2_AMOUNT, DrumParam::FM2_AMOUNT};
+PLACE_SDRAM_BSS drum_synth::Wave drumMod2WaveMenu{STRING_FOR_DRUM_MOD2_WAVE, DrumParam::MOD2_WAVE};
+PLACE_SDRAM_BSS drum_synth::Value drumMod2CoarseMenu{STRING_FOR_DRUM_MOD2_COARSE, DrumParam::MOD2_COARSE};
+PLACE_SDRAM_BSS drum_synth::Value drumMod2FineMenu{STRING_FOR_DRUM_MOD2_FINE, DrumParam::MOD2_FINE};
+PLACE_SDRAM_BSS drum_synth::Value drumNoiseMixMenu{STRING_FOR_DRUM_NOISE_MIX, DrumParam::NOISE_MIX};
+PLACE_SDRAM_BSS drum_synth::Value drumNoisePitchMenu{STRING_FOR_DRUM_NOISE_PITCH, DrumParam::NOISE_PITCH};
+PLACE_SDRAM_BSS drum_synth::NoiseFilterType drumNoiseFilterMenu{STRING_FOR_DRUM_NOISE_FILTER};
+PLACE_SDRAM_BSS drum_synth::Value drumNoiseCutoffMenu{STRING_FOR_DRUM_NOISE_CUTOFF, DrumParam::NOISE_CUTOFF};
+PLACE_SDRAM_BSS drum_synth::Value drumNoiseResonanceMenu{STRING_FOR_DRUM_NOISE_RESONANCE, DrumParam::NOISE_RESONANCE};
+PLACE_SDRAM_BSS drum_synth::TransientMode drumTransientMenu{STRING_FOR_DRUM_TRANSIENT};
 PLACE_SDRAM_BSS drum_synth::Value drumTransientVolumeMenu{STRING_FOR_DRUM_TRANSIENT_VOLUME, DrumParam::TRANS_VOLUME};
 PLACE_SDRAM_BSS drum_synth::Value drumTransientPitchMenu{STRING_FOR_DRUM_TRANSIENT_PITCH, DrumParam::TRANS_PITCH};
+// Items the current engine doesn't use hide themselves
 PLACE_SDRAM_BSS menu_item::Submenu drumSynthMenu{
     STRING_FOR_DRUM_SYNTH,
     {
-        &drumOscWaveMenu,
-        &drumPitchAmountMenu,
-        &drumPitchDecayMenu,
-        &drumPitchSlopeMenu,
-        &drumMixModeMenu,
-        &drumFmAmountMenu,
-        &drumModWaveMenu,
-        &drumModCoarseMenu,
-        &drumModFineMenu,
-        &drumTransientMenu,
-        &drumTransientVolumeMenu,
-        &drumTransientPitchMenu,
+        &drumEngineMenu,     &drumPresetMenu,          &drumOscWaveMenu,        &drumPitchAmountMenu,
+        &drumPitchDecayMenu, &drumPitchSlopeMenu,      &drumMixModeMenu,        &drumFmAmountMenu,
+        &drumModWaveMenu,    &drumModCoarseMenu,       &drumModFineMenu,        &drumFm2AmountMenu,
+        &drumMod2WaveMenu,   &drumMod2CoarseMenu,      &drumMod2FineMenu,       &drumNoiseMixMenu,
+        &drumNoisePitchMenu, &drumNoiseFilterMenu,     &drumNoiseCutoffMenu,    &drumNoiseResonanceMenu,
+        &drumTransientMenu,  &drumTransientVolumeMenu, &drumTransientPitchMenu,
     },
 };
 

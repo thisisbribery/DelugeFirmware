@@ -227,29 +227,45 @@ void Sound::setupAsSample(ParamManagerForTimeline* paramManager) {
 void Sound::setupAsDrumSynth(ParamManagerForTimeline* paramManager, deluge::dsp::drum_synth::Preset preset) {
 	using deluge::dsp::drum_synth::Preset;
 
-	polyphonic = PolyphonyMode::AUTO;
+	struct RowSetup {
+		int16_t transpose; ///< Kit rows play at middle C, so drop or raise each drum to its usual range
+		int8_t decay;      ///< Amp envelope decay, as a user value
+		int8_t hpf;        ///< High pass cutoff as a user value, -1 = off
+		bool choke;        ///< Hats choke each other
+	};
+	RowSetup row;
+	switch (preset) {
+	case Preset::KICK:
+		row = {-29, 27, -1, false}; // G1, about 49 Hz
+		break;
+	case Preset::SNARE:
+		row = {-6, 21, -1, false}; // F#3, about 185 Hz
+		break;
+	case Preset::CLOSED_HAT:
+		row = {13, 9, 30, true}; // C#5, about 554 Hz
+		break;
+	case Preset::OPEN_HAT:
+		row = {13, 23, 30, true};
+		break;
+	case Preset::LOW_TOM:
+		row = {-17, 24, -1, false}; // G2
+		break;
+	case Preset::HIGH_TOM:
+		row = {-10, 22, -1, false}; // D3
+		break;
+	case Preset::CYMBAL:
+	default:
+		row = {8, 33, 26, false}; // G#4
+		break;
+	}
+
+	polyphonic = row.choke ? PolyphonyMode::CHOKE : PolyphonyMode::AUTO;
 	lpfMode = FilterMode::TRANSISTOR_24DB;
 
 	sources[0].oscType = OscType::DRUM_SYNTH;
 	sources[0].drumPatch.setPreset(preset);
+	sources[0].transpose = row.transpose;
 	sources[1].oscType = OscType::SINE;
-
-	// Kit rows play at middle C, so drop each drum to its usual range
-	int32_t decay;
-	switch (preset) {
-	case Preset::KICK:
-		sources[0].transpose = -29; // G1, about 49 Hz
-		decay = 27;
-		break;
-	case Preset::LOW_TOM:
-		sources[0].transpose = -17; // G2
-		decay = 24;
-		break;
-	case Preset::HIGH_TOM:
-		sources[0].transpose = -10; // D3
-		decay = 22;
-		break;
-	}
 
 	PatchedParamSet* patchedParams = paramManager->getPatchedParamSet();
 
@@ -257,7 +273,7 @@ void Sound::setupAsDrumSynth(ParamManagerForTimeline* paramManager, deluge::dsp:
 	patchedParams->params[params::LOCAL_ENV_0_ATTACK].setCurrentValueBasicForSetup(
 	    getParamFromUserValue(params::LOCAL_ENV_0_ATTACK, 0));
 	patchedParams->params[params::LOCAL_ENV_0_DECAY].setCurrentValueBasicForSetup(
-	    getParamFromUserValue(params::LOCAL_ENV_0_DECAY, decay));
+	    getParamFromUserValue(params::LOCAL_ENV_0_DECAY, row.decay));
 	patchedParams->params[params::LOCAL_ENV_0_SUSTAIN].setCurrentValueBasicForSetup(
 	    getParamFromUserValue(params::LOCAL_ENV_0_SUSTAIN, 0));
 	patchedParams->params[params::LOCAL_ENV_0_RELEASE].setCurrentValueBasicForSetup(
@@ -265,7 +281,23 @@ void Sound::setupAsDrumSynth(ParamManagerForTimeline* paramManager, deluge::dsp:
 
 	patchedParams->params[params::LOCAL_LPF_RESONANCE].setCurrentValueBasicForSetup(-2147483648);
 	patchedParams->params[params::LOCAL_LPF_FREQ].setCurrentValueBasicForSetup(2147483647);
+	if (row.hpf >= 0) {
+		patchedParams->params[params::LOCAL_HPF_FREQ].setCurrentValueBasicForSetup(
+		    getParamFromUserValue(params::LOCAL_HPF_FREQ, row.hpf));
+	}
 
+	// The drum synth's knob settings are offsets on osc params it doesn't otherwise use. Centred = no change.
+	patchedParams->params[params::LOCAL_OSC_A_PHASE_WIDTH].setCurrentValueBasicForSetup(0);
+	patchedParams->params[params::LOCAL_OSC_A_WAVE_INDEX].setCurrentValueBasicForSetup(0);
+	patchedParams->params[params::LOCAL_OSC_B_PHASE_WIDTH].setCurrentValueBasicForSetup(0);
+	patchedParams->params[params::LOCAL_OSC_B_WAVE_INDEX].setCurrentValueBasicForSetup(0);
+
+	// Gold knobs: attack / release becomes amp decay / pitch decay, and mod rate / depth becomes pitch amount / tone.
+	// For the metal engine the same knobs are FM 2 amount, tuning and FM amount; see drum_synth::KnobOffsets.
+	modKnobs[2][1].paramDescriptor.setToHaveParamOnly(params::LOCAL_ENV_0_DECAY);
+	modKnobs[2][0].paramDescriptor.setToHaveParamOnly(params::LOCAL_OSC_B_PHASE_WIDTH);
+	modKnobs[5][1].paramDescriptor.setToHaveParamOnly(params::LOCAL_OSC_A_WAVE_INDEX);
+	modKnobs[5][0].paramDescriptor.setToHaveParamOnly(params::LOCAL_OSC_A_PHASE_WIDTH);
 	modKnobs[6][0].paramDescriptor.setToHaveParamOnly(params::LOCAL_PITCH_ADJUST);
 
 	paramManager->getPatchCableSet()->numPatchCables = 1;
@@ -380,6 +412,51 @@ void Sound::setupAsBlankSynth(ParamManager* paramManager, bool is_dx) {
 	setupDefaultExpressionPatching(paramManager);
 
 	doneReadingFromFile();
+}
+
+char const* Sound::getPatchedParamDisplayNameOverride(int32_t p) {
+	using deluge::dsp::drum_synth::KnobOffsets;
+	using deluge::dsp::drum_synth::Patch;
+	using enum deluge::l10n::String;
+
+	if (sources[0].oscType != OscType::DRUM_SYNTH) {
+		return nullptr;
+	}
+
+	KnobOffsets::Slot slot;
+	switch (p) {
+	case params::LOCAL_OSC_A_PHASE_WIDTH:
+		slot = KnobOffsets::TONE;
+		break;
+	case params::LOCAL_OSC_A_WAVE_INDEX:
+		slot = KnobOffsets::PITCH_AMOUNT;
+		break;
+	case params::LOCAL_OSC_B_PHASE_WIDTH:
+		slot = KnobOffsets::PITCH_DECAY;
+		break;
+	case params::LOCAL_OSC_B_WAVE_INDEX:
+		slot = KnobOffsets::TRANSIENT;
+		break;
+	default:
+		return nullptr;
+	}
+
+	switch (KnobOffsets::targetFor(slot, sources[0].drumPatch.engine())) {
+	case Patch::FM_AMOUNT:
+		return deluge::l10n::get(STRING_FOR_DRUM_FM_AMOUNT);
+	case Patch::NOISE_MIX:
+		return deluge::l10n::get(STRING_FOR_DRUM_NOISE_MIX);
+	case Patch::PITCH_AMOUNT:
+		return deluge::l10n::get(STRING_FOR_DRUM_PITCH_AMOUNT);
+	case Patch::FM2_AMOUNT:
+		return deluge::l10n::get(STRING_FOR_DRUM_FM2_AMOUNT);
+	case Patch::PITCH_DECAY:
+		return deluge::l10n::get(STRING_FOR_DRUM_PITCH_DECAY);
+	case Patch::MOD_COARSE:
+		return deluge::l10n::get(STRING_FOR_DRUM_METAL_TUNE);
+	default:
+		return deluge::l10n::get(STRING_FOR_DRUM_TRANSIENT_VOLUME);
+	}
 }
 
 ModFXType Sound::getModFXType() {
@@ -3464,10 +3541,17 @@ Error Sound::readSourceFromFile(Deserializer& reader, int32_t s, ParamManagerFor
 			patch->random_detune = reader.readTagOrAttributeValueInt();
 			reader.exitTag("dx7randomdetune");
 		}
-		else if (!strcmp(tagName, "drumSynthPatch")) {
+		else if (!strcmp(tagName, "drumSynth")) {
 			auto& bytes = source->drumPatch.bytes();
 			reader.readTagOrAttributeValueHexBytes(bytes.data(), bytes.size());
-			source->drumPatch.recalculate();
+			source->drumPatch.clampAll();
+			reader.exitTag("drumSynth");
+		}
+		else if (!strcmp(tagName, "drumSynthPatch")) {
+			// Saved by the first, kick-and-tom-only test build
+			uint8_t legacy[12];
+			int32_t length = reader.readTagOrAttributeValueHexBytes(legacy, sizeof(legacy));
+			source->drumPatch.readLegacyDrumBytes(legacy, length);
 			reader.exitTag("drumSynthPatch");
 		}
 		else if (!strcmp(tagName, "dx7enginemode")) {
@@ -3825,7 +3909,7 @@ void Sound::writeSourceToFile(Serializer& writer, int32_t s, char const* tagName
 		}
 		else if (source->oscType == OscType::DRUM_SYNTH && synthMode != SynthMode::FM) {
 			auto& bytes = source->drumPatch.bytes();
-			writer.writeAttributeHexBytes("drumSynthPatch", bytes.data(), bytes.size());
+			writer.writeAttributeHexBytes("drumSynth", bytes.data(), bytes.size());
 			goto justCloseTag;
 		}
 		else {

@@ -357,6 +357,12 @@ char const* getParamDisplayName(Kind kind, int32_t p, ModControllableAudio* modC
 	using enum l10n::String;
 
 	if (modControllable != nullptr) {
+		if (kind == Kind::PATCHED) {
+			if (char const* name = modControllable->getPatchedParamDisplayNameOverride(p)) {
+				return name;
+			}
+		}
+
 		bool isLPFMorph = (kind == Kind::PATCHED && p == LOCAL_LPF_MORPH)
 		                  || (kind == Kind::UNPATCHED_GLOBAL && p == UnpatchedGlobal::UNPATCHED_LPF_MORPH);
 		bool isHPFMorph = (kind == Kind::PATCHED && p == LOCAL_HPF_MORPH)

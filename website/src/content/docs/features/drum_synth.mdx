@@ -1,0 +1,81 @@
+---
+title: Drum Synth
+---
+
+The drum synth is an oscillator type for synthesised drums. It is a port of the drum voices from the open source LXR-02 firmware by Erica Synths, adapted to run inside a Deluge sound. The Deluge's own envelopes, filters, FX, mod matrix, automation and parameter locks all work on top of it.
+
+It has three engines:
+
+- **Kick / tom**: a main oscillator with a pitch envelope, plus a mod oscillator that either frequency modulates it or is mixed with it.
+- **Snare**: a pitched oscillator with a pitch envelope, plus sample-and-hold noise through its own low, high or band pass filter.
+- **Cymbal / hat**: a main oscillator frequency modulated by two more oscillators, one of them usually noise.
+
+Every engine also has a **transient**: a pitch "snap", a start-phase "offset" click, or one of twelve short click samples.
+
+## Making a drum synth kit
+
+1. In clip view on an empty clip, press **SHIFT + KIT**.
+2. The **New kit** menu opens. Turn **SELECT** to **Drum synth** and press **SELECT** (or **KIT**). Choose **Kit** for a normal, sample based kit.
+3. You get seven rows, from the bottom: **KICK**, **SNARE**, **CH** (closed hat), **OH** (open hat), **LTOM**, **HTOM** and **CYM**.
+
+The two hat rows are in choke mode, so an open hat is cut off by the next closed hat.
+
+You can also turn any row of any kit, or any synth, into a drum synth: open the sound editor, go to **OSC1 > TYPE** and choose **Drum synth**. That way sampled and synthesised drums can share a kit.
+
+## Editing
+
+Open the sound editor for a row and go to **OSC1 > TYPE**, which shows **Drum synth**. Press **SELECT** to open the drum synth menu. Settings that the current engine doesn't use are hidden.
+
+| Setting | Engines | What it does |
+|---|---|---|
+| Engine | all | Kick / tom, Snare or Cymbal / hat |
+| Load preset | all | Replaces the drum synth settings with a starting point. Leaves the Deluge's envelopes, filters and FX alone |
+| Osc wave | all | Main oscillator wave: sine, triangle, saw, square or noise |
+| Pitch amount | kick, snare | Depth of the pitch envelope, up to 32 times the base pitch |
+| Pitch decay | kick, snare | How fast the pitch falls |
+| Pitch curve | kick, snare | Shape of the fall. 64 is linear, lower falls away faster |
+| Osc mode | kick | FM: the mod oscillator modulates the main one. Mix: the two are mixed |
+| FM amount | kick, cymbal | FM depth, or mod oscillator level in mix mode |
+| Mod wave, Mod pitch, Mod fine | kick, cymbal | The mod oscillator. Pitch is in semitones above the main oscillator, 64 = unison |
+| FM 2 amount, Mod 2 wave, Mod 2 pitch, Mod 2 fine | cymbal | The second mod oscillator |
+| Noise mix | snare | Noise level against the oscillator |
+| Noise rate | snare | Sample-and-hold rate of the noise. 127 is plain white noise |
+| Noise filter, Noise cutoff, Noise resonance | snare | The snare's own noise filter |
+| Transient | all | Snap, Offset, or Click 1 to 12 |
+| Transient level, Transient speed | all | Level and playback speed of the transient |
+
+Values run 0 to 127, as on the original hardware.
+
+The pitch of a row is set with the usual oscillator transpose and the Deluge's pitch controls, so the drum synth responds to note, pitch automation and the mod matrix like any other oscillator.
+
+## Gold knobs
+
+On drum synth rows, two pairs of gold knobs are set up for drums:
+
+| Knobs | Upper | Lower |
+|---|---|---|
+| Attack / release | Amp decay | Pitch decay (cymbal / hat: Metal tune) |
+| Mod rate / depth | Pitch amount (cymbal / hat: FM 2 amount) | FM amount (snare: Noise mix) |
+
+These knobs work as offsets: at centre they leave the menu value alone, and turning them pushes the value up or down. They can be automated, parameter locked and used as mod matrix destinations. A fourth control, **Transient level**, is available the same way through the mod matrix and automation.
+
+Under the hood these use the osc PW and wave index parameters, which the drum synth doesn't otherwise need, so their names change to the drum names on drum synth sounds.
+
+## CPU load
+
+**SHIFT + SELECT > CPU load** shows the audio engine's load while you play:
+
+- **Load**: audio render time as a percentage of real time.
+- **Peak**: the highest Load since the page was opened.
+- **Voice**: average nanoseconds per sample for one voice, filters and envelopes included.
+- **Drum**: average nanoseconds per sample for the drum synth oscillator alone.
+
+One sample lasts 22,676 ns, so a Voice reading of 900 means each playing voice uses about 4% of the CPU. Measured on hardware, a kick / tom drum synth voice costs about as much as a sample voice.
+
+## Compatibility
+
+Kits that use the drum synth won't play those rows on firmware without it.
+
+## Licence
+
+The drum synth code is licensed GPL-3.0-only, with the additional terms in the LXR firmware's NOTICE.md: it is marked as a modified version, and no rights to the Erica Synths or LXR trademarks are granted.

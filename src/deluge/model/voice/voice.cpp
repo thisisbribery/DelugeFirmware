@@ -2457,8 +2457,9 @@ dontUseCache: {}
 				memset(renderBuffer, 0, SSI_TX_BUFFER_NUM_SAMPLES * sizeof(int32_t));
 			}
 
-			unisonParts[u].sources[s].drumVoice.render(sound.sources[s].drumPatch, renderBuffer, numSamples,
-			                                           phaseIncrement, sourceAmplitude, amplitudeIncrement);
+			unisonParts[u].sources[s].drumVoice.render(sound.sources[s].drumPatch, getDrumSynthKnobOffsets(),
+			                                           renderBuffer, numSamples, phaseIncrement, sourceAmplitude,
+			                                           amplitudeIncrement);
 
 			if (stereoBuffer) {
 				for (int32_t i = 0; i < numSamples; i++) {

@@ -1900,10 +1900,15 @@ bool InstrumentClipView::createNewDrumSynthKit() {
 		Preset preset;
 		char const* name;
 	};
-	constexpr std::array<Row, 3> kRows{{
+	// Bottom row first
+	constexpr std::array<Row, 7> kRows{{
 	    {Preset::KICK, "KICK"},
+	    {Preset::SNARE, "SNARE"},
+	    {Preset::CLOSED_HAT, "CH"},
+	    {Preset::OPEN_HAT, "OH"},
 	    {Preset::LOW_TOM, "LTOM"},
 	    {Preset::HIGH_TOM, "HTOM"},
+	    {Preset::CYMBAL, "CYM"},
 	}};
 
 	char modelStackMemory[MODEL_STACK_MAX_SIZE];

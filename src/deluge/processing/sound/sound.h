@@ -173,6 +173,7 @@ public:
 	virtual void setSkippingRendering(bool newSkipping);
 
 	ModFXType getModFXType() override;
+	char const* getPatchedParamDisplayNameOverride(int32_t p) override;
 	bool setModFXType(ModFXType newType) final;
 
 	void patchedParamPresetValueChanged(uint8_t p, ModelStackWithSoundFlags* modelStack, int32_t oldValue,

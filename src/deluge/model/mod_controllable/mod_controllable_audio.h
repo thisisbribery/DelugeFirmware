@@ -70,6 +70,9 @@ public:
 	void beginStutter(ParamManagerForTimeline* paramManager);
 	void endStutter(ParamManagerForTimeline* paramManager);
 	virtual ModFXType getModFXType() = 0;
+	/// A name to show for a patched param instead of its usual one, or nullptr. Lets a sound that repurposes a param
+	/// (like the drum synth does with osc PW and wave index) say what it actually does.
+	virtual char const* getPatchedParamDisplayNameOverride(int32_t p) { return nullptr; }
 	virtual bool setModFXType(ModFXType newType);
 	bool offerReceivedCCToLearnedParamsForClip(MIDICable& cable, uint8_t channel, uint8_t ccNumber, uint8_t value,
 	                                           ModelStackWithTimelineCounter* modelStack, int32_t noteRowIndex = -1);

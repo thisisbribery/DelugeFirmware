@@ -1,21 +1,24 @@
 /*
- * Drum synth voice for the Deluge, ported from the drum voice of the LXR-02 firmware.
+ * Drum synth voices for the Deluge, ported from the drum, snare, cymbal and hi-hat voices of the LXR-02 firmware.
  *
  * Portions Copyright (C) 2012-2026 Erica Synths (LXR firmware, GPL-3.0-only).
  * Deluge integration Copyright © 2026 the Deluge community.
  * SPDX-License-Identifier: GPL-3.0-only
  *
- * This is a modified version of the LXR firmware drum voice (DrumVoice.c, Oscillator.c, Decay.c, snapEg.c and
- * transientGenerator.c). It is licensed under the GNU General Public License version 3, with the additional terms in
- * the LXR firmware's NOTICE.md.
+ * This is a modified version of the LXR firmware voices (DrumVoice.c, Snare.c, CymbalVoice.c, HiHat.c,
+ * Oscillator.c, Decay.c, snapEg.c and transientGenerator.c). It is licensed under the GNU General Public License
+ * version 3, with the additional terms in the LXR firmware's NOTICE.md.
  *
  * What was changed for the Deluge:
  * - Oscillators run on the Deluge's 32-bit phase and q31 sample format instead of int16.
- * - The amp envelope, filter, distortion and decimation are left to the Deluge's own Sound, so only the parts that
- *   make the LXR sound like itself are kept: the mod osc and FM, the pitch envelope, the snap envelope and the
- *   transient generator.
+ * - The amp envelope, main filter, distortion and decimation are left to the Deluge's own Sound. Only the parts that
+ *   make each LXR voice sound like itself are kept: the mod oscs and FM, the pitch envelope, the snap envelope, the
+ *   transient generator, and the snare's own noise filter.
+ * - The cymbal and hi-hat share one engine. Open and closed hats are two kit rows in the Deluge's choke mode, rather
+ *   than one voice with two decays.
  * - Envelopes tick every 16 samples rather than every 64, with their rates scaled to match.
- * - Saw and square are naive rather than band-limited, and noise is plain white noise.
+ * - Saw and square are naive rather than band-limited.
+ * - The snare noise filter is a plain TPT state variable filter with low, high and band pass outputs.
  */
 
 #include "dsp/drum_synth/drum_synth.h"
@@ -33,6 +36,7 @@ namespace deluge::dsp::drum_synth {
 
 namespace {
 
+constexpr float kSampleRate = 44100.f;
 constexpr int32_t kTickSamples = 16;
 /// The LXR runs its envelopes once per 64-sample block. We tick four times as often, so rates are scaled down.
 constexpr float kTickScale = kTickSamples / 64.f;
@@ -43,6 +47,15 @@ constexpr float kMaxPhaseIncrement = 2147483647.f; // Nyquist
 constexpr float kSnapMax = 24.f;
 constexpr float kSnapReduction = 0.2f;
 constexpr float kPitchAmountFactor = 32.f;
+constexpr float kNoiseMaxRate = 22000.f;
+constexpr float kNoiseGain = 0.9f;
+constexpr float kCutoffMin = 30.f;
+constexpr float kCutoffMax = 16000.f;
+
+/// A full knob turn (+- 2^30) moves a setting by +- 128
+constexpr int32_t kKnobShift = 23;
+/// ...except the metal tuning knob, which moves the mod osc by +- 25 semitones
+constexpr int32_t kTuneKnobDivisor = 5;
 
 int32_t toQ31(float f) {
 	return static_cast<int32_t>(std::clamp(f, -1.f, 1.f) * 2147483647.f);
@@ -66,7 +79,7 @@ int32_t triangle(uint32_t phase) {
 	return static_cast<int32_t>((folded << 1) - 0x80000000u);
 }
 
-/// LXR DecayEg_calcTime(), including its x2 for the 64-sample block size.
+/// LXR DecayEg_calcTime(), including its x2 for the 64-sample block size
 float pitchDecayFromParam(uint8_t value) {
 	constexpr float k = 2 * 0.99f / (1.f - 0.99f);
 	const float v = value / 127.f;
@@ -80,14 +93,38 @@ float pitchSlopeFromParam(uint8_t value) {
 	return 2 * amount / (1 - amount);
 }
 
+float ratioFromParams(uint8_t coarse, uint8_t fine) {
+	const float semitones = (coarse - 64) + (fine - 64) / 64.f;
+	return exp2f(semitones / 12.f);
+}
+
 } // namespace
 
+// Patch ---------------------------------------------------------------------------------------------------------------
+
 void Patch::setPreset(Preset preset) {
-	params_ = {};
+	params_[ENGINE] = static_cast<uint8_t>(Engine::DRUM);
 	params_[OSC_WAVE] = static_cast<uint8_t>(Wave::SINE);
-	params_[MOD_WAVE] = static_cast<uint8_t>(Wave::SINE);
-	params_[MOD_FINE] = 64;
+	params_[PITCH_AMOUNT] = 0;
+	params_[PITCH_DECAY] = 64;
+	params_[PITCH_SLOPE] = 64;
 	params_[MIX_MODE] = 0;
+	params_[FM_AMOUNT] = 0;
+	params_[MOD_WAVE] = static_cast<uint8_t>(Wave::SINE);
+	params_[MOD_COARSE] = 64;
+	params_[MOD_FINE] = 64;
+	params_[FM2_AMOUNT] = 0;
+	params_[MOD2_WAVE] = static_cast<uint8_t>(Wave::NOISE);
+	params_[MOD2_COARSE] = 64;
+	params_[MOD2_FINE] = 64;
+	params_[NOISE_MIX] = 0;
+	params_[NOISE_PITCH] = 127;
+	params_[NOISE_FILTER_TYPE] = static_cast<uint8_t>(NoiseFilter::LOW_PASS);
+	params_[NOISE_CUTOFF] = 127;
+	params_[NOISE_RESONANCE] = 0;
+	params_[TRANS_MODE] = kTransientSnap;
+	params_[TRANS_VOLUME] = 0;
+	params_[TRANS_PITCH] = 64;
 
 	switch (preset) {
 	case Preset::KICK:
@@ -98,8 +135,8 @@ void Patch::setPreset(Preset preset) {
 		params_[PITCH_AMOUNT] = 45;
 		params_[TRANS_MODE] = kTransientSnap;
 		params_[TRANS_VOLUME] = 60;
-		params_[TRANS_PITCH] = 64;
 		break;
+
 	case Preset::LOW_TOM:
 		params_[MOD_COARSE] = 64 + 7;
 		params_[FM_AMOUNT] = 40;
@@ -110,6 +147,7 @@ void Patch::setPreset(Preset preset) {
 		params_[TRANS_VOLUME] = 40;
 		params_[TRANS_PITCH] = 40;
 		break;
+
 	case Preset::HIGH_TOM:
 		params_[MOD_COARSE] = 64 + 19;
 		params_[FM_AMOUNT] = 36;
@@ -120,17 +158,69 @@ void Patch::setPreset(Preset preset) {
 		params_[TRANS_VOLUME] = 40;
 		params_[TRANS_PITCH] = 60;
 		break;
+
+	case Preset::SNARE:
+		params_[ENGINE] = static_cast<uint8_t>(Engine::SNARE);
+		params_[OSC_WAVE] = static_cast<uint8_t>(Wave::TRIANGLE);
+		params_[PITCH_AMOUNT] = 34;
+		params_[PITCH_DECAY] = 58;
+		params_[PITCH_SLOPE] = 30;
+		params_[NOISE_MIX] = 72;
+		params_[NOISE_PITCH] = 127;
+		params_[NOISE_FILTER_TYPE] = static_cast<uint8_t>(NoiseFilter::HIGH_PASS);
+		params_[NOISE_CUTOFF] = 85; // about 2 kHz
+		params_[NOISE_RESONANCE] = 25;
+		params_[TRANS_MODE] = kTransientSampleFirst + 1;
+		params_[TRANS_VOLUME] = 55;
+		break;
+
+	case Preset::CLOSED_HAT:
+	case Preset::OPEN_HAT:
+		// Two detuned squares and a fast sample-and-hold noise, after the 808's bank of square oscs
+		params_[ENGINE] = static_cast<uint8_t>(Engine::METAL);
+		params_[OSC_WAVE] = static_cast<uint8_t>(Wave::SQUARE);
+		params_[MOD_WAVE] = static_cast<uint8_t>(Wave::SQUARE);
+		params_[MOD_COARSE] = 64 + 7;
+		params_[MOD_FINE] = 115;
+		params_[FM_AMOUNT] = 90;
+		params_[MOD2_WAVE] = static_cast<uint8_t>(Wave::NOISE);
+		params_[MOD2_COARSE] = 64 + 40;
+		params_[FM2_AMOUNT] = 70;
+		params_[TRANS_MODE] = kTransientOffset;
+		params_[TRANS_VOLUME] = 20;
+		break;
+
+	case Preset::CYMBAL:
+		params_[ENGINE] = static_cast<uint8_t>(Engine::METAL);
+		params_[OSC_WAVE] = static_cast<uint8_t>(Wave::SQUARE);
+		params_[MOD_WAVE] = static_cast<uint8_t>(Wave::SQUARE);
+		params_[MOD_COARSE] = 64 + 5;
+		params_[MOD_FINE] = 90;
+		params_[FM_AMOUNT] = 100;
+		params_[MOD2_WAVE] = static_cast<uint8_t>(Wave::NOISE);
+		params_[MOD2_COARSE] = 64 + 40;
+		params_[FM2_AMOUNT] = 70;
+		params_[TRANS_MODE] = kTransientOffset;
+		params_[TRANS_VOLUME] = 10;
+		break;
+
+	default:
+		break;
 	}
-	recalculate();
 }
 
 uint8_t Patch::maxValue(Param p) {
 	switch (p) {
+	case ENGINE:
+		return static_cast<uint8_t>(Engine::NUM_ENGINES) - 1;
 	case OSC_WAVE:
 	case MOD_WAVE:
+	case MOD2_WAVE:
 		return static_cast<uint8_t>(Wave::NUM_WAVES) - 1;
 	case MIX_MODE:
 		return 1;
+	case NOISE_FILTER_TYPE:
+		return static_cast<uint8_t>(NoiseFilter::NUM_FILTERS) - 1;
 	case TRANS_MODE:
 		return kNumTransientModes - 1;
 	default:
@@ -138,143 +228,378 @@ uint8_t Patch::maxValue(Param p) {
 	}
 }
 
-void Patch::set(Param p, uint8_t value) {
-	params_[p] = std::min(value, maxValue(p));
-	recalculate();
+bool Patch::isUsedBy(Param p, Engine engine) {
+	switch (p) {
+	case PITCH_AMOUNT:
+	case PITCH_DECAY:
+	case PITCH_SLOPE:
+		return engine != Engine::METAL;
+	case MIX_MODE:
+		return engine == Engine::DRUM;
+	case FM_AMOUNT:
+	case MOD_WAVE:
+	case MOD_COARSE:
+	case MOD_FINE:
+		return engine != Engine::SNARE;
+	case FM2_AMOUNT:
+	case MOD2_WAVE:
+	case MOD2_COARSE:
+	case MOD2_FINE:
+		return engine == Engine::METAL;
+	case NOISE_MIX:
+	case NOISE_PITCH:
+	case NOISE_FILTER_TYPE:
+	case NOISE_CUTOFF:
+	case NOISE_RESONANCE:
+		return engine == Engine::SNARE;
+	default:
+		return true;
+	}
 }
 
-void Patch::recalculate() {
+void Patch::set(Param p, uint8_t value) {
+	params_[p] = std::min(value, maxValue(p));
+}
+
+void Patch::clampAll() {
 	for (uint8_t p = 0; p < NUM_PARAMS; p++) {
 		params_[p] = std::min(params_[p], maxValue(static_cast<Param>(p)));
 	}
-
-	oscWave = static_cast<Wave>(params_[OSC_WAVE]);
-	modWave = static_cast<Wave>(params_[MOD_WAVE]);
-	mixMode = params_[MIX_MODE] != 0;
-	fmAmount = params_[FM_AMOUNT] / 127.f;
-
-	const float semitones = (params_[MOD_COARSE] - 64) + (params_[MOD_FINE] - 64) / 64.f;
-	modRatio = exp2f(semitones / 12.f);
-
-	pitchDecayPerTick = pitchDecayFromParam(params_[PITCH_DECAY]);
-	pitchSlope = pitchSlopeFromParam(params_[PITCH_SLOPE]);
-	const float amount = params_[PITCH_AMOUNT] / 127.f;
-	pitchAmount = amount * amount * kPitchAmountFactor;
-
-	transientMode = params_[TRANS_MODE];
-	transientVolume = params_[TRANS_VOLUME] / 127.f;
-	// LXR: "range about 0.25 to 4"
-	transientPitch = 1.f + ((params_[TRANS_PITCH] / 33.9f) - 0.75f);
-	transientPhaseIncrement = static_cast<uint32_t>(transientPitch * (1 << 20));
 }
 
-void Voice::trigger(const Patch& patch) {
-	// In offset mode the transient volume moves the start phase towards zero, softening the click a sine gets from
-	// starting at its peak.
-	const float offset = (patch.transientMode == kTransientOffset) ? 1.f - patch.transientVolume : 1.f;
-	mainPhase_ = (patch.oscWave == Wave::NOISE) ? 0 : static_cast<uint32_t>(kQuarterCycle * offset);
-	modPhase_ = (patch.modWave == Wave::NOISE) ? 0 : kQuarterCycle;
+void Patch::readLegacyDrumBytes(const uint8_t* bytes, int32_t length) {
+	// The order the first version stored its settings in
+	constexpr std::array<Param, 12> kLegacyOrder{
+	    OSC_WAVE,    MOD_WAVE,    MOD_COARSE,   MOD_FINE,   FM_AMOUNT,    MIX_MODE,
+	    PITCH_DECAY, PITCH_SLOPE, PITCH_AMOUNT, TRANS_MODE, TRANS_VOLUME, TRANS_PITCH,
+	};
+	setPreset(Preset::KICK);
+	for (int32_t i = 0; i < std::min<int32_t>(length, kLegacyOrder.size()); i++) {
+		params_[kLegacyOrder[i]] = bytes[i];
+	}
+	clampAll();
+}
+
+Patch::Param KnobOffsets::targetFor(Slot slot, Engine engine) {
+	switch (slot) {
+	case TONE:
+		return (engine == Engine::SNARE) ? Patch::NOISE_MIX : Patch::FM_AMOUNT;
+	case PITCH_AMOUNT:
+		return (engine == Engine::METAL) ? Patch::FM2_AMOUNT : Patch::PITCH_AMOUNT;
+	case PITCH_DECAY:
+		return (engine == Engine::METAL) ? Patch::MOD_COARSE : Patch::PITCH_DECAY;
+	default:
+		return Patch::TRANS_VOLUME;
+	}
+}
+
+// Voice ---------------------------------------------------------------------------------------------------------------
+
+void Voice::updateSettings(const Patch& patch, const KnobOffsets& knobs) {
+	std::array<uint8_t, Patch::NUM_PARAMS> effective;
+	for (uint8_t p = 0; p < Patch::NUM_PARAMS; p++) {
+		const auto param = static_cast<Patch::Param>(p);
+		effective[p] = std::min(patch.get(param), Patch::maxValue(param));
+	}
+
+	const Engine engine = static_cast<Engine>(effective[Patch::ENGINE]);
+	for (uint8_t s = 0; s < KnobOffsets::NUM_SLOTS; s++) {
+		const Patch::Param target = KnobOffsets::targetFor(static_cast<KnobOffsets::Slot>(s), engine);
+		int32_t offset = knobs.values[s] >> kKnobShift;
+		if (target == Patch::MOD_COARSE) {
+			offset /= kTuneKnobDivisor;
+		}
+		effective[target] = std::clamp<int32_t>(effective[target] + offset, 0, Patch::maxValue(target));
+	}
+
+	if (settingsValid_ && effective == settingsFrom_) {
+		return;
+	}
+	settingsFrom_ = effective;
+	settingsValid_ = true;
+
+	Settings& s = settings_;
+	s.engine = engine;
+	s.oscWave = static_cast<Wave>(effective[Patch::OSC_WAVE]);
+	s.modWave = static_cast<Wave>(effective[Patch::MOD_WAVE]);
+	s.mod2Wave = static_cast<Wave>(effective[Patch::MOD2_WAVE]);
+	s.mixMode = effective[Patch::MIX_MODE] != 0;
+	s.fmAmount = effective[Patch::FM_AMOUNT] / 127.f;
+	s.fm2Amount = effective[Patch::FM2_AMOUNT] / 127.f;
+	s.modRatio = ratioFromParams(effective[Patch::MOD_COARSE], effective[Patch::MOD_FINE]);
+	s.mod2Ratio = ratioFromParams(effective[Patch::MOD2_COARSE], effective[Patch::MOD2_FINE]);
+
+	s.pitchDecayPerTick = pitchDecayFromParam(effective[Patch::PITCH_DECAY]);
+	s.pitchSlope = pitchSlopeFromParam(effective[Patch::PITCH_SLOPE]);
+	const float amount = effective[Patch::PITCH_AMOUNT] / 127.f;
+	s.pitchAmount = amount * amount * kPitchAmountFactor;
+
+	s.noiseMix = effective[Patch::NOISE_MIX] / 127.f;
+	s.noisePhaseIncrement =
+	    static_cast<uint32_t>(effective[Patch::NOISE_PITCH] / 127.f * kNoiseMaxRate / kSampleRate * 4294967296.f);
+	s.noiseFilter = static_cast<NoiseFilter>(effective[Patch::NOISE_FILTER_TYPE]);
+	const float cutoff = kCutoffMin * powf(kCutoffMax / kCutoffMin, effective[Patch::NOISE_CUTOFF] / 127.f);
+	s.filterG = tanf(3.14159265f * std::min(cutoff, 0.45f * kSampleRate) / kSampleRate);
+	s.filterK = 2.f - 1.95f * (effective[Patch::NOISE_RESONANCE] / 127.f);
+
+	s.transientMode = effective[Patch::TRANS_MODE];
+	s.transientVolume = effective[Patch::TRANS_VOLUME] / 127.f;
+	// LXR: "range about 0.25 to 4"
+	s.transientPitch = 1.f + ((effective[Patch::TRANS_PITCH] / 33.9f) - 0.75f);
+	s.transientPhaseIncrement = static_cast<uint32_t>(s.transientPitch * (1 << 20));
+}
+
+void Voice::trigger(const Patch& patch, const KnobOffsets& knobs) {
+	updateSettings(patch, knobs);
+	const Settings& s = settings_;
+
+	// In offset mode the transient volume moves the start phase towards zero, softening the click an osc gets from
+	// starting at its peak
+	const float offset = (s.transientMode == kTransientOffset) ? 1.f - s.transientVolume : 1.f;
+	main_.phase = (s.oscWave == Wave::NOISE) ? 0 : static_cast<uint32_t>(kQuarterCycle * offset);
+	if (s.engine == Engine::DRUM) {
+		mod_.phase = (s.modWave == Wave::NOISE) ? 0 : kQuarterCycle;
+	}
+	else {
+		mod_.phase = 0;
+	}
+	mod2_.phase = 0;
+	noise_.phase = 0;
 	transientPhase_ = 0;
 	pitchEnvelope_ = 1.f;
 	snapEnvelope_ = 1.f;
+	filterState1_ = 0;
+	filterState2_ = 0;
 	samplesUntilTick_ = 0;
 }
 
-int32_t Voice::wave(Wave w, uint32_t phase) {
-	switch (w) {
-	case Wave::SINE:
-		return sine(phase);
-	case Wave::TRIANGLE:
-		return triangle(phase);
-	case Wave::SAW:
-		return static_cast<int32_t>(phase);
-	case Wave::SQUARE:
-		return (phase < 0x80000000u) ? std::numeric_limits<int32_t>::max() : std::numeric_limits<int32_t>::min();
-	default:
-		noise_ ^= noise_ << 13;
-		noise_ ^= noise_ >> 17;
-		noise_ ^= noise_ << 5;
-		return static_cast<int32_t>(noise_);
-	}
+int32_t Voice::random() {
+	random_ ^= random_ << 13;
+	random_ ^= random_ >> 17;
+	random_ ^= random_ << 5;
+	return static_cast<int32_t>(random_);
 }
 
-void Voice::controlTick(const Patch& patch, uint32_t basePhaseIncrement) {
-	// Pitch envelope: a linear decay bent by the slope curve (LXR DecayEg_calc)
-	pitchEnvelope_ = std::max(pitchEnvelope_ - patch.pitchDecayPerTick, 0.f);
-	const float s = patch.pitchSlope;
-	// At slope 0 the LXR curve is 0 / 0 on the first tick, so keep the divisor off zero
-	const float envelope = (1 + s) * pitchEnvelope_ / std::max(1 + s * pitchEnvelope_, 1e-6f);
+int32_t Voice::step(Wave w, Osc& osc, uint32_t phaseOffset) {
+	const uint32_t phase = osc.phase + phaseOffset;
+	const uint32_t next = osc.phase + osc.phaseIncrement;
+	int32_t value;
+	switch (w) {
+	case Wave::SINE:
+		value = sine(phase);
+		break;
+	case Wave::TRIANGLE:
+		value = triangle(phase);
+		break;
+	case Wave::SAW:
+		value = static_cast<int32_t>(phase);
+		break;
+	case Wave::SQUARE:
+		value = (phase < 0x80000000u) ? std::numeric_limits<int32_t>::max() : std::numeric_limits<int32_t>::min();
+		break;
+	default:
+		// Sample-and-hold noise, a new value each cycle, so it can be tuned like the LXR's
+		if (next < osc.phase) {
+			osc.held = random();
+		}
+		value = osc.held;
+		break;
+	}
+	osc.phase = next;
+	return value;
+}
 
-	float pitchMod = 1 + envelope * patch.pitchAmount;
+void Voice::controlTick(uint32_t basePhaseIncrement) {
+	const Settings& s = settings_;
+
+	// Pitch envelope: a linear decay bent by the slope curve (LXR DecayEg_calc). The metal engine has none.
+	float envelope = 0;
+	if (s.engine != Engine::METAL) {
+		pitchEnvelope_ = std::max(pitchEnvelope_ - s.pitchDecayPerTick, 0.f);
+		// At slope 0 the LXR curve is 0 / 0 on the first tick, so keep the divisor off zero
+		envelope = (1 + s.pitchSlope) * pitchEnvelope_ / std::max(1 + s.pitchSlope * pitchEnvelope_, 1e-6f);
+	}
+	float pitchMod = 1 + envelope * s.pitchAmount;
 
 	// Snap: a very fast pitch spike instead of a transient sample (LXR SnapEg_calc)
-	if (patch.transientMode == kTransientSnap && snapEnvelope_ > 0) {
-		pitchMod += snapEnvelope_ * snapEnvelope_ * kSnapMax * patch.transientVolume;
-		snapEnvelope_ -= kSnapReduction * patch.transientPitch * kTickScale;
+	if (s.transientMode == kTransientSnap && snapEnvelope_ > 0) {
+		pitchMod += snapEnvelope_ * snapEnvelope_ * kSnapMax * s.transientVolume;
+		snapEnvelope_ -= kSnapReduction * s.transientPitch * kTickScale;
 	}
 
 	const float base = static_cast<float>(basePhaseIncrement);
-	mainPhaseIncrement_ = toPhaseIncrement(base * pitchMod);
-	modPhaseIncrement_ = toPhaseIncrement(base * patch.modRatio);
+	main_.phaseIncrement = toPhaseIncrement(base * pitchMod);
+	// The LXR's wavetable carriers get four times the FM depth of its sine
+	const float carrierDepth = (s.oscWave == Wave::SINE) ? 1.f : 4.f;
 
-	if (patch.mixMode) {
-		mainLevel_ = toQ31(1.f - patch.fmAmount);
-		modLevel_ = toQ31(patch.fmAmount);
-	}
-	else {
-		// The LXR scales the mod osc by the FM amount and then the FM depth by it again, and its wavetable carriers
-		// get four times the depth of its sine. depth is stored divided by 8 to leave room for that.
-		float index = patch.fmAmount * patch.fmAmount * envelope;
-		if (patch.oscWave != Wave::SINE) {
-			index *= 4;
+	switch (s.engine) {
+	case Engine::DRUM:
+		mod_.phaseIncrement = toPhaseIncrement(base * s.modRatio);
+		if (s.mixMode) {
+			mainLevel_ = toQ31(1.f - s.fmAmount);
+			modLevel_ = toQ31(s.fmAmount);
 		}
-		fmDepth_ = toQ31(index / 8);
+		else {
+			// The LXR scales the mod osc by the FM amount and then the FM depth by it again. Depth is stored divided
+			// by 8 to leave room for the x4.
+			fmDepth_ = toQ31(s.fmAmount * s.fmAmount * envelope * carrierDepth / 8);
+		}
+		break;
+
+	case Engine::SNARE:
+		noise_.phaseIncrement = s.noisePhaseIncrement;
+		mainLevel_ = toQ31(1.f - s.noiseMix);
+		modLevel_ = toQ31(s.noiseMix * kNoiseGain);
+		// Let the filter state settle to true zero rather than drifting into denormals
+		if (std::abs(filterState1_) < 1e-15f) {
+			filterState1_ = 0;
+		}
+		if (std::abs(filterState2_) < 1e-15f) {
+			filterState2_ = 0;
+		}
+		break;
+
+	case Engine::METAL:
+	default:
+		// Like the LXR, the mod oscs follow the note but not the snap
+		mod_.phaseIncrement = toPhaseIncrement(base * s.modRatio);
+		mod2_.phaseIncrement = toPhaseIncrement(base * s.mod2Ratio);
+		modLevel_ = toQ31(s.fmAmount);
+		mod2Level_ = toQ31(s.fm2Amount);
+		fmDepth_ = toQ31(carrierDepth / 8);
+		break;
 	}
-	transientLevel_ = toQ31(patch.transientVolume);
+
+	transientLevel_ = toQ31(s.transientVolume);
 }
 
-void Voice::render(const Patch& patch, int32_t* buffer, int32_t numSamples, uint32_t basePhaseIncrement,
-                   int32_t amplitude, int32_t amplitudeIncrement) {
-	const bool playTransient = patch.transientMode >= kTransientSampleFirst;
-	const int8_t* transient =
-	    playTransient ? drumSynthTransientData[patch.transientMode - kTransientSampleFirst] : nullptr;
+int32_t Voice::transientSample() {
+	const uint8_t mode = settings_.transientMode;
+	if (mode < kTransientSampleFirst || transientPhase_ >= kTransientEnd) {
+		return 0;
+	}
+	const int8_t* table = drumSynthTransientData[mode - kTransientSampleFirst];
+	const int32_t t = static_cast<int32_t>(table[transientPhase_ >> 20]) << 24;
+	transientPhase_ += settings_.transientPhaseIncrement;
+	return multiply_32x32_rshift32(t, transientLevel_); // q30
+}
+
+int32_t Voice::filterNoise(int32_t input) {
+	const Settings& s = settings_;
+	if (s.noiseFilter == NoiseFilter::OFF) {
+		return input;
+	}
+
+	// TPT state variable filter (Zavalishin, "The Art of VA Filter Design")
+	const float g = s.filterG;
+	const float k = s.filterK;
+	const float a1 = 1.f / (1.f + g * (g + k));
+	const float a2 = g * a1;
+	const float a3 = g * a2;
+
+	const float x = input * (1.f / 2147483648.f);
+	const float v3 = x - filterState2_;
+	const float v1 = a1 * filterState1_ + a2 * v3;
+	const float v2 = filterState2_ + a2 * filterState1_ + a3 * v3;
+	filterState1_ = 2 * v1 - filterState1_;
+	filterState2_ = 2 * v2 - filterState2_;
+
+	float y;
+	switch (s.noiseFilter) {
+	case NoiseFilter::LOW_PASS:
+		y = v2;
+		break;
+	case NoiseFilter::HIGH_PASS:
+		y = x - k * v1 - v2;
+		break;
+	default:
+		y = v1;
+		break;
+	}
+	return toQ31(y);
+}
+
+void Voice::renderDrum(int32_t* out, int32_t n, int32_t& amplitude, int32_t amplitudeIncrement) {
+	const Settings& s = settings_;
+	for (int32_t i = 0; i < n; i++) {
+		const int32_t mod = step(s.modWave, mod_);
+
+		int32_t sample; // q30, leaving headroom to add the transient
+		if (s.mixMode) {
+			sample =
+			    multiply_32x32_rshift32(step(s.oscWave, main_), mainLevel_) + multiply_32x32_rshift32(mod, modLevel_);
+		}
+		else {
+			// fmDepth_ is index / 8, and a full-scale mod should move the phase by index cycles: x 2^5 here
+			const uint32_t phaseOffset = static_cast<uint32_t>(multiply_32x32_rshift32(mod, fmDepth_)) << 5;
+			sample = step(s.oscWave, main_, phaseOffset) >> 1;
+		}
+
+		sample = add_saturate(sample, transientSample());
+		amplitude += amplitudeIncrement;
+		out[i] += multiply_32x32_rshift32(sample, amplitude) << 2;
+	}
+}
+
+void Voice::renderSnare(int32_t* out, int32_t n, int32_t& amplitude, int32_t amplitudeIncrement) {
+	const Settings& s = settings_;
+	for (int32_t i = 0; i < n; i++) {
+		const int32_t noise = filterNoise(step(Wave::NOISE, noise_));
+		const int32_t osc = step(s.oscWave, main_);
+
+		int32_t sample = multiply_32x32_rshift32(osc, mainLevel_) + multiply_32x32_rshift32(noise, modLevel_);
+		sample = add_saturate(sample, transientSample());
+		amplitude += amplitudeIncrement;
+		out[i] += multiply_32x32_rshift32(sample, amplitude) << 2;
+	}
+}
+
+void Voice::renderMetal(int32_t* out, int32_t n, int32_t& amplitude, int32_t amplitudeIncrement) {
+	const Settings& s = settings_;
+	constexpr int32_t kOne = 1 << 30; // q30
+	for (int32_t i = 0; i < n; i++) {
+		// The two mods sum and clip like the LXR's saturating int16 add
+		int32_t mod = multiply_32x32_rshift32(step(s.modWave, mod_), modLevel_)
+		              + multiply_32x32_rshift32(step(s.mod2Wave, mod2_), mod2Level_);
+		mod = std::clamp(mod, -kOne, kOne);
+
+		// mod is q30 and fmDepth_ is index / 8: x 2^6 makes a full-scale mod move the phase by index cycles
+		const uint32_t phaseOffset = static_cast<uint32_t>(multiply_32x32_rshift32(mod, fmDepth_)) << 6;
+		int32_t sample = step(s.oscWave, main_, phaseOffset) >> 1;
+
+		sample = add_saturate(sample, transientSample());
+		amplitude += amplitudeIncrement;
+		out[i] += multiply_32x32_rshift32(sample, amplitude) << 2;
+	}
+}
+
+void Voice::render(const Patch& patch, const KnobOffsets& knobs, int32_t* buffer, int32_t numSamples,
+                   uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement) {
+	updateSettings(patch, knobs);
 
 	int32_t* out = buffer;
 	int32_t remaining = numSamples;
 	while (remaining > 0) {
 		if (samplesUntilTick_ <= 0) {
-			controlTick(patch, basePhaseIncrement);
+			controlTick(basePhaseIncrement);
 			samplesUntilTick_ = kTickSamples;
 		}
 		const int32_t n = std::min(remaining, samplesUntilTick_);
 		samplesUntilTick_ -= n;
 		remaining -= n;
 
-		for (int32_t i = 0; i < n; i++) {
-			const int32_t mod = wave(patch.modWave, modPhase_);
-			modPhase_ += modPhaseIncrement_;
-
-			int32_t sample; // q30, leaving headroom to add the transient
-			if (patch.mixMode) {
-				sample = multiply_32x32_rshift32(wave(patch.oscWave, mainPhase_), mainLevel_)
-				         + multiply_32x32_rshift32(mod, modLevel_);
-			}
-			else {
-				// fmDepth_ is index / 8, and a full-scale mod should move the phase by index cycles: x 2^5 here
-				const uint32_t phaseOffset = static_cast<uint32_t>(multiply_32x32_rshift32(mod, fmDepth_)) << 5;
-				sample = wave(patch.oscWave, mainPhase_ + phaseOffset) >> 1;
-			}
-			mainPhase_ += mainPhaseIncrement_;
-
-			if (playTransient && transientPhase_ < kTransientEnd) {
-				const int32_t t = static_cast<int32_t>(transient[transientPhase_ >> 20]) << 24;
-				sample = add_saturate(sample, multiply_32x32_rshift32(t, transientLevel_));
-				transientPhase_ += patch.transientPhaseIncrement;
-			}
-
-			amplitude += amplitudeIncrement;
-			*out++ += multiply_32x32_rshift32(sample, amplitude) << 2;
+		switch (settings_.engine) {
+		case Engine::DRUM:
+			renderDrum(out, n, amplitude, amplitudeIncrement);
+			break;
+		case Engine::SNARE:
+			renderSnare(out, n, amplitude, amplitudeIncrement);
+			break;
+		default:
+			renderMetal(out, n, amplitude, amplitudeIncrement);
+			break;
 		}
+		out += n;
 	}
 }
 
