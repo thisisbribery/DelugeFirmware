@@ -599,6 +599,7 @@ PLACE_SDRAM_DATA Language english{
         {STRING_FOR_XIA_DECAY, "Engine decay"},
         {STRING_FOR_IIA_STRIKE, "Strike"},
         {STRING_FOR_XIA_PUNCH, "Punch"},
+        {STRING_FOR_DRUM_SNAPPY_DECAY, "Snappy decay"},
         {STRING_FOR_DRUM_PRESET_TIA_L, "TIA L"},
         {STRING_FOR_DRUM_PRESET_TIA_B, "TIA B"},
         {STRING_FOR_DRUM_PRESET_TIA_C, "TIA C"},

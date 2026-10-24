@@ -280,6 +280,22 @@ public:
 	}
 };
 
+/// The steeper amp envelope, on any drum synth sound
+class SnappyDecay final : public Choice {
+public:
+	explicit SnappyDecay(l10n::String name) : Choice(name, Patch::SNAPPY_DECAY) {}
+
+	deluge::vector<std::string_view> getOptions(OptType optType) override {
+		(void)optType;
+		using enum l10n::String;
+		return {l10n::getView(STRING_FOR_OFF), l10n::getView(STRING_FOR_ON)};
+	}
+	bool isRelevant(ModControllableAudio* modControllable, int32_t whichThing) const override {
+		const auto* sound = static_cast<Sound*>(modControllable);
+		return sound->sources[0].oscType == OscType::DRUM_SYNTH;
+	}
+};
+
 /// Snap, offset, or one of the twelve LXR transient samples
 class TransientMode final : public Choice {
 public:

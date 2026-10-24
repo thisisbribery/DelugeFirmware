@@ -39,8 +39,10 @@ public:
 	int32_t noteOn(bool directlyToDecay, int32_t sustain);
 	int32_t noteOn(uint8_t envelopeIndex, Sound* sound, Voice* voice);
 	void noteOff(uint8_t envelopeIndex, Sound* sound, ParamManagerForTimeline* paramManager);
+	/// snappy: decay and release follow the square of the usual curve, which has dropped twice as many dB at every
+	/// point. Drum synth sounds can choose it for their amp envelope.
 	int32_t render(uint32_t numSamples, uint32_t attack, uint32_t decay, uint32_t sustain, uint32_t release,
-	               const uint16_t* releaseTable);
+	               const uint16_t* releaseTable, bool snappy = false);
 	void unconditionalRelease(EnvelopeStage typeOfRelease = EnvelopeStage::RELEASE,
 	                          uint32_t newFastReleaseIncrement = SOFT_CULL_INCREMENT);
 	void unconditionalOff();

@@ -313,3 +313,16 @@ TEST(XiaTests, olderSavesLoadWithXiaDefaults) {
 	CHECK_EQUAL(0, loaded.get(Patch::XIA_VARIANT));
 	CHECK_EQUAL(0, loaded.get(Patch::XIA_PUNCH));
 }
+
+TEST(XiaTests, snappyDecayIsOffByDefaultAndSurvivesPresets) {
+	Patch patch;
+	CHECK_EQUAL(0, patch.get(Patch::SNAPPY_DECAY));
+	CHECK_EQUAL(1, Patch::maxValue(Patch::SNAPPY_DECAY));
+	patch.set(Patch::SNAPPY_DECAY, 1);
+	patch.setPreset(Preset::SNARE);
+	CHECK_EQUAL(1, patch.get(Patch::SNAPPY_DECAY));
+	patch.setXiaPreset(Engine::IIA, 2);
+	CHECK_EQUAL(1, patch.get(Patch::SNAPPY_DECAY));
+	CHECK(Patch::isUsedBy(Patch::SNAPPY_DECAY, Engine::METAL));
+	CHECK(Patch::isUsedBy(Patch::SNAPPY_DECAY, Engine::TIA));
+}

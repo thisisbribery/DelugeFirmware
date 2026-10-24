@@ -26,8 +26,15 @@ namespace params = deluge::modulation::params;
 Envelope::Envelope() {
 }
 
+namespace {
+/// Square a 0 to 2^31 curve value, keeping its range
+int32_t steeper(int32_t curve) {
+	return multiply_32x32_rshift32(curve, curve) << 1;
+}
+} // namespace
+
 int32_t Envelope::render(uint32_t numSamples, uint32_t attack, uint32_t decay, uint32_t sustain, uint32_t release,
-                         const uint16_t* releaseTable) {
+                         const uint16_t* releaseTable, bool snappy) {
 
 considerEnvelopeStage:
 	switch (state) {
@@ -55,7 +62,10 @@ considerEnvelopeStage:
 		// a huge difference since we'd usually need to smooth it anyway
 
 		smoothedSustain = add_saturate(smoothedSustain, numSamples * (((int32_t)sustain - smoothedSustain) >> 9));
-		lastValue = smoothedSustain + multiply_32x32_rshift32(getDecay8(pos, 23), 2147483647 - smoothedSustain) * 2;
+		{
+			const int32_t curve = snappy ? steeper(getDecay8(pos, 23)) : getDecay8(pos, 23);
+			lastValue = smoothedSustain + multiply_32x32_rshift32(curve, 2147483647 - smoothedSustain) * 2;
+		}
 
 		pos += decay * numSamples;
 
@@ -87,7 +97,13 @@ considerEnvelopeStage:
 		// int32_t thisValue = multiply_32x32_rshift32(getDecay8(pos, 23), lastValue) << 1;
 		// int32_t negativePos = (8388608 - pos) >> 13;
 		// int32_t thisValue = multiply_32x32_rshift32(negativePos * negativePos * negativePos, lastValue) << 2;
-		lastValue = multiply_32x32_rshift32(interpolateTable(pos, 23, releaseTable), lastValuePreCurrentStage) << 1;
+		{
+			int32_t curve = interpolateTable(pos, 23, releaseTable);
+			if (snappy) {
+				curve = steeper(curve);
+			}
+			lastValue = multiply_32x32_rshift32(curve, lastValuePreCurrentStage) << 1;
+		}
 		break;
 
 	case EnvelopeStage::FAST_RELEASE:

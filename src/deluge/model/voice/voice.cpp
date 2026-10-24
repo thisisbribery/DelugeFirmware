@@ -737,6 +737,10 @@ uint32_t Voice::getLocalLFOPhaseIncrement(LFO_ID lfoId, deluge::modulation::para
 		noteOff(modelStack);
 	}
 
+	// A drum synth sound can ask for a steeper amp envelope
+	const bool snappyAmp = sound.sources[0].oscType == OscType::DRUM_SYNTH
+	                       && sound.sources[0].drumPatch.get(deluge::dsp::drum_synth::Patch::SNAPPY_DECAY) != 0;
+
 	// Do envelopes - if they're patched to something (always do the first one though)
 	for (int32_t e = 0; e < kNumEnvelopes; e++) {
 		if (e == 0
@@ -747,10 +751,10 @@ uint32_t Voice::getLocalLFOPhaseIncrement(LFO_ID lfoId, deluge::modulation::para
 			if (e == 0 && overrideAmplitudeEnvelopeReleaseRate) {
 				release = overrideAmplitudeEnvelopeReleaseRate;
 			}
-			sourceValues[util::to_underlying(PatchSource::ENVELOPE_0) + e] =
-			    envelopes[e].render(numSamples, paramFinalValues[params::LOCAL_ENV_0_ATTACK + e],
-			                        paramFinalValues[params::LOCAL_ENV_0_DECAY + e],
-			                        paramFinalValues[params::LOCAL_ENV_0_SUSTAIN + e], release, decayTableSmall8);
+			sourceValues[util::to_underlying(PatchSource::ENVELOPE_0) + e] = envelopes[e].render(
+			    numSamples, paramFinalValues[params::LOCAL_ENV_0_ATTACK + e],
+			    paramFinalValues[params::LOCAL_ENV_0_DECAY + e], paramFinalValues[params::LOCAL_ENV_0_SUSTAIN + e],
+			    release, decayTableSmall8, e == 0 && snappyAmp);
 			uint32_t anyChange = (old != sourceValues[util::to_underlying(PatchSource::ENVELOPE_0) + e]);
 			sourcesChanged |= anyChange << (util::to_underlying(PatchSource::ENVELOPE_0) + e);
 		}

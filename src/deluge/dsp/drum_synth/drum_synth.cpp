@@ -255,6 +255,7 @@ uint8_t Patch::maxValue(Param p) {
 	case XIA_VARIANT:
 		return 2;
 	case XIA_PUNCH:
+	case SNAPPY_DECAY:
 		return 1;
 	default:
 		return 127;
@@ -264,6 +265,7 @@ uint8_t Patch::maxValue(Param p) {
 bool Patch::isUsedBy(Param p, Engine engine) {
 	switch (p) {
 	case ENGINE:
+	case SNAPPY_DECAY:
 		return true;
 	case OSC_WAVE:
 	case TRANS_MODE:

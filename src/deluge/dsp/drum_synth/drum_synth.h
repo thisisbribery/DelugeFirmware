@@ -123,8 +123,10 @@ public:
 		TRANS_VOLUME,      ///< Transient level
 		TRANS_PITCH,       ///< Transient speed
 		// XIA engines. Their continuous settings are on Deluge params: see DrumControls.
-		XIA_VARIANT, ///< The Cycles variant: TIA L, B, C or IIA G, I, H
-		XIA_PUNCH,   ///< 1 = a soft clipper on the output, and a shorter engine decay
+		XIA_VARIANT,  ///< The Cycles variant: TIA L, B, C or IIA G, I, H
+		XIA_PUNCH,    ///< 1 = a soft clipper on the output, and a shorter engine decay
+		SNAPPY_DECAY, ///< 1 = the Deluge amp envelope's decay and release fall away faster (any engine). Off by
+		              ///< default.
 		NUM_PARAMS,
 	};
 

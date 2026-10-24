@@ -1525,6 +1525,7 @@ PLACE_SDRAM_BSS drum_synth::XiaControl xiaDriveMenu{STRING_FOR_XIA_DRIVE, XiaEng
 PLACE_SDRAM_BSS drum_synth::XiaControl xiaDecayMenu{STRING_FOR_XIA_DECAY, XiaEngine::NUM_ENGINES,
                                                     XiaSlot::ENGINE_DECAY};
 PLACE_SDRAM_BSS drum_synth::OffOn xiaPunchMenu{STRING_FOR_XIA_PUNCH, DrumParam::XIA_PUNCH};
+PLACE_SDRAM_BSS drum_synth::SnappyDecay drumSnappyDecayMenu{STRING_FOR_DRUM_SNAPPY_DECAY};
 // Items the current engine doesn't use hide themselves
 PLACE_SDRAM_BSS menu_item::Submenu drumSynthMenu{
     STRING_FOR_DRUM_SYNTH,
@@ -1547,7 +1548,7 @@ PLACE_SDRAM_BSS menu_item::Submenu drumSynthMenu{
         &iiaWeightMenu,          &iiaAlloyMenu,
         &iiaShapeMenu,           &iiaStrikeMenu,
         &xiaDriveMenu,           &xiaDecayMenu,
-        &xiaPunchMenu,
+        &xiaPunchMenu,           &drumSnappyDecayMenu,
     },
 };
 
@@ -1836,6 +1837,7 @@ PLACE_SDRAM_BSS Submenu soundEditorRootMenu{
     STRING_FOR_SOUND,
     {
         &drum_synth::drumSynthEditor, // Only shown on drum synth sounds
+        &drumSnappyDecayMenu,         // Only shown on drum synth sounds
         &soundEditorRootActionsMenu,
         &soundMasterMenu,
         &arpMenu,
@@ -1872,6 +1874,7 @@ PLACE_SDRAM_BSS Submenu soundEditorRootMenuDrum{
     STRING_FOR_SOUND,
     {
         &drum_synth::drumSynthEditor, // Only shown on drum synth sounds
+        &drumSnappyDecayMenu,         // Only shown on drum synth sounds
         &soundEditorRootDrumActionsMenu,
         &soundMasterMenu,
         &arpMenu,
