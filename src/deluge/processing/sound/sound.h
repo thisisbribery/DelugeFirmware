@@ -239,6 +239,9 @@ public:
 	virtual bool isDrum() { return false; }
 	void setupAsSample(ParamManagerForTimeline* paramManager);
 	void setupAsDrumSynth(ParamManagerForTimeline* paramManager, deluge::dsp::drum_synth::Preset preset);
+	/// Custom 2 / Custom 3 (the last gold knob pair) carry a drum synth engine's two key settings. Any other engine
+	/// value puts the Deluge's defaults back.
+	void setDrumSynthKnobs(deluge::dsp::drum_synth::Engine engine);
 	void recalculateAllVoicePhaseIncrements(ModelStackWithSoundFlags* modelStack);
 	void set_cents(int8_t new_cents);
 	Error loadAllAudioFiles(bool mayActuallyReadFiles);

@@ -17,6 +17,7 @@
 #pragma once
 #include "definitions_cxx.hpp"
 #include "gui/menu_item/drum_synth/editor.h"
+#include "gui/menu_item/drum_synth/param.h"
 #include "gui/menu_item/formatted_title.h"
 #include "gui/menu_item/selection.h"
 #include "gui/menu_item/submenu.h"
@@ -85,12 +86,18 @@ public:
 				patch.set(dsp::drum_synth::Patch::XIA_VARIANT, value);
 			}
 			else {
-				patch.set(dsp::drum_synth::Patch::ENGINE, value);
+				drum_synth::setDrumEngine(static_cast<dsp::drum_synth::Engine>(value));
 			}
 			return;
 		}
 		OscType oldValue = soundEditor.currentSound->sources[sourceId_].oscType;
 		OscType newValue = typeForValue(getValue());
+
+		// Becoming a drum synth sets up its controls and envelopes, as SYNTH MODE does
+		if (newValue == OscType::DRUM_SYNTH && oldValue != OscType::DRUM_SYNTH) {
+			drum_synth::setDrumEngine(dsp::drum_synth::Engine::DRUM);
+			return;
+		}
 
 		const auto needs_unassignment = {
 		    OscType::INPUT_L,

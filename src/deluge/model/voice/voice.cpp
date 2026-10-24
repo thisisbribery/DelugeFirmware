@@ -2458,13 +2458,10 @@ dontUseCache: {}
 				memset(renderBuffer, 0, SSI_TX_BUFFER_NUM_SAMPLES * sizeof(int32_t));
 			}
 
-			const auto& drumPatch = sound.sources[s].drumPatch;
-			const auto xiaControls = deluge::dsp::drum_synth::isXia(drumPatch.engine())
-			                             ? deluge::dsp::drum_synth::readXiaControls(*paramManager->getPatchedParamSet())
-			                             : deluge::dsp::drum_synth::XiaControls{};
-			unisonParts[u].sources[s].drumVoice.render(drumPatch, getDrumSynthKnobOffsets(), renderBuffer, numSamples,
-			                                           phaseIncrement, sourceAmplitude, amplitudeIncrement,
-			                                           xiaControls);
+			unisonParts[u].sources[s].drumVoice.render(
+			    sound.sources[s].drumPatch,
+			    deluge::dsp::drum_synth::readDrumControls(*paramManager->getPatchedParamSet()), renderBuffer,
+			    numSamples, phaseIncrement, sourceAmplitude, amplitudeIncrement);
 
 			if (stereoBuffer) {
 				for (int32_t i = 0; i < numSamples; i++) {

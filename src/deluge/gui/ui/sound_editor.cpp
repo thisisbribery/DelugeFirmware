@@ -450,7 +450,7 @@ Sound* SoundEditor::shortcutSound() {
 }
 
 MenuItem* SoundEditor::soundShortcut(int32_t x, int32_t y) {
-	if (MenuItem* item = xiaShortcutFor(shortcutSound(), x, y)) {
+	if (MenuItem* item = drumShortcutFor(shortcutSound(), x, y)) {
 		return item;
 	}
 	return paramShortcutsForSounds[x][y];

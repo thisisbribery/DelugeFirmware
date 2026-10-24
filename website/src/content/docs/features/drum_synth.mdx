@@ -95,7 +95,7 @@ They work like any other Deluge sound engine: the envelopes, filters, FX, mod ma
 
 On any kit row (or synth), open the **SYNTH MODE** shortcut and choose **TIA** or **IIA**. On a kit row the first option reads **Sample**: choose it to go back to the row's sample. **Drum synth** gives the LXR engines.
 
-A row that wasn't a drum synth gets a percussive Deluge envelope (attack 0, decay 30, sustain 0, release 30), so each hit decays, and keeps decaying if you let go early. Shape it with the Deluge's envelope as usual.
+A row that wasn't a drum synth gets a percussive Deluge envelope (attack 0, decay 30, sustain 0, release 30), so each hit decays, and keeps decaying if you let go early, plus envelope 2 as a short blip for patching to pitch. Shape it with the Deluge's envelopes as usual.
 
 **OSC1 TYPE** on a drum synth row picks the variant: **L**, **B** or **C** for TIA, **G**, **I** or **H** for IIA, or the LXR voice.
 
@@ -136,18 +136,48 @@ The full list of settings, and the pad editor's columns, are in the sound menu's
 - IIA's attack setting is split: below the middle it set the strike level, which is **Strike** here, and above it a fade-in, which is the Deluge envelope's attack.
 - The settings can be parameter locked and automated, but not yet modulated from the mod matrix.
 
-## Gold knobs
+## Controls, shortcuts and gold knobs
 
-On drum synth rows, two pairs of gold knobs are set up for drums:
+Every engine's continuous settings are Deluge parameters, so they can be parameter locked, automated, MIDI learned and put on gold knobs. They run 0-127, as on the LXR and the Cycles. The choices (waves, transient type, noise filter, osc mode) are menu settings.
 
-| Knobs | Upper | Lower |
+The shortcut grid reads as an FM synth. The **OSC1** column is the drum voice itself, and the **OSC2** and **MOD1** columns are its other parts. Pads not listed keep their usual job.
+
+| Pad | Kick / tom | Snare | Cymbal / hat |
+|---|---|---|---|
+| OSC1 TYPE | Voice: kick / tom, snare, cymbal / hat | same | same |
+| OSC1 PULSE WIDTH | Osc wave | Osc wave | Osc wave |
+| OSC1 RETRIGGER | Transient type | Transient type | Transient type |
+| OSC1 FEEDBACK | Transient level | Transient level | Transient level |
+| OSC1 WAVE INDEX | Transient speed | Transient speed | Transient speed |
+| OSC2 LEVEL | FM amount | Noise mix | FM amount |
+| OSC2 TRANSPOSE | Mod pitch | Noise rate | Mod pitch |
+| OSC2 TYPE | Mod wave | Noise filter | Mod wave |
+| OSC2 PULSE WIDTH | Mod fine | Noise cutoff | Mod fine |
+| OSC2 RETRIGGER | Osc mode (FM / mix) | | |
+| OSC2 FEEDBACK | | Noise resonance | |
+| MOD1 LEVEL | Pitch decay | Pitch decay | FM 2 amount |
+| MOD1 TRANSPOSE | Pitch amount | Pitch amount | Mod 2 pitch |
+| MOD1 TYPE | | | Mod 2 wave |
+| MOD1 PULSE WIDTH | | | Mod 2 fine |
+| MOD1 FEEDBACK | Pitch curve | Pitch curve | |
+
+TIA and IIA have their own layout: see [XIA engines](#xia-engines).
+
+**Gold knobs.** Custom 1 tunes the drum. **Custom 2 / Custom 3** (the last pair) carry each engine's two key settings:
+
+| Engine | Custom 2 | Custom 3 |
 |---|---|---|
-| Attack / release | Amp decay | Pitch decay (cymbal / hat: Metal tune) |
-| Mod rate / depth | Pitch amount (cymbal / hat: FM 2 amount) | FM amount (snare: Noise mix) |
+| Kick / tom | Pitch amount | FM amount |
+| Snare | Noise mix | Pitch amount |
+| Cymbal / hat | FM amount | FM 2 amount |
+| TIA | Blendex 1 | Freq 1 |
+| IIA | Weight | Alloy |
 
-These knobs work as offsets: at centre they leave the menu value alone, and turning them pushes the value up or down. They can be automated, parameter locked and used as mod matrix destinations. A fourth control, **Transient level**, is available the same way through the mod matrix and automation.
+The other gold knobs keep their usual Deluge jobs. Hold a step and turn a knob to parameter lock it.
 
-Under the hood these use the osc PW and wave index parameters, which the drum synth doesn't otherwise need, so their names change to the drum names on drum synth sounds.
+**Envelope 2.** Every drum synth row starts with envelope 2 as a short blip: attack 0, decay 5, sustain 0, release 0. Patch it to pitch (or osc 1 pitch) for a transient snap.
+
+The LXR settings share parameters between engines. Switching a row from one LXR voice to another keeps each voice's settings: they are stored with the row and come back when you switch back. The settings can't be modulated from the mod matrix, because the Deluge only allows that for those parameters in FM mode.
 
 ## CPU load
 
@@ -161,6 +191,9 @@ Under the hood these use the osc PW and wave index parameters, which the drum sy
 One sample lasts 22,676 ns, so a Voice reading of 900 means each playing voice uses about 4% of the CPU. Measured on hardware, a kick / tom drum synth voice costs about as much as a sample voice.
 
 ## Compatibility
+
+Drum synth rows saved by earlier test builds of this drum synth load with their choices intact, but their continuous settings (pitch amount, FM amount and so on) moved onto Deluge parameters: reload a preset or set them again.
+
 
 Kits that use the drum synth won't play those rows on firmware without it.
 

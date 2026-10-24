@@ -53,18 +53,6 @@ public:
 	///
 	std::array<int32_t, deluge::modulation::params::LOCAL_LAST> paramFinalValues;
 
-	/// The drum synth's gold knob settings live on osc params the drum synth doesn't otherwise use
-	[[nodiscard]] deluge::dsp::drum_synth::KnobOffsets getDrumSynthKnobOffsets() const {
-		namespace params = deluge::modulation::params;
-		using Slot = deluge::dsp::drum_synth::KnobOffsets;
-		deluge::dsp::drum_synth::KnobOffsets knobs;
-		knobs.values[Slot::TONE] = paramFinalValues[params::LOCAL_OSC_A_PHASE_WIDTH];
-		knobs.values[Slot::PITCH_AMOUNT] = paramFinalValues[params::LOCAL_OSC_A_WAVE_INDEX];
-		knobs.values[Slot::PITCH_DECAY] = paramFinalValues[params::LOCAL_OSC_B_PHASE_WIDTH];
-		knobs.values[Slot::TRANSIENT] = paramFinalValues[params::LOCAL_OSC_B_WAVE_INDEX];
-		return knobs;
-	}
-
 	// At the start of this list are local copies of the "global" ones. It's cheaper to copy them here than to pick and
 	// choose where the Patcher looks for them
 	std::array<int32_t, kNumPatchSources> sourceValues;

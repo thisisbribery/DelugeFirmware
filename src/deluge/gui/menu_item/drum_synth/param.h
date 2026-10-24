@@ -49,7 +49,7 @@ inline bool usedBySound(ModControllableAudio* modControllable, Patch::Param para
 	return Patch::isUsedBy(param, sound->sources[0].drumPatch.engine());
 }
 
-using deluge::dsp::drum_synth::XiaControls;
+using deluge::dsp::drum_synth::DrumControls;
 
 /// Set a patched param of the sound being edited, as turning its knob would (so it can be undone and automated)
 inline void setSoundParam(int32_t p, int32_t value) {
@@ -58,41 +58,40 @@ inline void setSoundParam(int32_t p, int32_t value) {
 	modelStack->autoParam->setCurrentValueInResponseToUserInput(value, modelStack);
 }
 
-/// Custom 2 / Custom 3 (the last gold knob pair) on XIA rows carry the engine's two key settings
-inline void setXiaKnobs(Sound& sound, Engine engine) {
-	using deluge::dsp::drum_synth::kXiaControlParams;
-	namespace params = deluge::modulation::params;
-	if (engine == Engine::TIA) {
-		sound.modKnobs[7][1].paramDescriptor.setToHaveParamOnly(kXiaControlParams[XiaControls::TIA_BLENDEX1]);
-		sound.modKnobs[7][0].paramDescriptor.setToHaveParamOnly(kXiaControlParams[XiaControls::TIA_FREQ1]);
-	}
-	else if (engine == Engine::IIA) {
-		sound.modKnobs[7][1].paramDescriptor.setToHaveParamOnly(kXiaControlParams[XiaControls::IIA_WEIGHT]);
-		sound.modKnobs[7][0].paramDescriptor.setToHaveParamOnly(kXiaControlParams[XiaControls::IIA_ALLOY]);
-	}
-	else {
-		// The Deluge's defaults for that pair
-		sound.modKnobs[7][1].paramDescriptor.setToHaveParamOnly(params::UNPATCHED_START
-		                                                        + params::UNPATCHED_SAMPLE_RATE_REDUCTION);
-		sound.modKnobs[7][0].paramDescriptor.setToHaveParamOnly(params::UNPATCHED_START
-		                                                        + params::UNPATCHED_BITCRUSHING);
-	}
+/// Custom 2 / Custom 3 (the last gold knob pair) carry the engine's two key settings. NUM_ENGINES puts the Deluge's
+/// defaults back.
+inline void setDrumKnobs(Sound& sound, Engine engine) {
+	sound.setDrumSynthKnobs(engine);
 	view.setKnobIndicatorLevels();
 }
 
+inline DrumControls currentControls() {
+	return deluge::dsp::drum_synth::readDrumControls(*soundEditor.currentParamManager->getPatchedParamSet());
+}
+
+inline void setControls(const DrumControls& controls) {
+	for (int32_t i = 0; i < DrumControls::NUM_SLOTS; i++) {
+		setSoundParam(deluge::dsp::drum_synth::kDrumControlParams[i], controls.values[i]);
+	}
+}
+
 /// Put the sound being edited onto a drum synth engine, or move it between engines. A sound that wasn't a drum synth
-/// gets a percussive Deluge envelope, which decays both while held and after letting go. An XIA engine starts from the
-/// Cycles' defaults, on its control params.
-inline void setDrumEngine(Engine engine, uint8_t variant = 0) {
+/// gets a percussive Deluge envelope, which decays both while held and after letting go, and envelope 2 as a short
+/// blip to patch to pitch for a snap. fresh: start the engine from its defaults even if it's already playing.
+inline void setDrumEngine(Engine engine, uint8_t variant = 0, bool fresh = false) {
 	using deluge::dsp::drum_synth::isXia;
-	using deluge::dsp::drum_synth::kXiaControlParams;
 	namespace params = deluge::modulation::params;
 	Sound& sound = *soundEditor.currentSound;
 	Source& source = sound.sources[0];
+	Patch& patch = source.drumPatch;
 	const bool wasDrumSynth = source.oscType == OscType::DRUM_SYNTH;
-	const Engine from = source.drumPatch.engine();
+	const Engine from = patch.engine();
 
-	if (!wasDrumSynth) {
+	if (wasDrumSynth) {
+		// The LXR engines share control slots, so keep this one's settings in the patch for coming back to it
+		deluge::dsp::drum_synth::storeControlsInPatch(currentControls(), patch);
+	}
+	else {
 		sound.killAllVoices();
 		if (sound.getSynthMode() != SynthMode::SUBTRACTIVE) {
 			sound.setSynthMode(SynthMode::SUBTRACTIVE, currentSong);
@@ -102,60 +101,67 @@ inline void setDrumEngine(Engine engine, uint8_t variant = 0) {
 		setSoundParam(params::LOCAL_ENV_0_DECAY, getParamFromUserValue(params::LOCAL_ENV_0_DECAY, 30));
 		setSoundParam(params::LOCAL_ENV_0_SUSTAIN, getParamFromUserValue(params::LOCAL_ENV_0_SUSTAIN, 0));
 		setSoundParam(params::LOCAL_ENV_0_RELEASE, getParamFromUserValue(params::LOCAL_ENV_0_RELEASE, 30));
-	}
-
-	const bool changed = !wasDrumSynth || engine != from;
-	if (isXia(engine)) {
-		if (changed) {
-			source.drumPatch.setXiaPreset(engine, variant);
-			const XiaControls defaults = XiaControls::defaultsFor(engine);
-			for (int32_t i = 0; i < XiaControls::NUM_SLOTS; i++) {
-				setSoundParam(kXiaControlParams[i], defaults.values[i]);
-			}
+		for (const auto& [p, userValue] : deluge::dsp::drum_synth::kDrumSynthEnvelope2) {
+			setSoundParam(p, getParamFromUserValue(p, userValue));
 		}
 	}
-	else if (changed && (!wasDrumSynth || isXia(from))) {
-		source.drumPatch.setPreset(static_cast<deluge::dsp::drum_synth::Preset>(engine == Engine::SNARE   ? 1
-		                                                                        : engine == Engine::METAL ? 6
-		                                                                                                  : 0));
-	}
-	else if (changed) {
-		source.drumPatch.set(Patch::ENGINE, static_cast<uint8_t>(engine));
-	}
 
-	if (isXia(engine) || isXia(from)) {
-		setXiaKnobs(sound, engine);
+	if (wasDrumSynth && engine == from && !fresh) {
+		return;
 	}
+	if (isXia(engine)) {
+		patch.setXiaPreset(engine, variant);
+	}
+	else if (!wasDrumSynth || isXia(from) || fresh) {
+		patch.setPreset(static_cast<deluge::dsp::drum_synth::Preset>(engine == Engine::SNARE   ? 1
+		                                                             : engine == Engine::METAL ? 6
+		                                                                                       : 0));
+	}
+	else {
+		patch.set(Patch::ENGINE, static_cast<uint8_t>(engine));
+	}
+	setControls(deluge::dsp::drum_synth::controlsFromPatch(patch));
+	setDrumKnobs(sound, engine);
 	soundEditor.markInstrumentAsEdited();
 }
 
 /// Back from a drum synth to the Deluge's own oscillators: a sample on a kit row, a saw on a synth
 inline void leaveDrumSynth() {
-	using deluge::dsp::drum_synth::isXia;
 	Sound& sound = *soundEditor.currentSound;
 	Source& source = sound.sources[0];
 	if (source.oscType != OscType::DRUM_SYNTH) {
 		return;
 	}
-	const bool wasXia = isXia(source.drumPatch.engine());
+	deluge::dsp::drum_synth::storeControlsInPatch(currentControls(), source.drumPatch);
 	sound.killAllVoices();
 	source.setOscType(soundEditor.editingKitRow() ? OscType::SAMPLE : OscType::SAW);
-	if (wasXia) {
-		setXiaKnobs(sound, Engine::DRUM);
-	}
+	setDrumKnobs(sound, Engine::NUM_ENGINES);
 	soundEditor.markInstrumentAsEdited();
 }
 
-/// One XIA control, edited 0-127 like the Cycles knob. It is a real patched param underneath, so it can be parameter
-/// locked, automated, MIDI learned and put on a gold knob.
-class XiaControl final : public patched_param::Integer {
+/// One drum synth control, edited 0-127 like the LXR's and the Cycles' knobs. It is a real patched param underneath, so
+/// it can be parameter locked, automated, MIDI learned and put on a gold knob.
+class Control : public patched_param::Integer {
 public:
-	/// engine NUM_ENGINES: shown for both XIA engines
-	XiaControl(l10n::String name, Engine engine, XiaControls::Slot slot)
-	    : patched_param::Integer(name, deluge::dsp::drum_synth::kXiaControlParams[slot]), engine_(engine) {}
+	Control(l10n::String name, int32_t slot)
+	    : patched_param::Integer(name, deluge::dsp::drum_synth::kDrumControlParams[slot]) {}
 
 	[[nodiscard]] int32_t getMaxValue() const override { return 127; }
 	[[nodiscard]] int32_t getMinValue() const override { return 0; }
+
+protected:
+	void readCurrentValue() override {
+		const int32_t raw = soundEditor.currentParamManager->getPatchedParamSet()->getValue(getP());
+		setValue(std::clamp<int32_t>((DrumControls::toKnob(raw) + 0x80) >> 8, 0, 127));
+	}
+	int32_t getFinalValue() override { return DrumControls::fromValue(getValue()); }
+};
+
+/// A control of the XIA engines. engine NUM_ENGINES: shown for both.
+class XiaControl final : public Control {
+public:
+	XiaControl(l10n::String name, Engine engine, DrumControls::Slot slot) : Control(name, slot), engine_(engine) {}
+
 	bool isRelevant(ModControllableAudio* modControllable, int32_t whichThing) const override {
 		const auto* sound = static_cast<Sound*>(modControllable);
 		const Engine engine = sound->sources[0].drumPatch.engine();
@@ -163,27 +169,21 @@ public:
 		       && ((engine_ == Engine::NUM_ENGINES) ? deluge::dsp::drum_synth::isXia(engine) : engine == engine_);
 	}
 
-protected:
-	void readCurrentValue() override {
-		const int32_t raw = soundEditor.currentParamManager->getPatchedParamSet()->getValue(getP());
-		setValue(std::clamp<int32_t>((XiaControls::toKnob(raw) + 0x80) >> 8, 0, 127));
-	}
-	int32_t getFinalValue() override { return XiaControls::fromValue(getValue()); }
-
 private:
 	Engine engine_;
 };
 
-/// A drum synth setting edited as its raw 0-127 value, the way the LXR shows it
-class Value final : public Integer {
+/// A continuous LXR setting, shown for the LXR engines that use it
+class LxrControl final : public Control {
 public:
-	Value(l10n::String name, Patch::Param param) : Integer(name), param_(param) {}
+	LxrControl(l10n::String name, Patch::Param param)
+	    : Control(name, deluge::dsp::drum_synth::lxrControlSlot(param)), param_(param) {}
 
-	void readCurrentValue() override { setValue(currentPatch().get(param_)); }
-	void writeCurrentValue() override { currentPatch().set(param_, getValue()); }
-	[[nodiscard]] int32_t getMaxValue() const override { return Patch::maxValue(param_); }
 	bool isRelevant(ModControllableAudio* modControllable, int32_t whichThing) const override {
-		return usedBySound(modControllable, param_);
+		const auto* sound = static_cast<Sound*>(modControllable);
+		const Engine engine = sound->sources[0].drumPatch.engine();
+		return sound->sources[0].oscType == OscType::DRUM_SYNTH && !deluge::dsp::drum_synth::isXia(engine)
+		       && Patch::isUsedBy(param_, engine);
 	}
 
 private:
@@ -316,19 +316,15 @@ public:
 		constexpr int32_t kKitPresets = static_cast<int32_t>(Preset::NUM_PRESETS);
 		const int32_t choice = getValue();
 		if (choice < kKitPresets) {
-			const bool wasXia = deluge::dsp::drum_synth::isXia(currentPatch().engine());
 			currentPatch().setPreset(static_cast<Preset>(choice));
-			if (wasXia) {
-				setXiaKnobs(*soundEditor.currentSound, currentPatch().engine());
-			}
+			setControls(deluge::dsp::drum_synth::controlsFromPatch(currentPatch()));
+			setDrumKnobs(*soundEditor.currentSound, currentPatch().engine());
+			soundEditor.markInstrumentAsEdited();
 		}
 		else {
 			// After the kit presets come the XIA engines' variants, with the Cycles' own defaults
 			const int32_t xia = choice - kKitPresets;
-			const Engine engine = (xia < 3) ? Engine::TIA : Engine::IIA;
-			// Force a fresh start, even on the same engine
-			currentPatch().set(Patch::ENGINE, static_cast<uint8_t>(Engine::DRUM));
-			setDrumEngine(engine, xia % 3);
+			setDrumEngine((xia < 3) ? Engine::TIA : Engine::IIA, xia % 3, true);
 		}
 		display->displayPopup(l10n::get(l10n::String::STRING_FOR_DRUM_PRESET_LOADED));
 		return nullptr; // Back up to the drum synth menu

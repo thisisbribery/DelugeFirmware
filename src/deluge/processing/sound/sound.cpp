@@ -288,19 +288,19 @@ void Sound::setupAsDrumSynth(ParamManagerForTimeline* paramManager, deluge::dsp:
 		    getParamFromUserValue(params::LOCAL_HPF_FREQ, row.hpf));
 	}
 
-	// The drum synth's knob settings are offsets on osc params it doesn't otherwise use. Centred = no change.
-	patchedParams->params[params::LOCAL_OSC_A_PHASE_WIDTH].setCurrentValueBasicForSetup(0);
-	patchedParams->params[params::LOCAL_OSC_A_WAVE_INDEX].setCurrentValueBasicForSetup(0);
-	patchedParams->params[params::LOCAL_OSC_B_PHASE_WIDTH].setCurrentValueBasicForSetup(0);
-	patchedParams->params[params::LOCAL_OSC_B_WAVE_INDEX].setCurrentValueBasicForSetup(0);
+	// The engine's continuous settings live on Deluge params
+	const auto controls = deluge::dsp::drum_synth::controlsFromPatch(sources[0].drumPatch);
+	for (int32_t i = 0; i < deluge::dsp::drum_synth::DrumControls::NUM_SLOTS; i++) {
+		patchedParams->params[deluge::dsp::drum_synth::kDrumControlParams[i]].setCurrentValueBasicForSetup(
+		    controls.values[i]);
+	}
+	for (const auto& [p, userValue] : deluge::dsp::drum_synth::kDrumSynthEnvelope2) {
+		patchedParams->params[p].setCurrentValueBasicForSetup(getParamFromUserValue(p, userValue));
+	}
 
-	// Gold knobs: attack / release becomes amp decay / pitch decay, and mod rate / depth becomes pitch amount / tone.
-	// For the metal engine the same knobs are FM 2 amount, tuning and FM amount; see drum_synth::KnobOffsets.
-	modKnobs[2][1].paramDescriptor.setToHaveParamOnly(params::LOCAL_ENV_0_DECAY);
-	modKnobs[2][0].paramDescriptor.setToHaveParamOnly(params::LOCAL_OSC_B_PHASE_WIDTH);
-	modKnobs[5][1].paramDescriptor.setToHaveParamOnly(params::LOCAL_OSC_A_WAVE_INDEX);
-	modKnobs[5][0].paramDescriptor.setToHaveParamOnly(params::LOCAL_OSC_A_PHASE_WIDTH);
+	// Custom 1 tunes the drum; Custom 2 / Custom 3 carry the engine's key settings
 	modKnobs[6][0].paramDescriptor.setToHaveParamOnly(params::LOCAL_PITCH_ADJUST);
+	setDrumSynthKnobs(sources[0].drumPatch.engine());
 
 	paramManager->getPatchCableSet()->numPatchCables = 1;
 	paramManager->getPatchCableSet()->patchCables[0].setup(
@@ -416,76 +416,122 @@ void Sound::setupAsBlankSynth(ParamManager* paramManager, bool is_dx) {
 	doneReadingFromFile();
 }
 
+void Sound::setDrumSynthKnobs(deluge::dsp::drum_synth::Engine engine) {
+	using deluge::dsp::drum_synth::DrumControls;
+	using deluge::dsp::drum_synth::Engine;
+	using deluge::dsp::drum_synth::kDrumControlParams;
+	using deluge::dsp::drum_synth::lxrControlSlot;
+	using deluge::dsp::drum_synth::Patch;
+
+	auto setPair = [this](int32_t upperSlot, int32_t lowerSlot) {
+		modKnobs[7][1].paramDescriptor.setToHaveParamOnly(kDrumControlParams[upperSlot]);
+		modKnobs[7][0].paramDescriptor.setToHaveParamOnly(kDrumControlParams[lowerSlot]);
+	};
+	switch (engine) {
+	case Engine::DRUM:
+		setPair(lxrControlSlot(Patch::PITCH_AMOUNT), lxrControlSlot(Patch::FM_AMOUNT));
+		break;
+	case Engine::SNARE:
+		setPair(lxrControlSlot(Patch::NOISE_MIX), lxrControlSlot(Patch::PITCH_AMOUNT));
+		break;
+	case Engine::METAL:
+		setPair(lxrControlSlot(Patch::FM_AMOUNT), lxrControlSlot(Patch::FM2_AMOUNT));
+		break;
+	case Engine::TIA:
+		setPair(DrumControls::TIA_BLENDEX1, DrumControls::TIA_FREQ1);
+		break;
+	case Engine::IIA:
+		setPair(DrumControls::IIA_WEIGHT, DrumControls::IIA_ALLOY);
+		break;
+	default:
+		// Not a drum synth: the Deluge's defaults for that pair
+		modKnobs[7][1].paramDescriptor.setToHaveParamOnly(params::UNPATCHED_START
+		                                                  + params::UNPATCHED_SAMPLE_RATE_REDUCTION);
+		modKnobs[7][0].paramDescriptor.setToHaveParamOnly(params::UNPATCHED_START + params::UNPATCHED_BITCRUSHING);
+		break;
+	}
+}
+
 char const* Sound::getPatchedParamDisplayNameOverride(int32_t p) {
-	using deluge::dsp::drum_synth::KnobOffsets;
+	using deluge::dsp::drum_synth::DrumControls;
 	using deluge::dsp::drum_synth::Patch;
 	using enum deluge::l10n::String;
 
 	if (sources[0].oscType != OscType::DRUM_SYNTH) {
 		return nullptr;
 	}
+	const int32_t slot = deluge::dsp::drum_synth::drumSlotForParam(p);
+	if (slot < 0) {
+		return nullptr;
+	}
 
-	// The XIA engines' controls sit on the FM operator params
 	const auto engine = sources[0].drumPatch.engine();
 	if (deluge::dsp::drum_synth::isXia(engine)) {
-		using deluge::dsp::drum_synth::XiaControls;
 		const bool tia = engine == deluge::dsp::drum_synth::Engine::TIA;
-		switch (deluge::dsp::drum_synth::xiaSlotForParam(p)) {
-		case XiaControls::TIA_BLENDEX1:
+		switch (slot) {
+		case DrumControls::TIA_BLENDEX1:
 			return deluge::l10n::get(tia ? STRING_FOR_TIA_BLENDEX1 : STRING_FOR_IIA_WEIGHT);
-		case XiaControls::TIA_BLENDEX2:
+		case DrumControls::TIA_BLENDEX2:
 			return deluge::l10n::get(tia ? STRING_FOR_TIA_BLENDEX2 : STRING_FOR_IIA_ALLOY);
-		case XiaControls::TIA_BLENDEX3:
+		case DrumControls::TIA_BLENDEX3:
 			return deluge::l10n::get(tia ? STRING_FOR_TIA_BLENDEX3 : STRING_FOR_IIA_SHAPE);
-		case XiaControls::DRIVE:
+		case DrumControls::DRIVE:
 			return deluge::l10n::get(STRING_FOR_XIA_DRIVE);
-		case XiaControls::ENGINE_DECAY:
+		case DrumControls::ENGINE_DECAY:
 			return deluge::l10n::get(STRING_FOR_XIA_DECAY);
-		case XiaControls::TIA_FREQ1:
+		case DrumControls::TIA_FREQ1:
 			return deluge::l10n::get(tia ? STRING_FOR_TIA_FREQ1 : STRING_FOR_IIA_STRIKE);
-		case XiaControls::TIA_FREQ2:
+		case DrumControls::TIA_FREQ2:
 			return tia ? deluge::l10n::get(STRING_FOR_TIA_FREQ2) : nullptr;
-		case XiaControls::TIA_FREQ3:
+		case DrumControls::TIA_FREQ3:
 			return tia ? deluge::l10n::get(STRING_FOR_TIA_FREQ3) : nullptr;
 		default:
 			return nullptr;
 		}
 	}
 
-	KnobOffsets::Slot slot;
-	switch (p) {
-	case params::LOCAL_OSC_A_PHASE_WIDTH:
-		slot = KnobOffsets::TONE;
-		break;
-	case params::LOCAL_OSC_A_WAVE_INDEX:
-		slot = KnobOffsets::PITCH_AMOUNT;
-		break;
-	case params::LOCAL_OSC_B_PHASE_WIDTH:
-		slot = KnobOffsets::PITCH_DECAY;
-		break;
-	case params::LOCAL_OSC_B_WAVE_INDEX:
-		slot = KnobOffsets::TRANSIENT;
-		break;
-	default:
-		return nullptr;
+	// The LXR setting this engine keeps on that slot
+	for (uint8_t i = 0; i < Patch::NUM_PARAMS; i++) {
+		const auto param = static_cast<Patch::Param>(i);
+		if (deluge::dsp::drum_synth::lxrControlSlot(param) != slot || !Patch::isUsedBy(param, engine)) {
+			continue;
+		}
+		switch (param) {
+		case Patch::PITCH_AMOUNT:
+			return deluge::l10n::get(STRING_FOR_DRUM_PITCH_AMOUNT);
+		case Patch::PITCH_DECAY:
+			return deluge::l10n::get(STRING_FOR_DRUM_PITCH_DECAY);
+		case Patch::PITCH_SLOPE:
+			return deluge::l10n::get(STRING_FOR_DRUM_PITCH_SLOPE);
+		case Patch::FM_AMOUNT:
+			return deluge::l10n::get(STRING_FOR_DRUM_FM_AMOUNT);
+		case Patch::MOD_COARSE:
+			return deluge::l10n::get(STRING_FOR_DRUM_MOD_COARSE);
+		case Patch::MOD_FINE:
+			return deluge::l10n::get(STRING_FOR_DRUM_MOD_FINE);
+		case Patch::FM2_AMOUNT:
+			return deluge::l10n::get(STRING_FOR_DRUM_FM2_AMOUNT);
+		case Patch::MOD2_COARSE:
+			return deluge::l10n::get(STRING_FOR_DRUM_MOD2_COARSE);
+		case Patch::MOD2_FINE:
+			return deluge::l10n::get(STRING_FOR_DRUM_MOD2_FINE);
+		case Patch::NOISE_MIX:
+			return deluge::l10n::get(STRING_FOR_DRUM_NOISE_MIX);
+		case Patch::NOISE_PITCH:
+			return deluge::l10n::get(STRING_FOR_DRUM_NOISE_PITCH);
+		case Patch::NOISE_CUTOFF:
+			return deluge::l10n::get(STRING_FOR_DRUM_NOISE_CUTOFF);
+		case Patch::NOISE_RESONANCE:
+			return deluge::l10n::get(STRING_FOR_DRUM_NOISE_RESONANCE);
+		case Patch::TRANS_VOLUME:
+			return deluge::l10n::get(STRING_FOR_DRUM_TRANSIENT_VOLUME);
+		case Patch::TRANS_PITCH:
+			return deluge::l10n::get(STRING_FOR_DRUM_TRANSIENT_PITCH);
+		default:
+			return nullptr;
+		}
 	}
-
-	switch (KnobOffsets::targetFor(slot, sources[0].drumPatch.engine())) {
-	case Patch::FM_AMOUNT:
-		return deluge::l10n::get(STRING_FOR_DRUM_FM_AMOUNT);
-	case Patch::NOISE_MIX:
-		return deluge::l10n::get(STRING_FOR_DRUM_NOISE_MIX);
-	case Patch::PITCH_AMOUNT:
-		return deluge::l10n::get(STRING_FOR_DRUM_PITCH_AMOUNT);
-	case Patch::FM2_AMOUNT:
-		return deluge::l10n::get(STRING_FOR_DRUM_FM2_AMOUNT);
-	case Patch::PITCH_DECAY:
-		return deluge::l10n::get(STRING_FOR_DRUM_PITCH_DECAY);
-	case Patch::MOD_COARSE:
-		return deluge::l10n::get(STRING_FOR_DRUM_METAL_TUNE);
-	default:
-		return deluge::l10n::get(STRING_FOR_DRUM_TRANSIENT_VOLUME);
-	}
+	return nullptr;
 }
 
 ModFXType Sound::getModFXType() {

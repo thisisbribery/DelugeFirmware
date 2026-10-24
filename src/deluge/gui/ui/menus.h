@@ -115,9 +115,9 @@ extern MenuItem* gateDrumParamShortcuts[kDisplayHeight];
 extern MenuItem* paramShortcutsForSounds[kDisplayWidth][kDisplayHeight];
 extern MenuItem* paramShortcutsForSoundsSecondLayer[kDisplayWidth][kDisplayHeight];
 class Sound;
-/// On TIA and IIA sounds, some sound shortcut pads open the engine's settings instead (see menus.cpp). nullptr = the
+/// On drum synth sounds, some sound shortcut pads open the engine's settings instead (see menus.cpp). nullptr = the
 /// normal shortcut.
-MenuItem* xiaShortcutFor(const Sound* sound, int32_t x, int32_t y);
+MenuItem* drumShortcutFor(const Sound* sound, int32_t x, int32_t y);
 extern MenuItem* paramShortcutsForAudioClips[kDisplayWidth][kDisplayHeight];
 extern MenuItem* paramShortcutsForSongView[kDisplayWidth][kDisplayHeight];
 extern MenuItem* paramShortcutsForKitGlobalFX[kDisplayWidth][kDisplayHeight];

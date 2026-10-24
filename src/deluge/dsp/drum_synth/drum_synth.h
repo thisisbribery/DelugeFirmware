@@ -30,14 +30,15 @@ enum class Engine : uint8_t {
 	NUM_ENGINES,
 };
 
-/// Whether an engine is one of the XIA engines, whose settings live on Deluge params (see XiaControls)
+/// Whether an engine is one of the XIA engines
 constexpr bool isXia(Engine engine) {
 	return engine == Engine::TIA || engine == Engine::IIA;
 }
 
-/// The XIA engines' continuous settings. They live on Deluge patched params that a non-FM sound doesn't use, so they
-/// can be automated, parameter locked and put on gold knobs. Each slot means something per engine.
-struct XiaControls {
+/// Every engine's continuous settings. They live on Deluge patched params that a drum synth sound doesn't otherwise
+/// use, so they can be automated, parameter locked and put on gold knobs. Each slot means something per engine: the XIA
+/// engines' meanings are below, and the LXR engines' come from lxrControlSlot().
+struct DrumControls {
 	enum Slot : uint8_t {
 		TIA_BLENDEX1 = 0, ///< Operator 1 from heard (0) to modulating (127)
 		TIA_BLENDEX2 = 1,
@@ -51,7 +52,7 @@ struct XiaControls {
 		IIA_ALLOY = 1,  ///< Partial levels, or modulation depth on H
 		IIA_SHAPE = 2,  ///< Partial waveform, sine > triangle > square > saw
 		IIA_STRIKE = 5, ///< Level of the noise burst at the start of each hit
-		NUM_SLOTS = 8,
+		NUM_SLOTS = 9,
 	};
 	/// Raw Deluge param values: the whole int32 range, centre 0
 	std::array<int32_t, NUM_SLOTS> values{};
@@ -70,9 +71,13 @@ struct XiaControls {
 	}
 	/// A whole number knob value, 0 to 127
 	static constexpr int32_t fromValue(int32_t value) { return fromKnob(value << 8); }
+	/// The whole number knob value of a slot, 0 to 127
+	[[nodiscard]] uint8_t value(int32_t slot) const {
+		return static_cast<uint8_t>(std::clamp<int32_t>((toKnob(values[slot]) + 0x80) >> 8, 0, 127));
+	}
 
 	/// The Cycles' own defaults for an engine, as raw param values
-	static XiaControls defaultsFor(Engine engine);
+	static DrumControls defaultsFor(Engine engine);
 };
 
 enum class Wave : uint8_t { SINE, TRIANGLE, SAW, SQUARE, NOISE, NUM_WAVES };
@@ -117,7 +122,7 @@ public:
 		TRANS_MODE,        ///< kTransientSnap, kTransientOffset, or a transient sample
 		TRANS_VOLUME,      ///< Transient level
 		TRANS_PITCH,       ///< Transient speed
-		// XIA engines. Their continuous settings are on Deluge params: see XiaControls.
+		// XIA engines. Their continuous settings are on Deluge params: see DrumControls.
 		XIA_VARIANT, ///< The Cycles variant: TIA L, B, C or IIA G, I, H
 		XIA_PUNCH,   ///< 1 = a soft clipper on the output, and a shorter engine decay
 		NUM_PARAMS,
@@ -126,7 +131,7 @@ public:
 	Patch() { setPreset(Preset::KICK); }
 
 	void setPreset(Preset preset);
-	/// Switch to an XIA engine and variant. Its continuous settings are on Deluge params: see XiaControls.
+	/// Switch to an XIA engine and variant. Its continuous settings are on Deluge params: see DrumControls.
 	void setXiaPreset(Engine engine, uint8_t variant);
 
 	[[nodiscard]] uint8_t get(Param p) const { return params_[p]; }
@@ -147,28 +152,26 @@ private:
 	std::array<uint8_t, NUM_PARAMS> params_{};
 };
 
-/// The four drum settings that sit on gold knobs. Each is a bipolar offset from the Deluge's patched param system:
-/// 0 leaves the patch value alone and a full knob turn (+- 2^30) moves it across its whole range.
-/// Which setting each one moves depends on the engine; see targetFor().
-struct KnobOffsets {
-	enum Slot : uint8_t { TONE, PITCH_AMOUNT, PITCH_DECAY, TRANSIENT, NUM_SLOTS };
-	std::array<int32_t, NUM_SLOTS> values{};
+/// The control slot an LXR setting lives on, or -1 for the choices (waves, modes, filter type), which stay in the
+/// Patch. The slots are shared between the LXR engines: each engine uses its own settings' slots.
+int32_t lxrControlSlot(Patch::Param param);
 
-	/// The patch setting a knob moves for an engine
-	static Patch::Param targetFor(Slot slot, Engine engine);
-};
+/// The controls a patch starts from: its LXR settings, or an XIA engine's defaults
+DrumControls controlsFromPatch(const Patch& patch);
+
+/// Copy the LXR settings back from the controls into the patch, so switching engine and back keeps them
+void storeControlsInPatch(const DrumControls& controls, Patch& patch);
 
 /// The running state of one drum synth voice. Small and allocation-free, so every Deluge voice can carry one.
 class Voice {
 public:
-	void trigger(const Patch& patch, const KnobOffsets& knobs);
+	/// Starts a note. It begins on the next render, which brings the controls.
+	void trigger(const Patch& patch);
 
 	/// Adds numSamples of output into buffer. basePhaseIncrement is the Deluge's pitch for this note, before the
 	/// drum's pitch envelope. amplitude / amplitudeIncrement are the source's gain ramp, as for the other oscillators.
-	/// xiaControls are read by the XIA engines only.
-	void render(const Patch& patch, const KnobOffsets& knobs, int32_t* buffer, int32_t numSamples,
-	            uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement,
-	            const XiaControls& xiaControls = {});
+	void render(const Patch& patch, const DrumControls& controls, int32_t* buffer, int32_t numSamples,
+	            uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement);
 
 	/// True once an XIA engine's own envelope has finished, so the Deluge voice can be freed
 	[[nodiscard]] bool finished() const { return xiaFinished_; }
@@ -197,11 +200,12 @@ private:
 		int32_t held = 0; ///< Current sample-and-hold value, for noise
 	};
 
-	void renderXia(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const XiaControls& controls, int32_t* buffer,
+	void renderXia(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const DrumControls& controls, int32_t* buffer,
 	               int32_t numSamples, uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement);
 	void startXia(Engine engine);
 
-	void updateSettings(const Patch& patch, const KnobOffsets& knobs);
+	void updateSettings(const Patch& patch, const DrumControls& controls);
+	void startLxr();
 	void controlTick(uint32_t basePhaseIncrement);
 	int32_t step(Wave w, Osc& osc, uint32_t phaseOffset = 0);
 	int32_t random();
@@ -240,6 +244,7 @@ private:
 	Engine xiaEngine_ = Engine::DRUM; ///< The XIA engine xia_ holds, or DRUM for none
 	bool xiaTrigger_ = false;
 	bool xiaFinished_ = false;
+	bool pendingTrigger_ = false;
 };
 
 } // namespace deluge::dsp::drum_synth

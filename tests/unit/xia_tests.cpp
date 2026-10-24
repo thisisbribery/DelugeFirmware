@@ -152,13 +152,12 @@ uint32_t phaseIncrementFor(double hz) {
 
 /// Render a triggered voice, returning how many samples it ran before finishing (or the whole length)
 int32_t renderVoice(Voice& voice, const Patch& patch, int32_t* out, int32_t length, double hz,
-                    const XiaControls& controls) {
-	const KnobOffsets knobs{};
-	voice.trigger(patch, knobs);
+                    const DrumControls& controls) {
+	voice.trigger(patch);
 	std::fill(out, out + length, 0);
 	for (int32_t pos = 0; pos < length; pos += 100) { // Deluge-style chunks that don't line up with XIA blocks
 		const int32_t n = std::min(100, length - pos);
-		voice.render(patch, knobs, out + pos, n, phaseIncrementFor(hz), 1 << 27, 0, controls);
+		voice.render(patch, controls, out + pos, n, phaseIncrementFor(hz), 1 << 27, 0);
 		if (voice.finished()) {
 			return pos + n;
 		}
@@ -199,11 +198,11 @@ TEST(XiaTests, iiaMatchesTheOriginalSampleForSample) {
 }
 
 TEST(XiaTests, controlValuesMapLikeTheCyclesKnobs) {
-	CHECK_EQUAL(0, XiaControls::toKnob(INT32_MIN));
-	CHECK_EQUAL(0x4000, XiaControls::toKnob(0));
-	CHECK_EQUAL(0x7F00, XiaControls::toKnob(INT32_MAX));
+	CHECK_EQUAL(0, DrumControls::toKnob(INT32_MIN));
+	CHECK_EQUAL(0x4000, DrumControls::toKnob(0));
+	CHECK_EQUAL(0x7F00, DrumControls::toKnob(INT32_MAX));
 	for (int32_t v = 0; v <= 127; v++) {
-		CHECK_EQUAL(v << 8, XiaControls::toKnob(XiaControls::fromValue(v)));
+		CHECK_EQUAL(v << 8, DrumControls::toKnob(DrumControls::fromValue(v)));
 	}
 }
 
@@ -211,7 +210,7 @@ TEST(XiaTests, tiaPlaysTheDelugesPitch) {
 	// TIA's defaults are a plain sine, so its pitch is easy to count
 	Patch patch;
 	patch.setXiaPreset(Engine::TIA, 0);
-	const XiaControls controls = XiaControls::defaultsFor(Engine::TIA);
+	const DrumControls controls = DrumControls::defaultsFor(Engine::TIA);
 	static std::array<int32_t, kSampleRate> out;
 	Voice voice;
 	for (double hz : {55.0, 261.63, 1000.0}) {
@@ -228,7 +227,7 @@ TEST(XiaTests, theDelugeEnvelopeShapesTheSoundByDefault) {
 		patch.setXiaPreset(engine, 0);
 		Voice voice;
 		const int32_t length =
-		    renderVoice(voice, patch, out.data(), out.size(), 130.8, XiaControls::defaultsFor(engine));
+		    renderVoice(voice, patch, out.data(), out.size(), 130.8, DrumControls::defaultsFor(engine));
 		CHECK_EQUAL(static_cast<int32_t>(out.size()), length);
 		CHECK_FALSE(voice.finished());
 		int32_t lateLevel = 0;
@@ -245,8 +244,8 @@ TEST(XiaTests, engineDecayEndsTheVoice) {
 		for (uint8_t variant = 0; variant < 3; variant++) {
 			Patch patch;
 			patch.setXiaPreset(engine, variant);
-			XiaControls controls = XiaControls::defaultsFor(engine);
-			controls.values[XiaControls::ENGINE_DECAY] = XiaControls::fromValue(60);
+			DrumControls controls = DrumControls::defaultsFor(engine);
+			controls.values[DrumControls::ENGINE_DECAY] = DrumControls::fromValue(60);
 			Voice voice;
 			const int32_t length = renderVoice(voice, patch, out.data(), out.size(), 130.8, controls);
 			CHECK(voice.finished());
@@ -265,7 +264,7 @@ TEST(XiaTests, lxrEnginesNeverReportFinished) {
 	patch.setPreset(Preset::KICK);
 	static std::array<int32_t, kSampleRate> out;
 	Voice voice;
-	renderVoice(voice, patch, out.data(), out.size(), 49.0, {});
+	renderVoice(voice, patch, out.data(), out.size(), 49.0, controlsFromPatch(patch));
 	CHECK_FALSE(voice.finished());
 }
 
@@ -273,10 +272,10 @@ TEST(XiaTests, controlsChangeTheSound) {
 	// Blendex 1 turns TIA's first operator from heard into modulating: the sine gets harmonics
 	Patch patch;
 	patch.setXiaPreset(Engine::TIA, 0);
-	XiaControls plain = XiaControls::defaultsFor(Engine::TIA);
-	XiaControls bright = plain;
-	bright.values[XiaControls::TIA_BLENDEX1] = XiaControls::fromValue(127);
-	bright.values[XiaControls::TIA_FREQ1] = XiaControls::fromValue(100);
+	DrumControls plain = DrumControls::defaultsFor(Engine::TIA);
+	DrumControls bright = plain;
+	bright.values[DrumControls::TIA_BLENDEX1] = DrumControls::fromValue(127);
+	bright.values[DrumControls::TIA_FREQ1] = DrumControls::fromValue(100);
 	static std::array<int32_t, 4410> a;
 	static std::array<int32_t, 4410> b;
 	Voice voice;

@@ -81,7 +81,7 @@ bool VoiceUnisonPartSource::noteOn(Voice* voice, Source* source, VoiceSamplePlay
 		dxVoice->init(*patch, voice->noteCodeAfterArpeggiation, velocity);
 	}
 	else if (synthMode != SynthMode::FM && source->oscType == OscType::DRUM_SYNTH) {
-		drumVoice.trigger(source->drumPatch, voice->getDrumSynthKnobOffsets());
+		drumVoice.trigger(source->drumPatch);
 	}
 	else {
 		if (oscRetriggerPhase != 0xFFFFFFFF) {

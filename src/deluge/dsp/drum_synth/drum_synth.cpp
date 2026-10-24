@@ -54,11 +54,6 @@ constexpr float kNoiseGain = 0.9f;
 constexpr float kCutoffMin = 30.f;
 constexpr float kCutoffMax = 16000.f;
 
-/// A full knob turn (+- 2^30) moves a setting by +- 128
-constexpr int32_t kKnobShift = 23;
-/// ...except the metal tuning knob, which moves the mod osc by +- 25 semitones
-constexpr int32_t kTuneKnobDivisor = 5;
-
 int32_t toQ31(float f) {
 	return static_cast<int32_t>(std::clamp(f, -1.f, 1.f) * 2147483647.f);
 }
@@ -219,9 +214,9 @@ void Patch::setXiaPreset(Engine engine, uint8_t variant) {
 	params_[XIA_PUNCH] = 0;
 }
 
-XiaControls XiaControls::defaultsFor(Engine engine) {
+DrumControls DrumControls::defaultsFor(Engine engine) {
 	// The Model:Cycles' own defaults, except that the engine's decay holds: the Deluge envelope does the shaping
-	XiaControls c;
+	DrumControls c;
 	c.values[DRIVE] = fromValue(0);
 	c.values[ENGINE_DECAY] = fromValue(127);
 	if (engine == Engine::IIA) {
@@ -325,22 +320,71 @@ void Patch::readLegacyDrumBytes(const uint8_t* bytes, int32_t length) {
 	clampAll();
 }
 
-Patch::Param KnobOffsets::targetFor(Slot slot, Engine engine) {
-	switch (slot) {
-	case TONE:
-		return (engine == Engine::SNARE) ? Patch::NOISE_MIX : Patch::FM_AMOUNT;
-	case PITCH_AMOUNT:
-		return (engine == Engine::METAL) ? Patch::FM2_AMOUNT : Patch::PITCH_AMOUNT;
-	case PITCH_DECAY:
-		return (engine == Engine::METAL) ? Patch::MOD_COARSE : Patch::PITCH_DECAY;
+int32_t lxrControlSlot(Patch::Param param) {
+	// Settings that no engine uses together share a slot
+	switch (param) {
+	case Patch::PITCH_AMOUNT: // kick, snare
+	case Patch::FM2_AMOUNT:   // metal
+		return 0;
+	case Patch::PITCH_DECAY:
+	case Patch::MOD2_COARSE:
+		return 1;
+	case Patch::PITCH_SLOPE:
+	case Patch::MOD2_FINE:
+		return 2;
+	case Patch::FM_AMOUNT: // kick, metal
+	case Patch::NOISE_MIX: // snare
+		return 3;
+	case Patch::MOD_COARSE:
+	case Patch::NOISE_PITCH:
+		return 4;
+	case Patch::MOD_FINE:
+	case Patch::NOISE_CUTOFF:
+		return 5;
+	case Patch::TRANS_VOLUME:
+		return 6;
+	case Patch::TRANS_PITCH:
+		return 7;
+	case Patch::NOISE_RESONANCE:
+		return 8;
 	default:
-		return Patch::TRANS_VOLUME;
+		return -1;
+	}
+}
+
+DrumControls controlsFromPatch(const Patch& patch) {
+	const Engine engine = patch.engine();
+	if (isXia(engine)) {
+		return DrumControls::defaultsFor(engine);
+	}
+	DrumControls controls = DrumControls::defaultsFor(Engine::TIA); // neutral values for the unused slots
+	for (uint8_t p = 0; p < Patch::NUM_PARAMS; p++) {
+		const auto param = static_cast<Patch::Param>(p);
+		const int32_t slot = lxrControlSlot(param);
+		if (slot >= 0 && Patch::isUsedBy(param, engine)) {
+			controls.values[slot] = DrumControls::fromValue(patch.get(param));
+		}
+	}
+	return controls;
+}
+
+void storeControlsInPatch(const DrumControls& controls, Patch& patch) {
+	const Engine engine = patch.engine();
+	if (isXia(engine)) {
+		return;
+	}
+	for (uint8_t p = 0; p < Patch::NUM_PARAMS; p++) {
+		const auto param = static_cast<Patch::Param>(p);
+		const int32_t slot = lxrControlSlot(param);
+		if (slot >= 0 && Patch::isUsedBy(param, engine)) {
+			patch.set(param, controls.value(slot));
+		}
 	}
 }
 
 // Voice ---------------------------------------------------------------------------------------------------------------
 
-void Voice::updateSettings(const Patch& patch, const KnobOffsets& knobs) {
+void Voice::updateSettings(const Patch& patch, const DrumControls& controls) {
 	std::array<uint8_t, Patch::NUM_PARAMS> effective;
 	for (uint8_t p = 0; p < Patch::NUM_PARAMS; p++) {
 		const auto param = static_cast<Patch::Param>(p);
@@ -348,14 +392,15 @@ void Voice::updateSettings(const Patch& patch, const KnobOffsets& knobs) {
 	}
 
 	const Engine engine = static_cast<Engine>(effective[Patch::ENGINE]);
-	// The knob offsets are for the LXR engines. The XIA engines' settings are Deluge params already.
-	for (uint8_t s = 0; s < (isXia(engine) ? 0 : KnobOffsets::NUM_SLOTS); s++) {
-		const Patch::Param target = KnobOffsets::targetFor(static_cast<KnobOffsets::Slot>(s), engine);
-		int32_t offset = knobs.values[s] >> kKnobShift;
-		if (target == Patch::MOD_COARSE) {
-			offset /= kTuneKnobDivisor;
+	// The LXR engines' continuous settings come from the controls; the patch keeps the choices
+	if (!isXia(engine)) {
+		for (uint8_t p = 0; p < Patch::NUM_PARAMS; p++) {
+			const auto param = static_cast<Patch::Param>(p);
+			const int32_t slot = lxrControlSlot(param);
+			if (slot >= 0 && Patch::isUsedBy(param, engine)) {
+				effective[p] = std::min(controls.value(slot), Patch::maxValue(param));
+			}
 		}
-		effective[target] = std::clamp<int32_t>(effective[target] + offset, 0, Patch::maxValue(target));
 	}
 
 	if (settingsValid_ && effective == settingsFrom_) {
@@ -395,15 +440,15 @@ void Voice::updateSettings(const Patch& patch, const KnobOffsets& knobs) {
 	s.transientPhaseIncrement = static_cast<uint32_t>(s.transientPitch * (1 << 20));
 }
 
-void Voice::trigger(const Patch& patch, const KnobOffsets& knobs) {
-	updateSettings(patch, knobs);
-	const Settings& s = settings_;
-	if (isXia(s.engine)) {
-		startXia(s.engine);
-		return;
-	}
-	xiaEngine_ = Engine::DRUM;
+void Voice::trigger(const Patch& patch) {
+	(void)patch;
+	pendingTrigger_ = true;
 	xiaFinished_ = false;
+}
+
+void Voice::startLxr() {
+	const Settings& s = settings_;
+	xiaEngine_ = Engine::DRUM;
 
 	// In offset mode the transient volume moves the start phase towards zero, softening the click an osc gets from
 	// starting at its peak
@@ -625,13 +670,20 @@ void Voice::renderMetal(int32_t* out, int32_t n, int32_t& amplitude, int32_t amp
 	}
 }
 
-void Voice::render(const Patch& patch, const KnobOffsets& knobs, int32_t* buffer, int32_t numSamples,
-                   uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement,
-                   const XiaControls& xiaControls) {
-	updateSettings(patch, knobs);
+void Voice::render(const Patch& patch, const DrumControls& controls, int32_t* buffer, int32_t numSamples,
+                   uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement) {
+	updateSettings(patch, controls);
 	if (isXia(settings_.engine)) {
-		renderXia(settingsFrom_, xiaControls, buffer, numSamples, basePhaseIncrement, amplitude, amplitudeIncrement);
+		if (pendingTrigger_) {
+			pendingTrigger_ = false;
+			startXia(settings_.engine);
+		}
+		renderXia(settingsFrom_, controls, buffer, numSamples, basePhaseIncrement, amplitude, amplitudeIncrement);
 		return;
+	}
+	if (pendingTrigger_) {
+		pendingTrigger_ = false;
+		startLxr();
 	}
 	xiaFinished_ = false;
 
@@ -706,10 +758,10 @@ void Voice::startXia(Engine engine) {
 	xiaFinished_ = false;
 }
 
-void Voice::renderXia(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const XiaControls& controls, int32_t* buffer,
+void Voice::renderXia(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const DrumControls& controls, int32_t* buffer,
                       int32_t numSamples, uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement) {
 	auto knob = [&](uint8_t slot) {
-		return std::clamp<int32_t>(XiaControls::toKnob(controls.values[slot]), 0, 0x7F00);
+		return std::clamp<int32_t>(DrumControls::toKnob(controls.values[slot]), 0, 0x7F00);
 	};
 	const auto engine = static_cast<Engine>(p[Patch::ENGINE]);
 	if (engine != xiaEngine_) {
@@ -725,12 +777,13 @@ void Voice::renderXia(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const Xia
 			if (engine == Engine::TIA) {
 				const xia::TiaSettings t{
 				    .variant = p[Patch::XIA_VARIANT],
-				    .freq = {knob(XiaControls::TIA_FREQ1), knob(XiaControls::TIA_FREQ2), knob(XiaControls::TIA_FREQ3)},
-				    .blendex = {fullKnob(knob(XiaControls::TIA_BLENDEX1)), fullKnob(knob(XiaControls::TIA_BLENDEX2)),
-				                fullKnob(knob(XiaControls::TIA_BLENDEX3))},
+				    .freq = {knob(DrumControls::TIA_FREQ1), knob(DrumControls::TIA_FREQ2),
+				             knob(DrumControls::TIA_FREQ3)},
+				    .blendex = {fullKnob(knob(DrumControls::TIA_BLENDEX1)), fullKnob(knob(DrumControls::TIA_BLENDEX2)),
+				                fullKnob(knob(DrumControls::TIA_BLENDEX3))},
 				    .lowPass = kLowPassOff,
-				    .drive = knob(XiaControls::DRIVE),
-				    .decay = knob(XiaControls::ENGINE_DECAY),
+				    .drive = knob(DrumControls::DRIVE),
+				    .decay = knob(DrumControls::ENGINE_DECAY),
 				    .pitch = pitch,
 				    .punch = p[Patch::XIA_PUNCH],
 				    .gate = 0,
@@ -742,13 +795,13 @@ void Voice::renderXia(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const Xia
 			else {
 				const xia::IiaSettings t{
 				    .variant = p[Patch::XIA_VARIANT],
-				    .weight = knob(XiaControls::IIA_WEIGHT),
-				    .alloy = knob(XiaControls::IIA_ALLOY),
+				    .weight = knob(DrumControls::IIA_WEIGHT),
+				    .alloy = knob(DrumControls::IIA_ALLOY),
 				    .lowPass = kLowPassOff,
-				    .drive = knob(XiaControls::DRIVE),
-				    .shape = knob(XiaControls::IIA_SHAPE),
-				    .decay = knob(XiaControls::ENGINE_DECAY),
-				    .attack = iiaAttackForStrike(knob(XiaControls::IIA_STRIKE)),
+				    .drive = knob(DrumControls::DRIVE),
+				    .shape = knob(DrumControls::IIA_SHAPE),
+				    .decay = knob(DrumControls::ENGINE_DECAY),
+				    .attack = iiaAttackForStrike(knob(DrumControls::IIA_STRIKE)),
 				    .pitch = pitch,
 				    .punch = p[Patch::XIA_PUNCH],
 				    .gate = 0,
