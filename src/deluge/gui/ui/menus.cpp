@@ -33,6 +33,7 @@
 #include "gui/menu_item/bend_range/main.h"
 #include "gui/menu_item/bend_range/per_finger.h"
 #include "gui/menu_item/colour.h"
+#include "gui/menu_item/cpu/load.h"
 #include "gui/menu_item/cpu/voice_usage.h"
 #include "gui/menu_item/cv/cv2Mapping.h"
 #include "gui/menu_item/cv/mono.h"
@@ -63,6 +64,7 @@
 #include "gui/menu_item/delay/analog.h"
 #include "gui/menu_item/delay/ping_pong.h"
 #include "gui/menu_item/delay/sync.h"
+#include "gui/menu_item/drum_synth/param.h"
 #include "gui/menu_item/dx/browse.h"
 #include "gui/menu_item/dx/engine_select.h"
 #include "gui/menu_item/dx/global_params.h"
@@ -1057,6 +1059,7 @@ PLACE_SDRAM_BSS firmware::Version firmwareVersionMenu{STRING_FOR_FIRMWARE_VERSIO
 
 PLACE_SDRAM_BSS battery::Level batteryLevelMenu{STRING_FOR_BATTERY_LEVEL, STRING_FOR_BATTERY_LEVEL_MENU_TITLE};
 PLACE_SDRAM_BSS cpu::VoiceUsage voiceUsageMenu{STRING_FOR_VOICE_USAGE, STRING_FOR_VOICE_USAGE};
+PLACE_SDRAM_BSS cpu::Load cpuLoadMenu{STRING_FOR_CPU_LOAD, STRING_FOR_CPU_LOAD};
 
 PLACE_SDRAM_BSS runtime_feature::Settings runtimeFeatureSettingsMenu{STRING_FOR_COMMUNITY_FTS,
                                                                      STRING_FOR_COMMUNITY_FTS_MENU_TITLE};
@@ -1476,6 +1479,38 @@ PLACE_SDRAM_DATA std::array<MenuItem*, 3> dxMenuItems = {
     &dxEngineSelect,
 };
 PLACE_SDRAM_BSS menu_item::Submenu dxMenu{STRING_FOR_DX_1, dxMenuItems};
+
+// Drum synth (osc 1 only)
+using DrumParam = deluge::dsp::drum_synth::Patch;
+PLACE_SDRAM_BSS drum_synth::Wave drumOscWaveMenu{STRING_FOR_DRUM_OSC_WAVE, DrumParam::OSC_WAVE};
+PLACE_SDRAM_BSS drum_synth::Wave drumModWaveMenu{STRING_FOR_DRUM_MOD_WAVE, DrumParam::MOD_WAVE};
+PLACE_SDRAM_BSS drum_synth::Value drumModCoarseMenu{STRING_FOR_DRUM_MOD_COARSE, DrumParam::MOD_COARSE};
+PLACE_SDRAM_BSS drum_synth::Value drumModFineMenu{STRING_FOR_DRUM_MOD_FINE, DrumParam::MOD_FINE};
+PLACE_SDRAM_BSS drum_synth::Value drumFmAmountMenu{STRING_FOR_DRUM_FM_AMOUNT, DrumParam::FM_AMOUNT};
+PLACE_SDRAM_BSS drum_synth::MixMode drumMixModeMenu{STRING_FOR_DRUM_MIX_MODE};
+PLACE_SDRAM_BSS drum_synth::Value drumPitchDecayMenu{STRING_FOR_DRUM_PITCH_DECAY, DrumParam::PITCH_DECAY};
+PLACE_SDRAM_BSS drum_synth::Value drumPitchSlopeMenu{STRING_FOR_DRUM_PITCH_SLOPE, DrumParam::PITCH_SLOPE};
+PLACE_SDRAM_BSS drum_synth::Value drumPitchAmountMenu{STRING_FOR_DRUM_PITCH_AMOUNT, DrumParam::PITCH_AMOUNT};
+PLACE_SDRAM_BSS drum_synth::Value drumTransientMenu{STRING_FOR_DRUM_TRANSIENT, DrumParam::TRANS_MODE};
+PLACE_SDRAM_BSS drum_synth::Value drumTransientVolumeMenu{STRING_FOR_DRUM_TRANSIENT_VOLUME, DrumParam::TRANS_VOLUME};
+PLACE_SDRAM_BSS drum_synth::Value drumTransientPitchMenu{STRING_FOR_DRUM_TRANSIENT_PITCH, DrumParam::TRANS_PITCH};
+PLACE_SDRAM_BSS menu_item::Submenu drumSynthMenu{
+    STRING_FOR_DRUM_SYNTH,
+    {
+        &drumOscWaveMenu,
+        &drumPitchAmountMenu,
+        &drumPitchDecayMenu,
+        &drumPitchSlopeMenu,
+        &drumMixModeMenu,
+        &drumFmAmountMenu,
+        &drumModWaveMenu,
+        &drumModCoarseMenu,
+        &drumModFineMenu,
+        &drumTransientMenu,
+        &drumTransientVolumeMenu,
+        &drumTransientPitchMenu,
+    },
+};
 
 // Not FM
 PLACE_SDRAM_BSS MasterTranspose masterTransposeMenu{STRING_FOR_MASTER_TRANSPOSE, STRING_FOR_MASTER_TRAN_MENU_TITLE};
@@ -1924,6 +1959,7 @@ PLACE_SDRAM_BSS Submenu settingsRootMenu{
         &runtimeFeatureSettingsMenu,
         &batteryLevelMenu,
         &voiceUsageMenu,
+        &cpuLoadMenu,
         &firmwareVersionMenu,
     },
 };

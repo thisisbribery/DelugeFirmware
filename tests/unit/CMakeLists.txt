@@ -40,7 +40,7 @@ file(GLOB_RECURSE deluge_SOURCES
         mocks/*
         # For LFO
         ../../src/deluge/util/d_stringbuf.cpp
-        ../../src/deluge/util/lookuptables.cpp
+        ../../src/deluge/util/lookuptables/lookuptables.cpp
         ../../src/deluge/util/waves.cpp
         ../../src/deluge/modulation/lfo.cpp
         # For value scaling
@@ -74,6 +74,9 @@ file(GLOB_RECURSE deluge_SOURCES
         # For MIDI message / queue tests
         ../../src/deluge/model/midi/message.cpp
         ../../src/deluge/io/midi/midi_queue.cpp
+        # For drum synth tests
+        ../../src/deluge/dsp/drum_synth/drum_synth.cpp
+        ../../src/deluge/dsp/drum_synth/drum_synth_transients.c
 )
 
 add_executable(UnitTests
@@ -99,6 +102,7 @@ add_executable(UnitTests
         iterance_migration_tests.cpp
         waveform_peak_math_tests.cpp
         midi_queue_tests.cpp
+        drum_synth_tests.cpp
 )
 add_test(NAME UnitTests
         COMMAND UnitTests)

@@ -48,6 +48,7 @@
 #include "modulation/envelope.h"
 #include "modulation/patch/patch_cable_set.h"
 #include "processing/audio_output.h"
+#include "processing/engines/cpu_meter.h"
 #include "processing/engines/cv_engine.h"
 #include "processing/live/live_input_buffer.h"
 #include "processing/metronome/metronome.h"
@@ -792,7 +793,9 @@ bool calledFromScheduler = false;
 
 	numSamplesLastTime = numSamples;
 
+	uint32_t renderStartTicks = getSystemTicks();
 	renderAudio(numSamples);
+	cpu_meter::audio.add(renderStartTicks, getSystemTicks(), numSamples);
 
 	scheduleMidiGateOutISR(numSamples);
 

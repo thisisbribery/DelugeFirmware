@@ -53,9 +53,12 @@
 #include <cstring>
 #include <new>
 
+#include "processing/engines/cpu_meter.h"
+
 extern "C" {
 #include "RZA1/mtu/mtu.h"
 #include "drivers/ssi/ssi.h"
+#include "scheduler_api.h"
 }
 
 using namespace deluge;
@@ -2444,6 +2447,27 @@ dontUseCache: {}
 					oscBuffer[i] += multiply_32x32_rshift32(uniBuf[i], sourceAmplitudeNow) << 6;
 				}
 			}
+		}
+		else if (sound.sources[s].oscType == OscType::DRUM_SYNTH) {
+			uint32_t startTicks = getSystemTicks();
+
+			int32_t* renderBuffer = oscBuffer;
+			if (stereoBuffer) {
+				renderBuffer = spareRenderingBuffer[2];
+				memset(renderBuffer, 0, SSI_TX_BUFFER_NUM_SAMPLES * sizeof(int32_t));
+			}
+
+			unisonParts[u].sources[s].drumVoice.render(sound.sources[s].drumPatch, renderBuffer, numSamples,
+			                                           phaseIncrement, sourceAmplitude, amplitudeIncrement);
+
+			if (stereoBuffer) {
+				for (int32_t i = 0; i < numSamples; i++) {
+					oscBuffer[(i << 1)] += multiply_32x32_rshift32(renderBuffer[i], amplitudeL) << 2;
+					oscBuffer[(i << 1) + 1] += multiply_32x32_rshift32(renderBuffer[i], amplitudeR) << 2;
+				}
+			}
+
+			deluge::cpu_meter::drumSynth.add(startTicks, getSystemTicks(), numSamples);
 
 			// Or regular wave
 		}

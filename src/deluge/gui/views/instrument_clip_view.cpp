@@ -20,6 +20,7 @@
 #include "extern.h"
 #include "fatfs.hpp"
 #include "gui/colour/colour.h"
+#include "gui/context_menu/new_kit_type.h"
 #include "gui/context_menu/stem_export/cancel_stem_export.h"
 #include "gui/l10n/l10n.h"
 #include "gui/menu_item/colour.h"
@@ -983,6 +984,14 @@ bool InstrumentClipView::handleInstrumentChange(OutputType outputType) {
 		            == RuntimeFeatureStateToggle::On);
 	}
 
+	if (outputType == OutputType::KIT && Buttons::isShiftButtonPressed() && getRootUI() == this) {
+		// Ask whether the new kit should be samples or drum synths. The menu does the creating.
+		if (context_menu::newKitType.setupAndCheckAvailability()) {
+			openUI(&context_menu::newKitType);
+		}
+		return false;
+	}
+
 	if (!isMIDIorCV && (is_fm || Buttons::isShiftButtonPressed())) {
 		return createNewInstrument(outputType, is_fm);
 	}
@@ -1877,6 +1886,71 @@ bool InstrumentClipView::createNewInstrument(OutputType newOutputType, bool is_d
 	}
 
 	return false;
+}
+
+bool InstrumentClipView::createNewDrumSynthKit() {
+	using deluge::dsp::drum_synth::Preset;
+
+	if (!InstrumentClipMinder::createNewInstrument(OutputType::KIT, false)) {
+		return false;
+	}
+	recalculateColours();
+
+	struct Row {
+		Preset preset;
+		char const* name;
+	};
+	constexpr std::array<Row, 3> kRows{{
+	    {Preset::KICK, "KICK"},
+	    {Preset::LOW_TOM, "LTOM"},
+	    {Preset::HIGH_TOM, "HTOM"},
+	}};
+
+	char modelStackMemory[MODEL_STACK_MAX_SIZE];
+	ModelStackWithTimelineCounter* modelStack = currentSong->setupModelStackWithCurrentClip(modelStackMemory);
+	InstrumentClip* clip = getCurrentInstrumentClip();
+	Kit* kit = getCurrentKit();
+	SoundDrum* firstDrum = nullptr;
+
+	for (int32_t i = 0; i < kRows.size(); i++) {
+		int32_t noteRowIndex = i;
+		NoteRow* noteRow = (i < clip->noteRows.getNumElements()) ? clip->noteRows.getElement(i) : nullptr;
+		if (noteRow == nullptr || noteRow->drum != nullptr) {
+			noteRow = clip->createNewNoteRowForKit(modelStack, false, &noteRowIndex);
+		}
+
+		void* memory = GeneralMemoryAllocator::get().allocMaxSpeed(sizeof(SoundDrum));
+		ParamManagerForTimeline paramManager;
+		if (noteRow == nullptr || memory == nullptr || paramManager.setupWithPatching() != Error::NONE) {
+			if (memory != nullptr) {
+				delugeDealloc(memory);
+			}
+			display->displayError(Error::INSUFFICIENT_RAM);
+			break;
+		}
+
+		Sound::initParams(&paramManager);
+		SoundDrum* newDrum = new (memory) SoundDrum();
+		newDrum->setupAsDrumSynth(&paramManager, kRows[i].preset);
+		currentSong->backUpParamManager(newDrum, clip, &paramManager, true);
+		newDrum->drumName = kRows[i].name;
+
+		kit->addDrum(newDrum);
+		ModelStackWithNoteRow* modelStackWithNoteRow = modelStack->addNoteRow(noteRowIndex, noteRow);
+		noteRow->setDrum(newDrum, kit, modelStackWithNoteRow);
+
+		if (firstDrum == nullptr) {
+			firstDrum = newDrum;
+		}
+	}
+
+	kit->beenEdited();
+	if (firstDrum != nullptr) {
+		setSelectedDrum(firstDrum, true);
+	}
+	display->consoleText(deluge::l10n::get(deluge::l10n::String::STRING_FOR_NEW_DRUM_SYNTH_KIT_CREATED));
+	uiNeedsRendering(this);
+	return true;
 }
 
 bool InstrumentClipView::changeOutputType(OutputType newOutputType) {

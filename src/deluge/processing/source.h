@@ -18,6 +18,7 @@
 #pragma once
 
 #include "definitions_cxx.hpp"
+#include "dsp/drum_synth/drum_synth.h"
 #include "model/sample/sample_controls.h"
 #include "storage/multi_range/multi_range_array.h"
 #include "util/phase_increment_fine_tuner.h"
@@ -46,6 +47,7 @@ public:
 
 	DxPatch* dxPatch;
 	bool dxPatchChanged = false;
+	deluge::dsp::drum_synth::Patch drumPatch;
 	SampleRepeatMode repeatMode;
 
 	int8_t timeStretchAmount;

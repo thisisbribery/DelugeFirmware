@@ -29,6 +29,7 @@
 #include <hid/display/oled.h>
 
 extern gui::menu_item::Submenu dxMenu;
+extern gui::menu_item::Submenu drumSynthMenu;
 
 namespace deluge::gui::menu_item::osc {
 class Type final : public Selection, public FormattedTitle {
@@ -38,20 +39,35 @@ public:
 	void beginSession(MenuItem* navigatedBackwardFrom) override { Selection::beginSession(navigatedBackwardFrom); }
 
 	bool mayUseDx() const { return !soundEditor.editingKit() && sourceId_ == 0; }
+	bool mayUseDrumSynth() const { return sourceId_ == 0; }
+
+	/// Option index -> OscType for the menu value. The optional types sit between SAMPLE and the inputs, so values
+	/// after a missing one shift down.
+	OscType typeForValue(int32_t value) const {
+		int32_t raw = value;
+		if (!mayUseDx() && raw >= static_cast<int32_t>(OscType::DX7)) {
+			raw += 1;
+		}
+		if (!mayUseDrumSynth() && raw >= static_cast<int32_t>(OscType::DRUM_SYNTH)) {
+			raw += 1;
+		}
+		return static_cast<OscType>(raw);
+	}
 
 	void readCurrentValue() override {
-		int32_t rawVal = static_cast<int32_t>(soundEditor.currentSound->sources[sourceId_].oscType);
-		if (!mayUseDx() && rawVal > static_cast<int32_t>(OscType::DX7)) {
-			rawVal -= 1;
+		OscType type = soundEditor.currentSound->sources[sourceId_].oscType;
+		int32_t value = static_cast<int32_t>(type);
+		if (!mayUseDrumSynth() && type > OscType::DRUM_SYNTH) {
+			value -= 1;
 		}
-		setValue(rawVal);
+		if (!mayUseDx() && type > OscType::DX7) {
+			value -= 1;
+		}
+		setValue(value);
 	}
 	void writeCurrentValue() override {
 		OscType oldValue = soundEditor.currentSound->sources[sourceId_].oscType;
-		auto newValue = getValue<OscType>();
-		if (!mayUseDx() && static_cast<int32_t>(newValue) >= static_cast<int32_t>(OscType::DX7)) {
-			newValue = static_cast<OscType>(static_cast<int32_t>(newValue) + 1);
-		}
+		OscType newValue = typeForValue(getValue());
 
 		const auto needs_unassignment = {
 		    OscType::INPUT_L,
@@ -59,6 +75,7 @@ public:
 		    OscType::INPUT_STEREO,
 		    OscType::SAMPLE,
 		    OscType::DX7,
+		    OscType::DRUM_SYNTH,
 
 		    // Haven't actually really determined if this needs to be here - maybe not?
 		    OscType::WAVETABLE,
@@ -100,6 +117,10 @@ public:
 			options.emplace_back(l10n::getView(STRING_FOR_DX7));
 		}
 
+		if (mayUseDrumSynth()) {
+			options.emplace_back(l10n::getView(STRING_FOR_DRUM_SYNTH));
+		}
+
 		if (AudioEngine::micPluggedIn || AudioEngine::lineInPluggedIn) {
 			options.emplace_back(l10n::getView(STRING_FOR_INPUT_LEFT));
 			options.emplace_back(l10n::getView(STRING_FOR_INPUT_RIGHT));
@@ -118,10 +139,14 @@ public:
 	}
 
 	MenuItem* selectButtonPress() override {
-		if (soundEditor.currentSound->sources[sourceId_].oscType != OscType::DX7) {
+		switch (soundEditor.currentSound->sources[sourceId_].oscType) {
+		case OscType::DX7:
+			return &dxMenu;
+		case OscType::DRUM_SYNTH:
+			return &drumSynthMenu;
+		default:
 			return nullptr;
 		}
-		return &dxMenu;
 	}
 
 	[[nodiscard]] bool showColumnLabel() const override { return false; }
@@ -130,7 +155,7 @@ public:
 		oled_canvas::Canvas& image = OLED::main;
 
 		const OscType osc_type = soundEditor.currentSound->sources[sourceId_].oscType;
-		if (osc_type == OscType::DX7) {
+		if (osc_type == OscType::DX7 || osc_type == OscType::DRUM_SYNTH) {
 			const auto option = getOptions(OptType::FULL)[getValue()].data();
 			return image.drawStringCentered(option, slot.start_x, slot.start_y + kHorizontalMenuSlotYOffset + 5,
 			                                kTextTitleSpacingX, kTextTitleSizeY, slot.width);

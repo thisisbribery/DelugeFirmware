@@ -67,10 +67,13 @@
 #include <limits>
 #include <ranges>
 
+#include "processing/engines/cpu_meter.h"
+
 namespace params = deluge::modulation::params;
 
 extern "C" {
 #include "RZA1/mtu/mtu.h"
+#include "scheduler_api.h"
 }
 
 constexpr Patcher::Config kPatcherConfigForSound = {
@@ -203,6 +206,60 @@ void Sound::setupAsSample(ParamManagerForTimeline* paramManager) {
 	    getParamFromUserValue(params::LOCAL_ENV_0_DECAY, 20));
 	patchedParams->params[params::LOCAL_ENV_0_SUSTAIN].setCurrentValueBasicForSetup(
 	    getParamFromUserValue(params::LOCAL_ENV_0_SUSTAIN, 50));
+	patchedParams->params[params::LOCAL_ENV_0_RELEASE].setCurrentValueBasicForSetup(
+	    getParamFromUserValue(params::LOCAL_ENV_0_RELEASE, 0));
+
+	patchedParams->params[params::LOCAL_LPF_RESONANCE].setCurrentValueBasicForSetup(-2147483648);
+	patchedParams->params[params::LOCAL_LPF_FREQ].setCurrentValueBasicForSetup(2147483647);
+
+	modKnobs[6][0].paramDescriptor.setToHaveParamOnly(params::LOCAL_PITCH_ADJUST);
+
+	paramManager->getPatchCableSet()->numPatchCables = 1;
+	paramManager->getPatchCableSet()->patchCables[0].setup(
+	    PatchSource::VELOCITY, params::LOCAL_VOLUME,
+	    getParamFromUserValue(params::PATCH_CABLE, kSampleDrumVelocityCableUserValue));
+
+	setupDefaultExpressionPatching(paramManager);
+
+	doneReadingFromFile();
+}
+
+void Sound::setupAsDrumSynth(ParamManagerForTimeline* paramManager, deluge::dsp::drum_synth::Preset preset) {
+	using deluge::dsp::drum_synth::Preset;
+
+	polyphonic = PolyphonyMode::AUTO;
+	lpfMode = FilterMode::TRANSISTOR_24DB;
+
+	sources[0].oscType = OscType::DRUM_SYNTH;
+	sources[0].drumPatch.setPreset(preset);
+	sources[1].oscType = OscType::SINE;
+
+	// Kit rows play at middle C, so drop each drum to its usual range
+	int32_t decay;
+	switch (preset) {
+	case Preset::KICK:
+		sources[0].transpose = -29; // G1, about 49 Hz
+		decay = 27;
+		break;
+	case Preset::LOW_TOM:
+		sources[0].transpose = -17; // G2
+		decay = 24;
+		break;
+	case Preset::HIGH_TOM:
+		sources[0].transpose = -10; // D3
+		decay = 22;
+		break;
+	}
+
+	PatchedParamSet* patchedParams = paramManager->getPatchedParamSet();
+
+	patchedParams->params[params::LOCAL_OSC_B_VOLUME].setCurrentValueBasicForSetup(-2147483648);
+	patchedParams->params[params::LOCAL_ENV_0_ATTACK].setCurrentValueBasicForSetup(
+	    getParamFromUserValue(params::LOCAL_ENV_0_ATTACK, 0));
+	patchedParams->params[params::LOCAL_ENV_0_DECAY].setCurrentValueBasicForSetup(
+	    getParamFromUserValue(params::LOCAL_ENV_0_DECAY, decay));
+	patchedParams->params[params::LOCAL_ENV_0_SUSTAIN].setCurrentValueBasicForSetup(
+	    getParamFromUserValue(params::LOCAL_ENV_0_SUSTAIN, 0));
 	patchedParams->params[params::LOCAL_ENV_0_RELEASE].setCurrentValueBasicForSetup(
 	    getParamFromUserValue(params::LOCAL_ENV_0_RELEASE, 0));
 
@@ -2541,9 +2598,11 @@ void Sound::render(ModelStackWithThreeMainThings* modelStack, std::span<StereoSa
 		for (auto it = voices_.begin(); it != voices_.end();) {
 			ActiveVoice& voice = *it;
 
+			uint32_t startTicks = getSystemTicks();
 			bool stillGoing =
 			    voice->render(modelStackWithSoundFlags, sound_mono.data(), sound_mono.size(), voice_rendered_in_stereo,
 			                  applyingPanAtVoiceLevel, sourcesChanged, doLPF, doHPF, pitchAdjust);
+			deluge::cpu_meter::voices.add(startTicks, getSystemTicks(), sound_mono.size());
 			if (!stillGoing) {
 				this->checkVoiceExists(voice, "E201");
 				this->freeActiveVoice(voice, modelStackWithSoundFlags, false);
@@ -3405,6 +3464,12 @@ Error Sound::readSourceFromFile(Deserializer& reader, int32_t s, ParamManagerFor
 			patch->random_detune = reader.readTagOrAttributeValueInt();
 			reader.exitTag("dx7randomdetune");
 		}
+		else if (!strcmp(tagName, "drumSynthPatch")) {
+			auto& bytes = source->drumPatch.bytes();
+			reader.readTagOrAttributeValueHexBytes(bytes.data(), bytes.size());
+			source->drumPatch.recalculate();
+			reader.exitTag("drumSynthPatch");
+		}
 		else if (!strcmp(tagName, "dx7enginemode")) {
 			DxPatch* patch = source->ensureDxPatch();
 			patch->setEngineMode(reader.readTagOrAttributeValueInt());
@@ -3756,6 +3821,11 @@ void Sound::writeSourceToFile(Serializer& writer, int32_t s, char const* tagName
 					writer.writeAttribute("dx7randomdetune", patch->random_detune);
 				}
 			}
+			goto justCloseTag;
+		}
+		else if (source->oscType == OscType::DRUM_SYNTH && synthMode != SynthMode::FM) {
+			auto& bytes = source->drumPatch.bytes();
+			writer.writeAttributeHexBytes("drumSynthPatch", bytes.data(), bytes.size());
 			goto justCloseTag;
 		}
 		else {
