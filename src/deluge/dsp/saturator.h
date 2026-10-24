@@ -1,5 +1,5 @@
 /*
- * Copyright © 2026 Mitch Catterall
+ * Copyright © 2026 thisisbribery
  *
  * This file is part of The Synthstrom Audible Deluge Firmware.
  *
@@ -67,8 +67,8 @@ struct SaturationSettings {
 	}
 };
 
-/// One-knob drive, after the Sealegs drive's behaviour: pure input gain into the curve (up to +36 dB, steepest at
-/// the top) with no level compensation, and a fixed ceiling at about normal peak level. So it gets denser and
+/// One-knob drive that behaves like an analog input stage: pure input gain into the curve (up to +36 dB, steepest
+/// at the top) with no level compensation, and a fixed ceiling at about normal peak level. So it gets denser and
 /// louder as it goes up. The soft curves morph into a hard clip over the top half of the knob.
 /// First-order antiderivative antialiasing throughout. Processes q31 audio in place.
 class Saturator {

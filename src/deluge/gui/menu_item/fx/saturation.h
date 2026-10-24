@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Mitch Catterall
+ * Copyright (c) 2026 thisisbribery
  *
  * This file is part of The Synthstrom Audible Deluge Firmware.
  *
