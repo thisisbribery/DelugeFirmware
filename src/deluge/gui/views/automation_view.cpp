@@ -110,6 +110,30 @@ using deluge::modulation::params::unpatchedNonGlobalParamShortcuts;
 
 using namespace deluge::gui;
 
+// The patched param on a shortcut pad. On a sample oscillator, the pulse width pad (unused for samples) gives the
+// sample start offset instead.
+static uint32_t patchedParamForShortcut(Output* output, int32_t x, int32_t y) {
+	uint32_t paramId = patchedParamShortcuts[x][y];
+	if (paramId != params::LOCAL_OSC_A_PHASE_WIDTH && paramId != params::LOCAL_OSC_B_PHASE_WIDTH) {
+		return paramId;
+	}
+	Sound* sound = nullptr;
+	if (output->type == OutputType::SYNTH) {
+		sound = static_cast<SoundInstrument*>(output);
+	}
+	else if (output->type == OutputType::KIT) {
+		Drum* drum = static_cast<Kit*>(output)->selectedDrum;
+		if (drum && drum->type == DrumType::SOUND) {
+			sound = static_cast<SoundDrum*>(drum);
+		}
+	}
+	int32_t s = paramId - params::LOCAL_OSC_A_PHASE_WIDTH;
+	if (sound && sound->getSynthMode() != SynthMode::FM && sound->sources[s].oscType == OscType::SAMPLE) {
+		return params::LOCAL_OSC_A_START_OFFSET + s;
+	}
+	return paramId;
+}
+
 const uint32_t auditionPadActionUIModes[] = {UI_MODE_NOTES_PRESSED,
                                              UI_MODE_AUDITIONING,
                                              UI_MODE_HORIZONTAL_SCROLL,
@@ -123,7 +147,7 @@ const uint32_t mutePadActionUIModes[] = {UI_MODE_NOTES_PRESSED, UI_MODE_AUDITION
 
 const uint32_t verticalScrollUIModes[] = {UI_MODE_NOTES_PRESSED, UI_MODE_AUDITIONING, UI_MODE_RECORD_COUNT_IN, 0};
 
-constexpr int32_t kNumNonGlobalParamsForAutomation = 83;
+constexpr int32_t kNumNonGlobalParamsForAutomation = 85;
 constexpr int32_t kNumGlobalParamsForAutomation = 39;
 
 // synth and kit rows FX - sorted in the order that Parameters are scrolled through on the display
@@ -242,6 +266,9 @@ const std::array<std::pair<params::Kind, ParamType>, kNumNonGlobalParamsForAutom
     {params::Kind::EXPRESSION, Expression::Y_SLIDE_TIMBRE},
     // Mono Expression: Z - Channel Pressure
     {params::Kind::EXPRESSION, Expression::Z_PRESSURE},
+    // OSC 1 / OSC 2 Sample Start Offset (at the end so saved list positions stay valid)
+    {params::Kind::PATCHED, params::LOCAL_OSC_A_START_OFFSET},
+    {params::Kind::PATCHED, params::LOCAL_OSC_B_START_OFFSET},
 }};
 
 // global FX - sorted in the order that Parameters are scrolled through on the display
@@ -784,9 +811,9 @@ void AutomationView::renderAutomationOverview(ModelStackWithTimelineCounter* mod
 
 			if (!onArrangerView && (outputType == OutputType::SYNTH || singleSoundDrum)) {
 				if (patchedParamShortcuts[xDisplay][yDisplay] != kNoParamID) {
-					modelStackWithParam =
-					    getModelStackWithParamForClip(modelStackWithTimelineCounter, clip,
-					                                  patchedParamShortcuts[xDisplay][yDisplay], params::Kind::PATCHED);
+					modelStackWithParam = getModelStackWithParamForClip(
+					    modelStackWithTimelineCounter, clip, patchedParamForShortcut(clip->output, xDisplay, yDisplay),
+					    params::Kind::PATCHED);
 				}
 
 				else if (unpatchedNonGlobalParamShortcuts[xDisplay][yDisplay] != kNoParamID) {
@@ -1909,7 +1936,7 @@ void AutomationView::handleParameterSelection(Clip* clip, Output* output, Output
 		// ParamID
 		if (patchedParamShortcuts[xDisplay][yDisplay] != kNoParamID) {
 			clip->lastSelectedParamKind = params::Kind::PATCHED;
-			clip->lastSelectedParamID = patchedParamShortcuts[xDisplay][yDisplay];
+			clip->lastSelectedParamID = patchedParamForShortcut(output, xDisplay, yDisplay);
 		}
 		else if (unpatchedNonGlobalParamShortcuts[xDisplay][yDisplay] != kNoParamID) {
 			clip->lastSelectedParamKind = params::Kind::UNPATCHED_SOUND;
@@ -2934,7 +2961,7 @@ void AutomationView::getLastSelectedParamShortcut(Clip* clip) {
 			}
 			else {
 				if ((clip->lastSelectedParamKind == params::Kind::PATCHED
-				     && patchedParamShortcuts[x][y] == clip->lastSelectedParamID)
+				     && patchedParamForShortcut(clip->output, x, y) == clip->lastSelectedParamID)
 				    || (clip->lastSelectedParamKind == params::Kind::UNPATCHED_SOUND
 				        && unpatchedNonGlobalParamShortcuts[x][y] == clip->lastSelectedParamID)
 				    || (clip->lastSelectedParamKind == params::Kind::UNPATCHED_GLOBAL

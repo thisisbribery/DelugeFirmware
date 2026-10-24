@@ -181,6 +181,8 @@ void Sound::initParams(ParamManager* paramManager) {
 	patchedParams->params[params::GLOBAL_LFO_FREQ_2].setCurrentValueBasicForSetup(
 	    getParamFromUserValue(params::GLOBAL_LFO_FREQ_2, 30));
 	patchedParams->params[params::LOCAL_PAN].setCurrentValueBasicForSetup(0);
+	patchedParams->params[params::LOCAL_OSC_A_START_OFFSET].setCurrentValueBasicForSetup(0);
+	patchedParams->params[params::LOCAL_OSC_B_START_OFFSET].setCurrentValueBasicForSetup(0);
 	patchedParams->params[params::LOCAL_NOISE_VOLUME].setCurrentValueBasicForSetup(-2147483648);
 	patchedParams->params[params::GLOBAL_MOD_FX_DEPTH].setCurrentValueBasicForSetup(0);
 	patchedParams->params[params::GLOBAL_MOD_FX_RATE].setCurrentValueBasicForSetup(0);
@@ -3648,6 +3650,10 @@ Error Sound::readSourceFromFile(Deserializer& reader, int32_t s, ParamManagerFor
 			source->timeStretchAmount = reader.readTagOrAttributeValueInt();
 			reader.exitTag("timeStretchAmount");
 		}
+		else if (!strcmp(tagName, "offsetWraps")) {
+			source->offsetWraps = reader.readTagOrAttributeValueInt();
+			reader.exitTag("offsetWraps");
+		}
 		else if (!strcmp(tagName, "linearInterpolation")) {
 			if (reader.readTagOrAttributeValueInt()) {
 				source->sampleControls.interpolationMode = InterpolationMode::LINEAR;
@@ -3858,6 +3864,9 @@ void Sound::writeSourceToFile(Serializer& writer, int32_t s, char const* tagName
 		writer.writeAttribute("reversed", source->sampleControls.reversed);
 		writer.writeAttribute("timeStretchEnable", source->sampleControls.pitchAndSpeedAreIndependent);
 		writer.writeAttribute("timeStretchAmount", source->timeStretchAmount);
+		if (!source->offsetWraps) {
+			writer.writeAttribute("offsetWraps", (int32_t)0);
+		}
 		if (source->sampleControls.interpolationMode == InterpolationMode::LINEAR) {
 			writer.writeAttribute("linearInterpolation", 1);
 		}
@@ -4075,6 +4084,14 @@ bool Sound::readParamTagFromFile(Deserializer& reader, char const* tagName, Para
 	else if (!strcmp(tagName, "waveFold")) {
 		patchedParams->readParam(reader, patchedParamsSummary, params::LOCAL_FOLD, readAutomationUpToPos);
 		reader.exitTag("waveFold");
+	}
+	else if (!strcmp(tagName, "oscAStartOffset")) {
+		patchedParams->readParam(reader, patchedParamsSummary, params::LOCAL_OSC_A_START_OFFSET, readAutomationUpToPos);
+		reader.exitTag("oscAStartOffset");
+	}
+	else if (!strcmp(tagName, "oscBStartOffset")) {
+		patchedParams->readParam(reader, patchedParamsSummary, params::LOCAL_OSC_B_START_OFFSET, readAutomationUpToPos);
+		reader.exitTag("oscBStartOffset");
 	}
 
 	else if (!strcmp(tagName, "envelope1")) {
@@ -4353,6 +4370,9 @@ void Sound::writeParamsToFile(Serializer& writer, ParamManager* paramManager, bo
 	patchedParams->writeParamAsAttribute(writer, "hpfMorph", params::LOCAL_HPF_MORPH, writeAutomation);
 
 	patchedParams->writeParamAsAttribute(writer, "waveFold", params::LOCAL_FOLD, writeAutomation);
+
+	patchedParams->writeParamAsAttribute(writer, "oscAStartOffset", params::LOCAL_OSC_A_START_OFFSET, writeAutomation);
+	patchedParams->writeParamAsAttribute(writer, "oscBStartOffset", params::LOCAL_OSC_B_START_OFFSET, writeAutomation);
 
 	writer.writeOpeningTagEnd();
 

@@ -71,31 +71,68 @@ void VoiceSamplePlaybackGuide::setupPlaybackBounds(bool reversed) {
 // This is, whether to obey the loop-end point as opposed to the actual end-of-sample point (which sometimes might cause
 // looping too)
 bool VoiceSamplePlaybackGuide::shouldObeyLoopEndPointNow() {
-	return (loopEndPlaybackAtByte && !noteOffReceived);
+	// During split-loop, the loop end defines the phase boundary and must
+	// always be respected (even after note-off) to maintain correct wrapping.
+	return (loopEndPlaybackAtByte && (!noteOffReceived || loopSplit));
 }
 
 int32_t VoiceSamplePlaybackGuide::getBytePosToStartPlayback(bool justLooped) {
+	if (justLooped && wrapAroundPending) {
+		wrapAroundPending = false;
+		if (loopSplit) {
+			loopWrapPhase = 2; // After initial wrap or phase 1, enter phase 2
+		}
+		return static_cast<int32_t>(wrapAroundRestartByte);
+	}
 	if (!justLooped) {
 		return SamplePlaybackGuide::getBytePosToStartPlayback(justLooped);
 	}
-	else {
+	if (loopWrapPhase == 2) {
+		if (oneShotWrap) {
+			// One full cycle through both phases complete.
+			// Mark done so getLoopingType() returns NONE on the next render.
+			oneShotWrap = false;
+			oneShotComplete = true;
+		}
+		// Phase 2->1: finished playing sampleStart->loopEnd, restart at loopStart
+		loopWrapPhase = 1;
 		return loopStartPlaybackAtByte;
 	}
+	if (loopWrapPhase == 1) {
+		// Phase 1->2: finished playing loopStart->sampleEnd, restart at sampleStart
+		loopWrapPhase = 2;
+		return static_cast<int32_t>(wrapAroundRestartByte);
+	}
+	return loopStartPlaybackAtByte;
 }
 
 // This is actually an important function whose output is the basis for a lot of stuff
 int32_t VoiceSamplePlaybackGuide::getBytePosToEndOrLoopPlayback() {
-	if (shouldObeyLoopEndPointNow()) {
-		return loopEndPlaybackAtByte;
-	}
-	else {
+	if (wrapAroundPending || loopWrapPhase == 1) {
+		// Phase 1 or initial wrap: play to sample end
 		return SamplePlaybackGuide::getBytePosToEndOrLoopPlayback();
 	}
+	if (shouldObeyLoopEndPointNow()) {
+		// Phase 2 or normal: play to loop end
+		return loopEndPlaybackAtByte;
+	}
+	return SamplePlaybackGuide::getBytePosToEndOrLoopPlayback();
 }
 
 LoopType VoiceSamplePlaybackGuide::getLoopingType(const Source& source) const {
 	if (loopEndPlaybackAtByte) {
+		if (loopSplit) {
+			return oneShotComplete ? LoopType::NONE : LoopType::LOW_LEVEL;
+		}
 		return noteOffReceived ? LoopType::NONE : LoopType::LOW_LEVEL;
 	}
-	return (source.repeatMode == SampleRepeatMode::LOOP) ? LoopType::LOW_LEVEL : LoopType::NONE;
+	if (source.repeatMode == SampleRepeatMode::LOOP) {
+		return LoopType::LOW_LEVEL;
+	}
+	// Enable looping for STRETCH mode when start offset is active,
+	// so the time stretcher wraps around instead of stopping at the sample end
+	if (wrapSyncPosition) {
+		return LoopType::LOW_LEVEL;
+	}
+	return LoopType::NONE;
 }

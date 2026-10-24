@@ -61,7 +61,15 @@ bool VoiceUnisonPartSource::noteOn(Voice* voice, Source* source, VoiceSamplePlay
 		if (samplesLate != 0u) {
 			return true; // We're finished in this case
 		}
-		return voiceSample->setupClusersForInitialPlay(guide, (Sample*)guide->audioFileHolder->audioFile, 0, false, 1);
+		if (!voiceSample->setupClusersForInitialPlay(guide, (Sample*)guide->audioFileHolder->audioFile, 0, false, 1)) {
+			if (!guide->hasStartOffset) {
+				return false;
+			}
+			// The start offset may have moved playback outside the pre-loaded region, so the first cluster may not
+			// be loaded yet. Defer to the late-start mechanism, which retries each render.
+			voiceSample->pendingSamplesLate = 1;
+		}
+		return true;
 	}
 
 	if (synthMode != SynthMode::FM

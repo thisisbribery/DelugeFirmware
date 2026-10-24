@@ -97,6 +97,8 @@ enum Local : ParamType {
 	LOCAL_OSC_A_WAVE_INDEX,
 	LOCAL_OSC_B_WAVE_INDEX,
 	LOCAL_PAN,
+	LOCAL_OSC_A_START_OFFSET, // Sample start offset for oscillator A (bipolar)
+	LOCAL_OSC_B_START_OFFSET, // Sample start offset for oscillator B (bipolar)
 
 	// Local exp params begin
 	FIRST_LOCAL_EXP,

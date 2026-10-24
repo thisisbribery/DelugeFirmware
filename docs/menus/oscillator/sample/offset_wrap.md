@@ -1,0 +1,1 @@
+Whether the start offset wraps around the whole sample (on, the default) or stops at the sample edge (off). With wrap off, a negative offset that would start before the sample begins is played as silence first.

@@ -51,6 +51,7 @@ public:
 	SampleRepeatMode repeatMode;
 
 	int8_t timeStretchAmount;
+	bool offsetWraps{true}; // When true, start offset wraps the playhead around the sample; when false, it clamps
 
 	int16_t defaultRangeI; // -1 means none yet
 

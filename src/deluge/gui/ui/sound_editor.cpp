@@ -159,6 +159,21 @@ PLACE_SDRAM_RODATA constexpr RGB mono_mod_shortcut_colours [][kDisplayHeight] = 
 
 //clang-format on
 
+// On a sample oscillator, the pulse width shortcut (unused for samples) opens the sample start offset instead.
+// The pulse width pads are the OSC1 / OSC2 columns, row 3.
+static MenuItem* sampleOffsetForPulseWidthShortcut(const MenuItem* item) {
+	if (item == nullptr) {
+		return nullptr;
+	}
+	if (item == paramShortcutsForSounds[2][3]) {
+		return &sample0StartOffsetMenu;
+	}
+	if (item == paramShortcutsForSounds[3][3]) {
+		return &sample1StartOffsetMenu;
+	}
+	return nullptr;
+}
+
 bool isRelevant(ModControllableAudio* forThing, MenuItem* menuitem, int32_t thing)
 {
 	// we have a menuitem, and we either have nothing to check or we checked and it's relevant
@@ -177,7 +192,8 @@ void SoundEditor::renderMainShortcutsOnly(ModControllableAudio* forThing, RGB im
 		for (int32_t xDisplay = 0; xDisplay < kDisplayWidth; xDisplay++)
 		{
 			auto [menuitem, _] = get_basic_shortcut_action(xDisplay, yDisplay, doKitAffectEntire);
-			if (isRelevant(forThing, menuitem, xDisplay % 2))
+			if (isRelevant(forThing, menuitem, xDisplay % 2)
+			    || isRelevant(forThing, sampleOffsetForPulseWidthShortcut(menuitem), xDisplay % 2))
 			{
 				image[yDisplay][xDisplay] = shortcut_colours[xDisplay][yDisplay];
 			}
@@ -1142,7 +1158,8 @@ void SoundEditor::updatePadLightsFor(MenuItem* currentItem) {
 						goto stopThat;
 					}
 
-					if (soundShortcut(x, y) == currentItem) {
+					if (soundShortcut(x, y) == currentItem
+					    || sampleOffsetForPulseWidthShortcut(soundShortcut(x, y)) == currentItem) {
 						if (x == 10 && y < 6 && editingReverbSidechain()) {
 							goto stopThat;
 						}
@@ -1692,6 +1709,12 @@ ActionResult SoundEditor::potentialShortcutPadAction(int32_t x, int32_t y, bool 
 
 			if (!setupSuccess && item == &modulator0Volume && currentSource->oscType == OscType::DX7) {
 				item = &dxParam;
+				setupSuccess = setup(currentClip, item, thingIndex);
+			}
+
+			// The offset menu is only relevant to sample oscillators, so setup fails for anything else
+			if (!setupSuccess && sampleOffsetForPulseWidthShortcut(item)) {
+				item = sampleOffsetForPulseWidthShortcut(item);
 				setupSuccess = setup(currentClip, item, thingIndex);
 			}
 

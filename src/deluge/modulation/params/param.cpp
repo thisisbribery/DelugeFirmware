@@ -28,6 +28,9 @@
 namespace deluge::modulation::params {
 
 bool isParamBipolar(Kind kind, int32_t paramID) {
+	if (kind == Kind::PATCHED && (paramID == LOCAL_OSC_A_START_OFFSET || paramID == LOCAL_OSC_B_START_OFFSET)) {
+		return true;
+	}
 	return (kind == Kind::PATCH_CABLE) || isParamPan(kind, paramID) || isParamPitch(kind, paramID)
 	       || isParamPitchBend(kind, paramID);
 }
@@ -137,6 +140,8 @@ char const* getPatchedParamShortName(ParamType type) {
 	    [LOCAL_OSC_A_WAVE_INDEX]         = "Osc1 wave",
 	    [LOCAL_OSC_B_WAVE_INDEX]         = "Osc2 wave",
 	    [LOCAL_PAN]                      = "Pan",
+	    [LOCAL_OSC_A_START_OFFSET]       = "Osc1 offset",
+	    [LOCAL_OSC_B_START_OFFSET]       = "Osc2 offset",
 	    [LOCAL_LPF_FREQ]                 = "LPf freq",
 	    [LOCAL_PITCH_ADJUST]             = "Pitch",
 	    [LOCAL_OSC_A_PITCH_ADJUST]       = "Osc1 pitch",
@@ -226,6 +231,8 @@ char const* getPatchedParamDisplayName(int32_t p) {
 	    [LOCAL_OSC_A_WAVE_INDEX] = STRING_FOR_PARAM_LOCAL_OSC_A_WAVE_INDEX,
 	    [LOCAL_OSC_B_WAVE_INDEX] = STRING_FOR_PARAM_LOCAL_OSC_B_WAVE_INDEX,
 	    [LOCAL_PAN] = STRING_FOR_PARAM_LOCAL_PAN,
+	    [LOCAL_OSC_A_START_OFFSET] = STRING_FOR_PARAM_LOCAL_OSC_A_START_OFFSET,
+	    [LOCAL_OSC_B_START_OFFSET] = STRING_FOR_PARAM_LOCAL_OSC_B_START_OFFSET,
 	    [LOCAL_LPF_FREQ] = STRING_FOR_PARAM_LOCAL_LPF_FREQ,
 	    [LOCAL_PITCH_ADJUST] = STRING_FOR_PARAM_LOCAL_PITCH_ADJUST,
 	    [LOCAL_OSC_A_PITCH_ADJUST] = STRING_FOR_PARAM_LOCAL_OSC_A_PITCH_ADJUST,
@@ -652,6 +659,12 @@ constexpr char const* paramNameForFileConst(Kind const kind, ParamType const par
 
 		case LOCAL_PAN:
 			return "pan";
+
+		case LOCAL_OSC_A_START_OFFSET:
+			return "oscAStartOffset";
+
+		case LOCAL_OSC_B_START_OFFSET:
+			return "oscBStartOffset";
 
 		case LOCAL_MODULATOR_0_VOLUME:
 			return "modulator1Volume";

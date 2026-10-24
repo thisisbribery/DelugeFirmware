@@ -43,5 +43,14 @@ public:
 	                                  // so it can just be referred to when looping happens
 	uint32_t loopEndPlaybackAtByte;   // 0 means disabled
 
+	int32_t preRollSamples{0}; // Output samples of silence before playback starts (negative start offset)
+
 	bool noteOffReceived;
+	bool wrapAroundPending{false};            // When start offset puts play pos past loop end, play to sample end first
+	uint32_t wrapAroundRestartByte{0};        // Original sample start byte for wrap-around restart
+	bool loopSplit{false};                    // Loop region crosses sample boundary after offset shift
+	bool oneShotWrap{false};                  // Play through split-loop once then stop (CUT/ONCE audition)
+	bool oneShotComplete{false};              // Set after one-shot wrap cycle finishes; getLoopingType returns NONE
+	bool phaseAdvancedByBoundaryCheck{false}; // Boundary check (samplePosBig) already advanced the phase
+	uint8_t loopWrapPhase{0};                 // 0=normal, 1=loopStart->sampleEnd, 2=sampleStart->loopEnd
 };

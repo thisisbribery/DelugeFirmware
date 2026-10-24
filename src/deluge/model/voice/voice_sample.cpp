@@ -528,6 +528,16 @@ bool VoiceSample::render(SamplePlaybackGuide* guide, int32_t* __restrict__ outpu
 
 		// If we should be time stretching now...
 		if (timeStretchRatio != kMaxSampleValue) {
+			// With a start offset, clusters may not be loaded yet (playback shifted outside the pre-loaded region, or
+			// a loop restart couldn't load the next cluster). A time stretcher created with unloaded clusters has both
+			// read heads die at once, restarting from the wrong position. Stay alive and let the late-start
+			// mechanism load the cluster on the next render.
+			if (guide->hasStartOffset && !timeStretcher && (!clusters[0] || !clusters[0]->loaded)) {
+				if (!pendingSamplesLate) {
+					pendingSamplesLate = 1;
+				}
+				return true;
+			}
 			bool stillGoing = weShouldBeTimeStretchingNow(sample, guide, numSamples, phaseIncrement, timeStretchRatio,
 			                                              playDirection, priorityRating, loopingType);
 			if (!stillGoing) {
@@ -1017,15 +1027,22 @@ assessLoopPointAgainTimestretched:
 
 							D_PRINTLN("loop point reached, timestretching");
 
-							int32_t newSamplePos =
-							    (uint32_t)(guide->getBytePosToStartPlayback(true) - sample->audioDataStartPosBytes)
-							    / (uint8_t)bytesPerSample; // Not including the overshoot yet
+							int32_t newStartByte = guide->getBytePosToStartPlayback(true);
+							if (guide->hasStartOffset) {
+								static_cast<VoiceSamplePlaybackGuide*>(guide)->phaseAdvancedByBoundaryCheck = true;
+							}
+							int32_t newSamplePos = (uint32_t)(newStartByte - sample->audioDataStartPosBytes)
+							                       / (uint8_t)bytesPerSample; // Not including the overshoot yet
 							int64_t newSamplePosBigOvershot =
 							    ((int64_t)newSamplePos << 24) - combinedIncrementingLeftToDo;
 
 							timeStretcher->reInit(newSamplePosBigOvershot, guide, this, sample, sampleSourceNumChannels,
 							                      timeStretchRatio, phaseIncrement, combinedIncrement, playDirection,
 							                      loopingType, priorityRating);
+
+							// Refresh boundary for the new phase - split-loop transitions change the end position, and
+							// the stale value would cause incorrect overshoot detection on the next iteration.
+							reassessmentPos = guide->getBytePosToEndOrLoopPlayback();
 
 							// Without this bound, a tiny loop at an extreme stretch could hang the audio routine
 							// forever
@@ -1075,6 +1092,19 @@ readNonTimestretched:
 			    interpolationBufferSize, (cache != nullptr),
 			    priorityRating); // Keep it reading silence forever so we can definitely fill up the cache
 			if (!stillActive) {
+				if (guide->hasStartOffset) {
+					auto* vg = static_cast<VoiceSamplePlaybackGuide*>(guide);
+					if (vg->loopSplit && !vg->oneShotComplete) {
+						// Cluster loading failed during a split-loop phase transition. The phase was already advanced
+						// by getBytePosToStartPlayback(true) inside setupClusersForInitialPlay. Defer to late-start.
+						int32_t restartByte = (vg->loopWrapPhase == 2) ? static_cast<int32_t>(vg->wrapAroundRestartByte)
+						                                               : vg->loopStartPlaybackAtByte;
+						unassignAllReasons(false);
+						guide->startPlaybackAtByte = static_cast<uint32_t>(restartByte);
+						pendingSamplesLate = 1;
+						return true;
+					}
+				}
 				return false;
 			}
 
@@ -1122,6 +1152,12 @@ readNonTimestretched:
 		else [[likely]] { // TODO: move this all into the TimeStretcher class?
 
 			// AudioEngine::logAction("yes timestretching");
+
+			// For split-loop, disable low-level looping on the time stretcher read heads. Non-synced: the boundary
+			// check above handles phase transitions. Synced: hopEnd wraps the position within the physical sample.
+			// Either way, read-head looping would call getBytePosToStartPlayback(true) and double-advance the phase.
+			bool splitLoopActive = guide->hasStartOffset && static_cast<VoiceSamplePlaybackGuide*>(guide)->loopSplit;
+			bool tsLowLevelLoop = (loopingType == LoopType::LOW_LEVEL) && !splitLoopActive;
 
 			int32_t* timeStretchResultWritePos;
 			int32_t numChannelsInTimeStretchResult;
@@ -1187,10 +1223,14 @@ readTimestretched:
 
 						// Check this again, cos newer play-head can become inactive in hopEnd(). This probably isn't
 						// really crucial. Added June 2019
-						if (!cache && loopingType == LoopType::NONE
-						    && !timeStretcher->playHeadStillActive[PLAY_HEAD_OLDER]
+						if (!cache && !timeStretcher->playHeadStillActive[PLAY_HEAD_OLDER]
 						    && !timeStretcher->playHeadStillActive[PLAY_HEAD_NEWER]) {
-							return false;
+							if (loopingType == LoopType::NONE) {
+								return false;
+							}
+							if (guide->hasStartOffset) {
+								return restartTimeStretchingWithStartOffset(guide, sample, priorityRating);
+							}
 						}
 					}
 					else {
@@ -1323,8 +1363,8 @@ readNewerHead:
 					bool success = readSamplesForTimeStretching(
 					    timeStretchResultWritePos, guide, sample, numSamplesThisTimestretchedRead,
 					    sampleSourceNumChannels, numChannelsInTimeStretchResult, phaseIncrement,
-					    newerSourceAmplitudeNow, newerAmplitudeIncrementNow, (loopingType == LoopType::LOW_LEVEL),
-					    jumpAmount, interpolationBufferSize, timeStretcher,
+					    newerSourceAmplitudeNow, newerAmplitudeIncrementNow, tsLowLevelLoop, jumpAmount,
+					    interpolationBufferSize, timeStretcher,
 #if TIME_STRETCH_ENABLE_BUFFER
 					    (timeStretcher->bufferFillingMode == BUFFER_FILLING_NEWER),
 #else
@@ -1359,8 +1399,8 @@ readOlderHeadUnbuffered:
 					bool success = timeStretcher->olderPartReader.readSamplesForTimeStretching(
 					    timeStretchResultWritePos, guide, sample, numSamplesThisTimestretchedRead,
 					    sampleSourceNumChannels, numChannelsInTimeStretchResult, phaseIncrement,
-					    olderSourceAmplitudeNow, olderAmplitudeIncrementNow, (loopingType == LoopType::LOW_LEVEL),
-					    jumpAmount, interpolationBufferSize, timeStretcher,
+					    olderSourceAmplitudeNow, olderAmplitudeIncrementNow, tsLowLevelLoop, jumpAmount,
+					    interpolationBufferSize, timeStretcher,
 #if TIME_STRETCH_ENABLE_BUFFER
 					    (timeStretcher->bufferFillingMode == BUFFER_FILLING_OLDER),
 #else
@@ -1431,9 +1471,14 @@ headsFinishedReading:
 			}
 #endif
 
-			if (!cache && loopingType == LoopType::NONE && !timeStretcher->playHeadStillActive[PLAY_HEAD_OLDER]
+			if (!cache && !timeStretcher->playHeadStillActive[PLAY_HEAD_OLDER]
 			    && !timeStretcher->playHeadStillActive[PLAY_HEAD_NEWER]) {
-				return false;
+				if (loopingType == LoopType::NONE) {
+					return false;
+				}
+				if (guide->hasStartOffset) {
+					return restartTimeStretchingWithStartOffset(guide, sample, priorityRating);
+				}
 			}
 
 			timeStretcher->samplesTilHopEnd -= numSamplesThisTimestretchedRead;
@@ -1793,5 +1838,41 @@ bool VoiceSample::possiblySetUpCache(SampleControls* sampleControls, SamplePlayb
 		}
 	}
 
+	return true;
+}
+
+// Both time stretcher play heads died while looping with a start offset (they regularly cross the physical sample
+// boundary). Restart from the right place; weShouldBeTimeStretchingNow() re-creates the time stretcher next render.
+// Returns false if the voice should end.
+bool VoiceSample::restartTimeStretchingWithStartOffset(SamplePlaybackGuide* guide, Sample* sample,
+                                                       int32_t priorityRating) {
+	auto* vg = static_cast<VoiceSamplePlaybackGuide*>(guide);
+	unassignAllReasons(false);
+	endTimeStretching();
+
+	int32_t restartByte;
+	if (vg->loopSplit) {
+		if (vg->oneShotComplete) {
+			return false; // One-shot cycle done
+		}
+		if (vg->phaseAdvancedByBoundaryCheck) {
+			// Boundary check already advanced the phase via getBytePosToStartPlayback(true). Use current phase start.
+			restartByte = (vg->loopWrapPhase == 2) ? static_cast<int32_t>(vg->wrapAroundRestartByte)
+			                                       : vg->loopStartPlaybackAtByte;
+			vg->phaseAdvancedByBoundaryCheck = false;
+		}
+		else {
+			// Read heads outran samplePosBig (pitched-down stretching). Boundary check didn't fire, so advance here.
+			restartByte = vg->getBytePosToStartPlayback(true);
+		}
+		if (!setupClustersForPlayFromByte(guide, sample, restartByte, priorityRating)) {
+			unassignAllReasons(false);
+			guide->startPlaybackAtByte = static_cast<uint32_t>(restartByte);
+			pendingSamplesLate = 1;
+		}
+	}
+	else if (!setupClusersForInitialPlay(guide, sample, 0, true, priorityRating)) {
+		pendingSamplesLate = 1;
+	}
 	return true;
 }

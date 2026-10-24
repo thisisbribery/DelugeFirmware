@@ -95,6 +95,7 @@ public:
 	bool writingToCache = false; // Value is only valid if cache assigned
 
 private:
+	bool restartTimeStretchingWithStartOffset(SamplePlaybackGuide* guide, Sample* sample, int32_t priorityRating);
 	bool weShouldBeTimeStretchingNow(Sample* sample, SamplePlaybackGuide* guide, int32_t numSamples,
 	                                 int32_t phaseIncrement, int32_t timeStretchRatio, int32_t playDirection,
 	                                 int32_t priorityRating, LoopType loopingType);

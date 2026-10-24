@@ -82,6 +82,7 @@ public:
 	std::array<int32_t, kNumSources> sourceAmplitudesLastTime;
 	std::array<int32_t, kNumModulators> modulatorAmplitudeLastTime;
 	std::array<uint32_t, kNumSources> sourceWaveIndexesLastTime;
+	std::array<int32_t, kNumSources> lastAppliedStartOffset{};
 
 	int32_t filterGainLastTime;
 	bool doneFirstRender;
@@ -162,4 +163,5 @@ private:
 	bool areAllUnisonPartsInactive(ModelStackWithSoundFlags& modelStack) const;
 	void setupPorta(const Sound& sound);
 	int32_t combineExpressionValues(const Sound& sound, int32_t expressionDimension) const;
+	void applyStartOffsetToGuide(VoiceSamplePlaybackGuide& guide, const Source& source, int32_t startOffsetParam);
 };

@@ -25,6 +25,7 @@
 #include "gui/menu_item/randomizer/randomizer_lock.h"
 #include "gui/menu_item/sample/end.h"
 #include "gui/menu_item/sample/start.h"
+#include "gui/menu_item/sample/start_offset.h"
 #include "gui/menu_item/sequence/direction.h"
 #include "gui/menu_item/source/patched_param/modulator_level.h"
 #include "gui/menu_item/stem_export/start.h"
@@ -46,6 +47,8 @@ extern gui::menu_item::sample::Start sample0StartMenu;
 extern gui::menu_item::sample::Start sample1StartMenu;
 extern gui::menu_item::sample::End sample0EndMenu;
 extern gui::menu_item::sample::End sample1EndMenu;
+extern gui::menu_item::sample::StartOffset sample0StartOffsetMenu;
+extern gui::menu_item::sample::StartOffset sample1StartOffsetMenu;
 extern gui::menu_item::osc::AudioRecorder sample0RecorderMenu;
 extern gui::menu_item::osc::AudioRecorder sample1RecorderMenu;
 extern gui::menu_item::audio_clip::SampleMarkerEditor audioClipSampleMarkerEditorMenuStart;

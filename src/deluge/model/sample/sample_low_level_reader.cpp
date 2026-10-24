@@ -147,8 +147,15 @@ void SampleLowLevelReader::setupReassessmentLocation(SamplePlaybackGuide* guide,
 	int32_t endPlaybackAtByte;
 	int32_t finalClusterIndex = guide->getFinalClusterIndex(sample, shouldObeyMarkers(), &endPlaybackAtByte);
 
+	// Are we already past the final Cluster? This can happen when the start offset puts the play position past the
+	// loop end in a different cluster. Force immediate STOP_OR_LOOP so changeClusterIfNecessary triggers loop-back.
+	if (guide->hasStartOffset && (currentClusterIndex - finalClusterIndex) * guide->playDirection > 0) {
+		reassessmentLocation = currentPlayPos;
+		reassessmentAction = REASSESSMENT_ACTION_STOP_OR_LOOP;
+	}
+
 	// Is this the final Cluster?
-	if (currentClusterIndex == finalClusterIndex) {
+	else if (currentClusterIndex == finalClusterIndex) {
 		int32_t bytePosWithinClusterToStopAt = endPlaybackAtByte & (Cluster::size - 1);
 		if (guide->playDirection == 1) {
 			if (bytePosWithinClusterToStopAt == 0) {
@@ -300,9 +307,13 @@ bool SampleLowLevelReader::assignClusters(SamplePlaybackGuide* guide, Sample* sa
 
 	for (int32_t l = 0; l < kNumClustersLoadedAhead; l++) {
 
+		// With a start offset, the first cluster may lie outside the pre-loaded region. Load it on demand rather
+		// than having it enqueued-then-destroyed in a loop.
+		int32_t loadMode = (l == 0 && guide->hasStartOffset) ? CLUSTER_LOAD_IMMEDIATELY_OR_ENQUEUE : CLUSTER_ENQUEUE;
+
 		// Grab it.
-		clusters[l] = sample->clusters.getElement(clusterIndex)
-		                  ->getCluster(sample, clusterIndex, CLUSTER_ENQUEUE, priorityRating);
+		clusters[l] =
+		    sample->clusters.getElement(clusterIndex)->getCluster(sample, clusterIndex, loadMode, priorityRating);
 
 		// The first one is required to not only have returned an object to us (which it might not have if insufficient
 		// RAM or maybe other reasons), but also to be fully loaded.
@@ -1165,8 +1176,10 @@ bool SampleLowLevelReader::readSamplesForTimeStretching(
 		if (!timeStretcher->playHeadStillActive[whichPlayHead]) {
 
 			// If we got false, that can just mean end of waveform. But if clusters[0] has been set to NULL too, that
-			// means (SD card) error
-			if (clusters[0]) {
+			// means (SD card) error.
+			// With a start offset, play heads regularly cross the physical sample boundary, so just deactivate the
+			// head and let the time stretcher's both-heads-dead restart handle it.
+			if (clusters[0] && !guide->hasStartOffset) {
 				return false;
 			}
 
