@@ -3789,6 +3789,29 @@ int32_t InstrumentClip::getMonoYScroll(Song* song) {
 	if (yNote > 66) {
 		yNote -= 12;
 	}
+
+	// Follow the notes an octave at a time, so they stay on the grid after the whole clip is transposed
+	int32_t lowest = std::numeric_limits<int32_t>::max();
+	int32_t highest = std::numeric_limits<int32_t>::min();
+	for (int32_t i = 0; i < noteRows.getNumElements(); i++) {
+		NoteRow* noteRow = noteRows.getElement(i);
+		if (!noteRow->hasNoNotes()) {
+			lowest = std::min<int32_t>(lowest, noteRow->y);
+			highest = std::max<int32_t>(highest, noteRow->y);
+		}
+	}
+	if (lowest <= highest) {
+		// The octave whose root is at or below the lowest note...
+		int32_t octaves = (lowest - yNote) / 12 - (lowest < yNote && (yNote - lowest) % 12);
+		// ... unless the notes all sit on the octave below's top row, as a lone note on the default grid's top row
+		// does, which shouldn't move the grid
+		int32_t lowerTop =
+		    getYNoteFromYVisual(getYVisualFromYNote(yNote + 12 * (octaves - 1), song) + kMonoNumRows - 1, song);
+		if (highest <= lowerTop) {
+			octaves--;
+		}
+		yNote += 12 * octaves;
+	}
 	return getYVisualFromYNote(yNote, song);
 }
 
