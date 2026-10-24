@@ -68,6 +68,8 @@ public:
 	CVEngine();
 	void init();
 	void sendNote(bool on, uint8_t channel, int16_t note = -32768);
+	/// A note-on with a set voltage (0 to 65535) instead of the note's own. The note is kept for matching its note-off.
+	void sendNoteVoltage(uint8_t channel, int16_t note, int32_t voltage);
 	void setGateType(uint8_t whichGate, GateType value);
 	void setCVVoltsPerOctave(uint8_t channel, uint8_t value);
 	void setCVTranspose(uint8_t channel, int32_t semitones, int32_t cents);

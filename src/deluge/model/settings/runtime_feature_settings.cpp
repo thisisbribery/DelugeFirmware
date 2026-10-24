@@ -75,6 +75,28 @@ static void SetupSyncScalingActionSetting(RuntimeFeatureSetting& setting, deluge
 	        .displayName = display->haveOLED() ? "Fill mode" : "FILL",
 	        .value = RuntimeFeatureStateSyncScalingAction::Fill,
 	    },
+	    {
+	        .displayName = display->haveOLED() ? "Kit pattern mode" : "PATT",
+	        .value = RuntimeFeatureStateSyncScalingAction::Pattern,
+	    },
+	};
+}
+
+static void SetupTapTempoActionSetting(RuntimeFeatureSetting& setting, deluge::l10n::String displayName,
+                                       std::string_view xmlName, RuntimeFeatureStateTapTempoAction def) {
+	setting.displayName = displayName;
+	setting.xmlName = xmlName;
+	setting.value = static_cast<uint32_t>(def);
+
+	setting.options = {
+	    {
+	        .displayName = display->haveOLED() ? "Tap tempo" : "TAP",
+	        .value = RuntimeFeatureStateTapTempoAction::TapTempo,
+	    },
+	    {
+	        .displayName = display->haveOLED() ? "Autofill" : "FILL",
+	        .value = RuntimeFeatureStateTapTempoAction::AutoFill,
+	    },
 	};
 }
 
@@ -180,6 +202,15 @@ void RuntimeFeatureSettings::init() {
 	SetupOnOffSetting(settings[RuntimeFeatureSettingType::EnableGridViewLoopPads],
 	                  STRING_FOR_COMMUNITY_FEATURE_GRID_VIEW_LOOP_PADS, "enableGridViewLoopPads",
 	                  RuntimeFeatureStateToggle::Off);
+
+	// TapTempoAction
+	SetupTapTempoActionSetting(settings[RuntimeFeatureSettingType::TapTempoAction],
+	                           STRING_FOR_COMMUNITY_FEATURE_TAP_TEMPO_ACTION, "tapTempoAction",
+	                           RuntimeFeatureStateTapTempoAction::TapTempo);
+
+	// EndlessRecord
+	SetupOnOffSetting(settings[RuntimeFeatureSettingType::EndlessRecord], STRING_FOR_COMMUNITY_FEATURE_ENDLESS_RECORD,
+	                  "endlessRecord", RuntimeFeatureStateToggle::Off);
 
 	// AlternativeTapTempoBehaviour
 	SetupOnOffSetting(settings[RuntimeFeatureSettingType::AlternativeTapTempoBehaviour],

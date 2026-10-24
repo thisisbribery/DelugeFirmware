@@ -38,6 +38,7 @@
 #define CORRESPONDING_NOTES_SET_VELOCITY 2
 #define CORRESPONDING_NOTES_SET_ITERANCE 3
 #define CORRESPONDING_NOTES_SET_FILL 4
+#define CORRESPONDING_NOTES_ADJUST_MONO_OCTAVE 5
 
 class InstrumentClip;
 class Song;
@@ -78,6 +79,7 @@ struct PendingNoteOn {
 	uint8_t velocity;
 	Iterance iterance;
 	uint8_t fill;
+	uint8_t lift; // Carries the octave in mono CV clips
 };
 
 struct PendingNoteOnList {
@@ -126,8 +128,9 @@ public:
 
 	int16_t y; // This has to be at the top
 	bool muted;
-	bool mutedBeforeStemExport; // Used by stem export to restore previous state
-	bool exportStem;            // Used by stem export to flag if this note row should be exported
+	int8_t monoSoundingOctave = 0; // Mono synth or MIDI clips: the octave the row's note started in
+	bool mutedBeforeStemExport;    // Used by stem export to restore previous state
+	bool exportStem;               // Used by stem export to flag if this note row should be exported
 
 	int32_t loopLengthIfIndependent; // 0 means obeying parent
 	int32_t lastProcessedPosIfIndependent;

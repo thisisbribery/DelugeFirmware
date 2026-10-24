@@ -47,6 +47,12 @@ enum class VerticalNudgeType { ROW, OCTAVE };
 
 class InstrumentClip final : public Clip {
 public:
+	/// Autofill: plays a kit row's drum now, as if a note had started on it, and stops it again
+	/// semitones shifts just this hit, for drums that are sounds
+	void playAutofillHit(ModelStackWithTimelineCounter* modelStack, int32_t noteRowId, int32_t velocity,
+	                     int32_t semitones = 0);
+	void stopAutofillHit(ModelStackWithTimelineCounter* modelStack, int32_t noteRowId);
+
 	explicit InstrumentClip(Song* song = nullptr);
 	~InstrumentClip() override;
 	void increaseLengthWithRepeats(ModelStackWithTimelineCounter* modelStack, int32_t newLength,
@@ -121,6 +127,25 @@ public:
 
 	bool wrapEditing;
 	uint32_t wrapEditLevel{};
+
+	// Mono sequencer, for synth, MIDI and CV clips: 8 fixed rows of the scale from its root, one note per column, and
+	// an octave offset on each note (kept in the note's lift). On CV, CUSTOM sends a set voltage for each row.
+	static constexpr int32_t kMonoNumRows = 8;
+	static constexpr int32_t kMonoMaxOctave = 4;
+	bool monoMode = false;
+	bool monoCustom = false;
+	uint8_t monoGatePercent = 100; // Each note sounds for this much of its length
+	std::array<int16_t, kMonoNumRows> monoCustomMillivolts{0, 167, 333, 417, 583, 750, 917, 1000}; // A major scale
+	bool isMono() const;
+	bool isMonoCV() const;
+	/// Synth and MIDI mono clips move a note by its octave in its note code. CV puts the octave in the voltage.
+	bool monoShiftsNoteCode() const;
+	/// The yScroll that puts the scale's root on the bottom row
+	int32_t getMonoYScroll(Song* song);
+	/// The octave offset, -kMonoMaxOctave to kMonoMaxOctave, a note carries in a mono CV clip
+	static int32_t getMonoOctave(int32_t lift);
+	/// How long a note sounds, after the mono gate %
+	int32_t getGateLength(int32_t noteLength) const;
 
 	// These *only* store a valid preset number for the instrument-types that the Clip is not currently on
 	int8_t backedUpInstrumentSlot[4]{};

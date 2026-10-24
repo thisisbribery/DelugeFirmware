@@ -311,7 +311,13 @@ public:
 	bool handleNoteRowEditorPadAction(int32_t x, int32_t y, int32_t on);
 	bool handleNoteRowEditorMainPadAction(int32_t x, int32_t y, int32_t on);
 	void handleNoteRowEditorAuditionPadAction(int32_t y);
-	void copyNotesToFile(Serializer& writer, bool selectedDrumOnly = false);
+	/// fullLength, if not 0, copies from the start of the clip to fullLength instead of what's on screen
+	void copyNotesToFile(Serializer& writer, bool selectedDrumOnly = false, int32_t fullLength = 0);
+	/// Kit pattern mode: replaces one kit row with the pattern in an open pattern file
+	Error loadRowPatternFromFile(Deserializer& reader, int32_t noteRowIndex, Action* action);
+	/// Kit pattern mode: replaces one kit row's notes with source's (or clears the row if source is null) and sets the
+	/// row to patternLength. A longer pattern lengthens the clip, and every other row keeps the length it had.
+	void applyRowPattern(int32_t noteRowIndex, CopiedNoteRow* source, int32_t patternLength, Action* action);
 	Error pasteNotesFromFile(Deserializer& reader, bool overwriteExisting, bool noScaling, bool previewOnly,
 	                         bool selectedDrumOnly);
 	void patternPreview();
@@ -352,6 +358,18 @@ public:
 	ModControllableAudio* getModControllableAudioOrNone() override;
 
 private:
+	// Mono CV sequencer
+	void adjustMonoOctave(int32_t offset);
+	void clearOtherMonoRows(NoteRow* keep, int32_t start, int32_t width, Action* action);
+	void renderMonoRow(NoteRow* noteRow, int32_t loopLength, RGB* image, int32_t renderWidth, int32_t xScroll,
+	                   uint32_t xZoom);
+	void adjustMonoCustomVoltage(int32_t offset);
+	/// The octave of a note held on this row, or 0 if none
+	int32_t getHeldMonoOctave(uint8_t yDisplay);
+	/// Shows what a row plays at its held note's octave: the note name, or a CUSTOM row's voltage
+	void displayMonoNote(uint8_t yDisplay);
+	int8_t monoAuditionOctave[kDisplayHeight]{}; // The octave each row's audition started in
+
 	bool doneAnyNudgingSinceFirstEditPadPress{};
 	bool offsettingNudgeNumberDisplay{};
 
@@ -397,11 +415,13 @@ private:
 	bool updating_note_pulse_directly = false;
 
 	// note row functions
-	void copyNotes(Serializer* writer, bool selectedDrumOnly = false);
+	void copyNotes(Serializer* writer, bool selectedDrumOnly = false, int32_t fullLength = 0);
 	void pasteNotes(bool overwriteExisting = true, bool pasteFromFile = false, bool noScaling = false,
 	                bool previewOnly = false, bool selectedDrumOnly = false);
 	void deleteCopiedNoteRows();
 	CopiedNoteRow* firstCopiedNoteRow;
+	int32_t rowPatternTarget = -1; // When not -1, pasteNotesFromFile() fills just this kit row
+	Action* rowPatternAction = nullptr;
 	int32_t copiedScreenWidth{};
 	ScaleType copiedScaleType{};
 	int16_t copiedYNoteOfBottomRow{};

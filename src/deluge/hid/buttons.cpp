@@ -26,6 +26,7 @@
 #include "gui/views/view.h"
 #include "model/mod_controllable/mod_controllable.h"
 #include "model/settings/runtime_feature_settings.h"
+#include "playback/autofill.h"
 #include "playback/mode/playback_mode.h"
 #include "playback/playback_handler.h"
 #include "processing/engines/audio_engine.h"
@@ -175,6 +176,10 @@ ActionResult buttonAction(deluge::hid::Button b, bool on, bool inCardRoutine) {
 	// Shift button
 	else if (b == SHIFT) {
 		commandToggleShift(on);
+		// The swing popup stays up while SHIFT is held
+		if (!on && display->hasPopupOfType(PopupType::SWING)) {
+			display->cancelPopup();
+		}
 	}
 	// Record button
 	else if (b == RECORD) {
@@ -211,12 +216,25 @@ ActionResult buttonAction(deluge::hid::Button b, bool on, bool inCardRoutine) {
 
 	// Tempo encoder button
 	else if (b == TEMPO_ENC) {
-		if (on) {
-			if (isShiftButtonPressed()) {
+		// SHIFT + click clears tempo automation, on release, unless the knob was turned to change the swing style
+		if (!on) {
+			if (playbackHandler.tempoPressedWithShift && !playbackHandler.tempoTurnedWhilePressedWithShift) {
 				playbackHandler.commandClearTempoAutomation();
 			}
+			playbackHandler.tempoPressedWithShift = false;
+		}
+		if (on) {
+			if (isShiftButtonPressed()) {
+				playbackHandler.tempoPressedWithShift = true;
+				playbackHandler.tempoTurnedWhilePressedWithShift = false;
+			}
 			else if (isButtonPressed(TAP_TEMPO)) {
-				playbackHandler.commandDisplaySwingInterval();
+				if (deluge::autofill::Autofill::isChosenInSettings()) {
+					deluge::autofill::autofill.displayFill();
+				}
+				else {
+					playbackHandler.commandDisplaySwingInterval();
+				}
 			}
 			else {
 				UI* currentUI = getCurrentUI();

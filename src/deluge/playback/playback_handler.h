@@ -158,6 +158,15 @@ public:
 
 	bool songSwapShouldPreserveTempo;
 
+	// SHIFT + clicking the TEMPO knob clears tempo automation, and SHIFT + pushing and turning it changes the swing
+	// style, so the clear waits for the knob's release and only happens if it wasn't turned
+	bool tempoPressedWithShift = false;
+	bool tempoTurnedWhilePressedWithShift = false;
+
+	// Endless record: RECORD was pressed to stop while clips were recording linearly, so recording keeps going until
+	// the next loop end (the bar line) and switches off there
+	bool endlessRecordStopPending = false;
+
 	// User options
 	bool metronomeOn;
 	bool midiOutClockEnabled;
@@ -178,6 +187,8 @@ public:
 	void resyncInternalTicksToInputTicks(Song* song);
 	bool shouldRecordNotesNow();
 	void stopAnyRecording();
+	bool endlessRecordEnabled();
+	bool anyClipRecordingEndlessly();
 	uint32_t getTimePerInternalTick();
 	uint64_t getTimePerInternalTickBig();
 	float getTimePerInternalTickFloat();
@@ -229,6 +240,9 @@ public:
 	// TEMPO encoder commands
 	void commandDisplaySwingAmount();
 	void commandEditSwingAmount(int8_t offset);
+	void commandDisplaySwingStyle();
+	void commandEditSwingStyle(int8_t offset);
+	void showSwingPopup(char const* text);
 	void commandDisplaySwingInterval();
 	void commandEditSwingInterval(int8_t offset);
 	void commandNudgeClock(int8_t offset);

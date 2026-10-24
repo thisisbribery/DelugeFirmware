@@ -37,7 +37,10 @@ class DevSysexSetting;
 enum RuntimeFeatureStateToggle : uint32_t { Off = 0, On = 1 };
 
 // Declare additional enums for specific multi state settings (e.g. like RuntimeFeatureStateTrackLaunchStyle)
-enum RuntimeFeatureStateSyncScalingAction : uint32_t { SyncScaling = 0, Fill = 1 };
+enum RuntimeFeatureStateSyncScalingAction : uint32_t { SyncScaling = 0, Fill = 1, Pattern = 2 };
+
+/// What the TAP TEMPO button does: tap tempo, or trigger autofills
+enum RuntimeFeatureStateTapTempoAction : uint32_t { TapTempo = 0, AutoFill = 1 };
 
 enum RuntimeFeatureStateEmulatedDisplay : uint32_t { Hardware = 0, Toggle = 1, OnBoot = 2 };
 
@@ -68,6 +71,8 @@ enum RuntimeFeatureSettingType : uint32_t {
 	ShowBatteryLevel,
 	RoundedCorners,
 	ShortcutOverlay,
+	TapTempoAction,
+	EndlessRecord,
 	MaxElement // Keep as boundary
 };
 

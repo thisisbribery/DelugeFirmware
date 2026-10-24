@@ -1822,6 +1822,12 @@ Error NoteRow::changeNotesAcrossAllScreens(int32_t editPos, ModelStackWithNoteRo
 			case CORRESPONDING_NOTES_SET_FILL: {
 				thisNote->setFill(changeValue);
 			} break;
+
+			case CORRESPONDING_NOTES_ADJUST_MONO_OCTAVE: {
+				int32_t octave = InstrumentClip::getMonoOctave(thisNote->getLift()) + changeValue;
+				octave = std::clamp<int32_t>(octave, -InstrumentClip::kMonoMaxOctave, InstrumentClip::kMonoMaxOctave);
+				thisNote->setLift(kDefaultLiftValue + octave);
+			} break;
 			}
 		}
 	}
@@ -2217,7 +2223,7 @@ stopNote:
 					if (posRelativeToNoteLeftEdge < 0) {
 						posRelativeToNoteLeftEdge += effectiveLength;
 					}
-					if (posRelativeToNoteLeftEdge >= thisNote->length) {
+					if (posRelativeToNoteLeftEdge >= clip->getGateLength(thisNote->length)) {
 						goto stopNote; // This is probably fine as either ">" or ">="
 					}
 				}
@@ -2225,7 +2231,7 @@ stopNote:
 				int32_t noteLateEdgePos = thisNote->pos; // Depending on play direction, this will be either the
 				                                         // left or right edge of the Note.
 				if (!playingReversedNow) {
-					noteLateEdgePos += thisNote->length;
+					noteLateEdgePos += clip->getGateLength(thisNote->length);
 				}
 
 				if (wrapping) {
@@ -2382,8 +2388,8 @@ gotValidNoteIndex:
 						goto stopNote;
 					}
 
-					newTicksTil =
-					    nextNote->length; // Want this even if we're "skipping" playing the note (why exactly?)
+					// Want this even if we're "skipping" playing the note (why exactly?)
+					newTicksTil = clip->getGateLength(nextNote->length);
 				}
 
 				ticksTilNextNoteEvent = newTicksTil;
@@ -2554,6 +2560,7 @@ storePendingNoteOn:
 					    thisNote->getProbability();
 					pendingNoteOnList->pendingNoteOns[pendingNoteOnList->count].iterance = thisNote->getIterance();
 					pendingNoteOnList->pendingNoteOns[pendingNoteOnList->count].fill = thisNote->getFill();
+					pendingNoteOnList->pendingNoteOns[pendingNoteOnList->count].lift = thisNote->getLift();
 					pendingNoteOnList->pendingNoteOns[pendingNoteOnList->count].sampleSyncLength =
 					    thisNote->getLength();
 					pendingNoteOnList->pendingNoteOns[pendingNoteOnList->count].ticksLate = ticksLate;
@@ -2568,8 +2575,13 @@ storePendingNoteOn:
 					ModelStackWithThreeMainThings* modelStackWithThreeMainThings = modelStack->addOtherTwoThings(
 					    ((Clip*)modelStack->getTimelineCounter())->output->toModControllable(),
 					    &modelStack->getTimelineCounter()->paramManager);
+					int32_t noteCode = getNoteCode();
+					if (clip->monoShiftsNoteCode()) {
+						monoSoundingOctave = InstrumentClip::getMonoOctave(thisNote->getLift());
+						noteCode += 12 * monoSoundingOctave;
+					}
 					((MelodicInstrument*)output)
-					    ->sendNote(modelStackWithThreeMainThings, true, getNoteCode(), mpeValues, MIDI_CHANNEL_NONE,
+					    ->sendNote(modelStackWithThreeMainThings, true, noteCode, mpeValues, MIDI_CHANNEL_NONE,
 					               thisNote->velocity, thisNote->length, ticksLate, samplesLate);
 				}
 			}
@@ -2585,8 +2597,13 @@ storePendingNoteOn:
 			ModelStackWithThreeMainThings* modelStackWithThreeMainThings =
 			    modelStack->addOtherTwoThings(((Clip*)modelStack->getTimelineCounter())->output->toModControllable(),
 			                                  &modelStack->getTimelineCounter()->paramManager);
+			// A mono synth or MIDI note stops in the octave it started in
+			int32_t noteCode = getNoteCode();
+			if (clip->monoShiftsNoteCode()) {
+				noteCode += 12 * monoSoundingOctave;
+			}
 			((MelodicInstrument*)output)
-			    ->sendNote(modelStackWithThreeMainThings, false, getNoteCode(), nullptr, MIDI_CHANNEL_NONE, lift);
+			    ->sendNote(modelStackWithThreeMainThings, false, noteCode, nullptr, MIDI_CHANNEL_NONE, lift);
 		}
 	}
 	else if (drum) {

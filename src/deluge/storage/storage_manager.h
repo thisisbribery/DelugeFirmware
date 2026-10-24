@@ -34,6 +34,7 @@ extern void deleteOldSongBeforeLoadingNew();
 
 extern FatFS::Filesystem fileSystem;
 
+class Action;
 class Instrument;
 class PlaybackMode;
 class ParamManagerForTimeline;
@@ -399,6 +400,8 @@ Error loadMidiDeviceDefinitionFile(MIDIInstrument* midiInstrument, FilePointer* 
 Error openPatternFile(FilePointer* filePointer);
 Error loadPatternFile(FilePointer* filePointer, String* fileName, bool overwriteExisting, bool noScaling,
                       bool previewOnly, bool selectedDrumOnly);
+/// Kit pattern mode: loads a pattern file into one kit row of the current clip
+Error loadRowPatternFile(FilePointer* filePointer, int32_t noteRowIndex, Action* action);
 
 Error openFavouriteFile(FilePointer* filePointer);
 Error loadFavouriteFile(FilePointer* filePointer, String* fileName);

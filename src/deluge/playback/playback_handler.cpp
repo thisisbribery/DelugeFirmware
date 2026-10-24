@@ -59,6 +59,7 @@
 #include "model/settings/runtime_feature_settings.h"
 #include "model/song/song.h"
 #include "model/sync.h"
+#include "playback/autofill.h"
 #include "playback/clock_output_scheduler.h"
 #include "playback/mode/arrangement.h"
 #include "playback/mode/session.h"
@@ -289,10 +290,27 @@ void PlaybackHandler::recordButtonPressed() {
 			return;
 		}
 
+		// Endless record: pressing again while the stop is pending cancels it, and pressing to stop while clips are
+		// recording linearly waits for the next loop end, with RECORD blinking until then
+		if (endlessRecordStopPending) {
+			endlessRecordStopPending = false;
+			setLedStates();
+			return;
+		}
+		if (recording == RecordingMode::NORMAL && anyClipRecordingEndlessly()) {
+			endlessRecordStopPending = true;
+			indicator_leds::blinkLed(IndicatorLED::RECORD, 255, 1);
+			return;
+		}
+
 		bool wasRecordingArrangement = (recording == RecordingMode::ARRANGEMENT);
 
 		if (recording == RecordingMode::OFF) {
 			recording = RecordingMode::NORMAL;
+
+			if (endlessRecordEnabled() && playbackState && currentPlaybackMode == &session && !ticksLeftInCountIn) {
+				session.beginEndlessRecording();
+			}
 		}
 		else {
 			recording = RecordingMode::OFF;
@@ -580,6 +598,7 @@ void PlaybackHandler::setupPlayback(int32_t newPlaybackState, int32_t playFromPo
 }
 
 void PlaybackHandler::endPlayback() {
+	deluge::autofill::autofill.playbackStopped();
 	if (isInternalClockActive() && currentlySendingMIDIOutputClocks()) {
 		midiEngine.sendStop(this);
 	}
@@ -590,6 +609,12 @@ void PlaybackHandler::endPlayback() {
 	}
 
 	bool wasRecordingArrangement = (recording == RecordingMode::ARRANGEMENT);
+
+	// A stop that was waiting for the next loop end happens now instead
+	if (endlessRecordStopPending) {
+		endlessRecordStopPending = false;
+		recording = RecordingMode::OFF;
+	}
 
 	// Rohan: Must happen after currentSong->endInstancesOfActiveClips() is called (ok I can't
 	// remember why I wrote that, and now it needs to happen before so that
@@ -716,10 +741,8 @@ void PlaybackHandler::actionTimerTick() {
 // same time as a timer tick
 void PlaybackHandler::actionTimerTickPart2() {
 
-	// Schedule next timer tick. Normal case is two swing intervals away.
-	int32_t leftShift = 10 - currentSong->swingInterval;
-	leftShift = std::max(leftShift, 0_i32);
-	uint32_t timeTilNextTimerTick = 3 << (leftShift); // That's doubleSwingInterval
+	// Schedule next timer tick. Normal case is one swing block (two swing intervals for classic swing) away.
+	uint32_t timeTilNextTimerTick = currentSong->getSwingBlockLength();
 
 	// But if count-in happening, limit it to one bar's length (or perhaps this should be one beat, to avoid slight
 	// screwiness with very long swing intervals?)
@@ -1039,7 +1062,14 @@ void PlaybackHandler::actionSwungTick() {
 	swungTicksTilNextEvent = 2147483647;
 
 	if (isEitherClockActive()) { // Occasionally, considerLaunchEvent() will stop playback
-		currentPlaybackMode->doTickForward(swungTickIncrement);
+		{
+			// Autofill decides its hits before the clips play theirs, so it can take theirs away
+			int32_t swungTicksTilAutofillEvent =
+			    deluge::autofill::autofill.processTick(lastSwungTickActioned, swungTickIncrement);
+			currentPlaybackMode->doTickForward(swungTickIncrement);
+			deluge::autofill::autofill.afterTick();
+			swungTicksTilNextEvent = std::min(swungTicksTilNextEvent, swungTicksTilAutofillEvent);
+		}
 
 		if (isEitherClockActive()) { // Occasionally, doTickForward() will stop playback
 
@@ -1102,7 +1132,14 @@ void PlaybackHandler::scheduleSwungTickFromInternalClock() {
 		swungTickScheduled = true;
 		uint32_t swungTicksIntoTimerBit = nextSwungTick - lastTimerTickActioned;
 
-		if (currentSong->hasAnySwing()) {
+		if (currentSong->hasSwingStyle()) {
+			uint64_t unswungTicksIn = currentSong->swungToUnswung(swungTicksIntoTimerBit); // 1/65536ths of a tick
+			uint64_t timeInBig = currentSong->timePerTimerTickBig * (unswungTicksIn >> 16)
+			                     + (currentSong->timePerTimerTickBig >> 16) * (unswungTicksIn & 65535);
+			scheduledSwungTickTime = (uint64_t)(timeLastTimerTickBig + timeInBig) >> 32;
+		}
+
+		else if (currentSong->hasAnySwing()) {
 			int32_t leftShift = 9 - currentSong->swingInterval;
 			leftShift = std::max(leftShift, 0_i32);
 			uint32_t swingInterval = 3 << (leftShift);
@@ -1145,7 +1182,16 @@ int32_t PlaybackHandler::getNumSwungTicksInSinceLastTimerTick(uint32_t* timeRema
 
 	uint32_t timePassed = AudioEngine::audioSampleTimer - (uint32_t)(timeLastTimerTickBig >> 32);
 
-	if (currentSong->hasAnySwing()) {
+	if (currentSong->hasSwingStyle()) {
+		if (timeRemainder) {
+			*timeRemainder = 0;
+		}
+		uint64_t unswungTicksIn = ((uint64_t)timePassed << 32) / (currentSong->timePerTimerTickBig >> 16);
+		uint32_t swungTicksIn = currentSong->unswungToSwung(unswungTicksIn);
+		return std::min(swungTicksIn, currentSong->getSwingBlockLength() - 1);
+	}
+
+	else if (currentSong->hasAnySwing()) {
 
 		if (timeRemainder) {
 			*timeRemainder = 0; // To be improved
@@ -1223,6 +1269,14 @@ int64_t PlaybackHandler::getActualSwungTickCount(uint32_t* timeRemainder) {
 		// No swing
 		if (!currentSong->hasAnySwing()) {
 			actualSwungTick = currentInternalTick;
+		}
+
+		// Swing style
+		else if (currentSong->hasSwingStyle()) {
+			uint32_t swingBlockLength = currentSong->getSwingBlockLength();
+			uint64_t startOfSwingBlock = (uint64_t)currentInternalTick / swingBlockLength * swingBlockLength;
+			float posWithinSwingBlock = currentInternalTick - startOfSwingBlock;
+			actualSwungTick = startOfSwingBlock + currentSong->unswungToSwung((uint64_t)(posWithinSwingBlock * 65536));
 		}
 
 		// Yes swing
@@ -1763,6 +1817,13 @@ void PlaybackHandler::scheduleSwungTickFromExternalClock() {
 	if (!currentSong->hasAnySwing()) {
 		internalTickPositionForNextSwungTickTimes50 = nextSwungTick * 50;
 	}
+	else if (currentSong->hasSwingStyle()) {
+		uint32_t swingBlockLength = currentSong->getSwingBlockLength();
+		uint32_t swungTickWithinBlock = nextSwungTick % swingBlockLength;
+		uint64_t startOfSwingBlock = nextSwungTick - swungTickWithinBlock;
+		uint64_t unswungTicksIn = currentSong->swungToUnswung(swungTickWithinBlock);
+		internalTickPositionForNextSwungTickTimes50 = startOfSwingBlock * 50 + ((unswungTicksIn * 50) >> 16);
+	}
 	else {
 
 		int32_t leftShift = 10 - currentSong->swingInterval;
@@ -2090,17 +2151,48 @@ void PlaybackHandler::resyncMIDIClockOutTicksToInternalTicks() {
 	lastMIDIClockOutTickDone = (uint64_t)getCurrentInternalTickCount() * midiClockOutTicksPer / internalTicksPer;
 }
 
+/// Appends "Swing: " and the swing amount, or "Stumble: " with the Stumble style and its level. On 7seg there's no
+/// label and the style is cut to 3 letters to fit the level.
+static void appendSwingAmount(StringBuf& text, bool sevenSeg) {
+	if (currentSong->stumble) {
+		std::string_view name = deluge::swing_style::getName(currentSong->stumbleStyle);
+		if (sevenSeg) {
+			if (currentSong->stumbleLevel == 0) {
+				text.append("OFF");
+				return;
+			}
+			for (char c : name.substr(0, 3)) {
+				text.append(c);
+			}
+		}
+		else {
+			text.append("Stumble: ");
+			text.append(name.data());
+			text.append(" ");
+			if (currentSong->stumbleLevel == 0) {
+				text.append("off");
+				return;
+			}
+		}
+		text.appendInt(currentSong->stumbleLevel);
+		return;
+	}
+	if (!sevenSeg) {
+		text.append("Swing: ");
+	}
+	if (currentSong->swingAmount == 0) {
+		text.append(sevenSeg ? "OFF" : "off");
+	}
+	else {
+		text.appendInt(currentSong->swingAmount + 50);
+	}
+}
+
 /** On OLED displayes both Swing amount and interval, on 7seg only the interval. */
 void PlaybackHandler::commandDisplaySwingInterval() {
 	DEF_STACK_STRING_BUF(text, 30);
 	if (display->haveOLED()) {
-		text.append("Swing: ");
-		if (currentSong->swingAmount == 0) {
-			text.append("off");
-		}
-		else {
-			text.appendInt(currentSong->swingAmount + 50);
-		}
+		appendSwingAmount(text, false);
 		text.append("\n");
 	}
 	syncValueToString(currentSong->swingInterval, text, currentSong->getInputTickMagnitude());
@@ -2115,25 +2207,14 @@ void PlaybackHandler::commandClearTempoAutomation() {
 void PlaybackHandler::commandDisplaySwingAmount() {
 	DEF_STACK_STRING_BUF(text, 30);
 	if (display->haveOLED()) {
-		text.append("Swing: ");
-		if (currentSong->swingAmount == 0) {
-			text.append("off");
-		}
-		else {
-			text.appendInt(currentSong->swingAmount + 50);
-		}
+		appendSwingAmount(text, false);
 		text.append("\n");
 		syncValueToString(currentSong->swingInterval, text, currentSong->getInputTickMagnitude());
 	}
 	else {
-		if (currentSong->swingAmount == 0) {
-			text.append("OFF");
-		}
-		else {
-			text.appendInt(currentSong->swingAmount + 50);
-		}
+		appendSwingAmount(text, true);
 	}
-	display->popupTextTemporary(text.c_str(), PopupType::SWING);
+	showSwingPopup(text.c_str());
 }
 
 void PlaybackHandler::commandEditSwingInterval(int8_t offset) {
@@ -2142,12 +2223,61 @@ void PlaybackHandler::commandEditSwingInterval(int8_t offset) {
 }
 
 void PlaybackHandler::commandEditSwingAmount(int8_t offset) {
+	if (currentSong->stumble) {
+		currentSong->stumbleLevel =
+		    std::clamp<int32_t>(currentSong->stumbleLevel + offset, 0, deluge::swing_style::kMaxLevel);
+		commandDisplaySwingAmount();
+		return;
+	}
 	int32_t newSwingAmount = std::clamp(currentSong->swingAmount + offset, -49, 49);
 	if (newSwingAmount != currentSong->swingAmount) {
 		actionLogger.recordSwingChange(currentSong->swingAmount, newSwingAmount);
 		currentSong->swingAmount = newSwingAmount;
 	}
 	commandDisplaySwingAmount();
+}
+
+/// Shows the swing style. On 7seg, just its name, so it can be told apart from the level.
+void PlaybackHandler::commandDisplaySwingStyle() {
+	DEF_STACK_STRING_BUF(text, 30);
+	if (currentSong->stumble) {
+		std::string_view name = deluge::swing_style::getName(currentSong->stumbleStyle);
+		if (display->haveOLED()) {
+			text.append("Swing style: ");
+			text.append(name.data());
+			text.append("\nLevel ");
+			text.appendInt(currentSong->stumbleLevel);
+		}
+		else {
+			text.append(name.data());
+		}
+	}
+	else {
+		text.append(display->haveOLED() ? "Swing style: Classic\nTurn on Stumble in the Song menu" : "CLAS");
+	}
+	showSwingPopup(text.c_str());
+}
+
+/// Steps through Classic swing and each Stumble style, switching Stumble on or off to match
+void PlaybackHandler::commandEditSwingStyle(int8_t offset) {
+	// Only the Stumble styles: Classic swing is the Stumble setting being off, which is only in the Song menu
+	if (currentSong->stumble) {
+		int32_t numStumbleStyles = deluge::swing_style::kNumStyles - 1;
+		int32_t current = util::to_underlying(currentSong->stumbleStyle) - 1;
+		int32_t next = (current + offset % numStumbleStyles + numStumbleStyles) % numStumbleStyles;
+		currentSong->changeStumbleStyle(static_cast<deluge::swing_style::Style>(next + 1));
+	}
+	commandDisplaySwingStyle();
+}
+
+// While SHIFT is held the swing popup stays up, so you can turn, listen and turn again. It goes when SHIFT is let go.
+void PlaybackHandler::showSwingPopup(char const* text) {
+	if (Buttons::isShiftButtonPressed()) {
+		display->popupText(text, PopupType::SWING);
+	}
+	else {
+		display->popupTextTemporary(text, PopupType::SWING);
+	}
 }
 
 void PlaybackHandler::commandNudgeClock(int8_t offset) {
@@ -2271,6 +2401,10 @@ void PlaybackHandler::commandEditTempoFine(int8_t offset) {
 void PlaybackHandler::tempoEncoderAction(int8_t offset, bool encoderButtonPressed, bool shiftButtonPressed) {
 
 	if (Buttons::isButtonPressed(deluge::hid::button::TAP_TEMPO)) {
+		// With TAP playing fills, TAP + TEMPO picks the fill
+		if (deluge::autofill::Autofill::isChosenInSettings()) {
+			return deluge::autofill::autofill.changeFill((offset > 0) ? 1 : -1);
+		}
 		if (display->hasPopupOfType(PopupType::SWING)) {
 			// If not yet displaying, don't change the value
 			return commandEditSwingInterval(offset);
@@ -2285,6 +2419,17 @@ void PlaybackHandler::tempoEncoderAction(int8_t offset, bool encoderButtonPresse
 	// Nudging sync
 	if (Buttons::isButtonPressed(deluge::hid::button::X_ENC)) {
 		return commandNudgeClock(offset);
+	}
+
+	// Change swing style: Classic, then the Stumble styles
+	else if (shiftButtonPressed && encoderButtonPressed) {
+		tempoTurnedWhilePressedWithShift = true;
+		if (display->hasPopupOfType(PopupType::SWING)) {
+			return commandEditSwingStyle(offset);
+		}
+		else {
+			return commandDisplaySwingStyle();
+		}
 	}
 
 	// Adjust swing
@@ -2831,7 +2976,26 @@ int32_t PlaybackHandler::getTimeLeftInCountIn() {
 	return timeLeft;
 }
 
+bool PlaybackHandler::endlessRecordEnabled() {
+	return runtimeFeatureSettings.get(RuntimeFeatureSettingType::EndlessRecord) == RuntimeFeatureStateToggle::On;
+}
+
+bool PlaybackHandler::anyClipRecordingEndlessly() {
+	if (!endlessRecordEnabled() || !playbackState || currentPlaybackMode != &session) {
+		return false;
+	}
+	for (int32_t c = currentSong->sessionClips.getNumElements() - 1; c >= 0; c--) {
+		Clip* clip = currentSong->sessionClips.getClipAtIndex(c);
+		if (clip->type == ClipType::INSTRUMENT && currentSong->isClipActive(clip)
+		    && clip->getCurrentlyRecordingLinearly()) {
+			return true;
+		}
+	}
+	return false;
+}
+
 void PlaybackHandler::stopAnyRecording() {
+	endlessRecordStopPending = false;
 	if (playbackState && recording != RecordingMode::OFF) {
 		bool wasRecordingArrangement = (recording == RecordingMode::ARRANGEMENT);
 		recording = RecordingMode::OFF;

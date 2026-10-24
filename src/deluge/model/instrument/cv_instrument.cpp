@@ -35,10 +35,23 @@ void CVInstrument::noteOnPostArp(int32_t noteCodePostArp, ArpNote* arpNote, int3
 	auto channel = getPitchChannel();
 	arpNote->outputMemberChannel[noteIndex] = channel;
 
-	cvEngine.sendNote(true, channel, noteCodePostArp);
+	if (monoPitchPending) {
+		monoPitchPending = false;
+		int32_t voltage = (monoCustomMillivolts >= 0)
+		                      ? millivoltsToCV(monoCustomMillivolts + 1000 * monoOctave)
+		                      : cvEngine.calculateVoltage(noteCodePostArp + 12 * monoOctave, channel);
+		cvEngine.sendNoteVoltage(channel, noteCodePostArp, voltage);
+	}
+	else {
+		cvEngine.sendNote(true, channel, noteCodePostArp);
+	}
 	if (cvmode[1] == CVMode::velocity) {
 		cvEngine.sendVoltageOut(1, arpNote->velocity << 8);
 	}
+}
+
+void CVInstrument::sendMonoCustomVoltage(int32_t millivolts) {
+	cvEngine.sendVoltageOut(getPitchChannel(), std::clamp<int32_t>(millivoltsToCV(millivolts), 0, 65535));
 }
 
 void CVInstrument::noteOffPostArp(int32_t noteCodePostArp, int32_t oldMIDIChannel, int32_t velocity,

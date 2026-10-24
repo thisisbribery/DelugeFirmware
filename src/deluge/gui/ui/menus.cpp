@@ -35,6 +35,7 @@
 #include "gui/menu_item/colour.h"
 #include "gui/menu_item/cpu/voice_usage.h"
 #include "gui/menu_item/cv/cv2Mapping.h"
+#include "gui/menu_item/cv/mono.h"
 #include "gui/menu_item/cv/selection.h"
 #include "gui/menu_item/cv/submenu.h"
 #include "gui/menu_item/cv/transpose.h"
@@ -216,6 +217,8 @@
 #include "gui/menu_item/submenu/mod_fx.h"
 #include "gui/menu_item/submenu/modulator.h"
 #include "gui/menu_item/swing/interval.h"
+#include "gui/menu_item/swing/stumble.h"
+#include "gui/menu_item/swing/style.h"
 #include "gui/menu_item/synth_mode.h"
 #include "gui/menu_item/trigger/in/ppqn.h"
 #include "gui/menu_item/trigger/out/ppqn.h"
@@ -985,6 +988,11 @@ PLACE_SDRAM_BSS cv::Selection cvSelectionMenu{STRING_FOR_CV, STRING_FOR_CV_OUTPU
 PLACE_SDRAM_BSS gate::Selection gateSelectionMenu{STRING_FOR_GATE, STRING_FOR_GATE_OUTPUTS};
 
 PLACE_SDRAM_BSS swing::Interval swingIntervalMenu{STRING_FOR_SWING_INTERVAL};
+PLACE_SDRAM_BSS swing::Stumble stumbleMenu{STRING_FOR_STUMBLE};
+PLACE_SDRAM_BSS cv::Mono monoSequencerMenu{STRING_FOR_MONO_SEQUENCER};
+PLACE_SDRAM_BSS cv::MonoScale monoScaleMenu{STRING_FOR_MONO_SCALE};
+PLACE_SDRAM_BSS cv::MonoGate monoGateMenu{STRING_FOR_MONO_GATE};
+PLACE_SDRAM_BSS swing::Style stumbleStyleMenu{STRING_FOR_STUMBLE_STYLE};
 
 // Pads menu
 PLACE_SDRAM_BSS shortcuts::Version shortcutsVersionMenu{STRING_FOR_SHORTCUTS_VERSION,
@@ -1544,6 +1552,8 @@ PLACE_SDRAM_BSS Submenu soundEditorRootMenu{
         &drumBendRangeMenu,
         &patchCablesMenu,
         &sequenceDirectionMenu,
+        &monoSequencerMenu,
+        &monoGateMenu,
         &outputMidiSubmenu,
     },
 };
@@ -1703,6 +1713,9 @@ PLACE_SDRAM_BSS menu_item::Submenu soundEditorRootMenuMIDIOrCV{
         &randomizerMenu,
         &bendMenu,
         &cv2SourceMenu,
+        &monoSequencerMenu,
+        &monoScaleMenu,
+        &monoGateMenu,
         &mpeyToModWheelMenu,
         &midiMPEMenu,
         &sequenceDirectionMenu,
@@ -1833,6 +1846,8 @@ PLACE_SDRAM_BSS menu_item::Submenu soundEditorRootMenuSongView{
         &globalFiltersMenu,
         &globalFXMenu,
         &swingIntervalMenu,
+        &stumbleMenu,
+        &stumbleStyleMenu,
         &activeScaleMenu,
         &songThresholdRecordingSubmenu,
         &configureSongMacrosMenu,

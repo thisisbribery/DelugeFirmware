@@ -160,6 +160,9 @@ Song::Song() : backedUpParamManagers(sizeof(BackedUpParamManager)) {
 	swingAmount = 0;
 
 	swingInterval = FlashStorage::defaultSwingInterval;
+	stumble = false;
+	stumbleStyle = deluge::swing_style::Style::HOPP;
+	stumbleLevel = 0;
 
 	songViewYScroll = 1 - kDisplayHeight;
 	arrangementYScroll = -kDisplayHeight;
@@ -1203,6 +1206,13 @@ weAreInArrangementEditorOrInClipInstance:
 	writer.writeAttribute("inputTickMagnitude", getInputTickMagnitude());
 	writer.writeAttribute("swingAmount", swingAmount);
 	writer.writeAbsoluteSyncLevelToFile(this, "swingInterval", (SyncLevel)swingInterval, true);
+	if (stumble) {
+		writer.writeAttribute("stumble", 1);
+	}
+	if (stumble || stumbleLevel != 0 || stumbleStyle != deluge::swing_style::Style::HOPP) {
+		writer.writeAttribute("stumbleStyle", deluge::swing_style::getName(stumbleStyle).data());
+		writer.writeAttribute("stumbleLevel", stumbleLevel);
+	}
 
 	if (tripletsOn) {
 		writer.writeAttribute("tripletsLevel", tripletsLevel);
@@ -1699,6 +1709,25 @@ unknownTag:
 				// old ints, to be read irrespective of insideWorldTickMagnitude
 				swingInterval = reader.readTagOrAttributeValueInt();
 				reader.exitTag("swingInterval");
+			}
+
+			else if (!strcmp(tagName, "stumble")) {
+				stumble = reader.readTagOrAttributeValueInt() != 0;
+				reader.exitTag("stumble");
+			}
+
+			else if (!strcmp(tagName, "stumbleStyle")) {
+				stumbleStyle = deluge::swing_style::fromName(reader.readTagOrAttributeValue());
+				if (stumbleStyle == deluge::swing_style::Style::CLASSIC) {
+					stumbleStyle = deluge::swing_style::Style::HOPP;
+				}
+				reader.exitTag("stumbleStyle");
+			}
+
+			else if (!strcmp(tagName, "stumbleLevel")) {
+				stumbleLevel =
+				    std::clamp<int32_t>(reader.readTagOrAttributeValueInt(), 0, deluge::swing_style::kMaxLevel);
+				reader.exitTag("stumbleLevel");
 			}
 
 			else if (!strcmp(tagName, "tripletsLevel")) {
@@ -2611,7 +2640,7 @@ void Song::setTimePerTimerTick(uint64_t newTimeBig, bool shouldLogAction) {
 }
 
 bool Song::hasAnySwing() {
-	return (swingAmount != 0);
+	return stumble ? (stumbleLevel > 0) : (swingAmount != 0);
 }
 
 void Song::resyncLFOs() {
@@ -5716,29 +5745,62 @@ Clip* Song::replaceInstrumentClipWithAudioClip(Clip* oldClip, int32_t clipIndex)
 	return newClip;
 }
 
+uint32_t Song::getSwingIntervalTicks() {
+	int32_t leftShift = 9 - swingInterval;
+	leftShift = std::max(leftShift, 0_i32);
+	return 3 << leftShift;
+}
+
+uint32_t Song::getSwingBlockLength() {
+	if (stumble) {
+		return deluge::swing_style::getNumSteps(stumbleStyle) * getSwingIntervalTicks();
+	}
+	int32_t leftShift = 10 - swingInterval;
+	leftShift = std::max(leftShift, 0_i32);
+	return 3 << leftShift; // That's doubleSwingInterval
+}
+
+uint64_t Song::swungToUnswung(uint32_t swungTicksIntoBlock) {
+	return deluge::swing_style::swungToUnswung(stumbleStyle, stumbleLevel, getSwingIntervalTicks(),
+	                                           swungTicksIntoBlock);
+}
+
+uint32_t Song::unswungToSwung(uint64_t unswungIntoBlock) {
+	return deluge::swing_style::unswungToSwung(stumbleStyle, stumbleLevel, getSwingIntervalTicks(), unswungIntoBlock);
+}
+
+void Song::setStumble(bool on) {
+	stumble = on;
+	// The block length may have changed, so the timer ticks need to line up with it again
+	changeSwingInterval(swingInterval);
+}
+
+void Song::changeStumbleStyle(deluge::swing_style::Style newStyle) {
+	stumbleStyle = newStyle;
+	changeSwingInterval(swingInterval);
+}
+
 void Song::changeSwingInterval(int32_t newValue) {
 
 	swingInterval = newValue;
 
 	if (playbackHandler.isInternalClockActive()) {
 
-		int32_t leftShift = 10 - swingInterval;
-		leftShift = std::max(leftShift, 0_i32);
-		uint32_t doubleSwingInterval = 3 << (leftShift);
+		uint32_t swingBlockLength = getSwingBlockLength();
 
 		// Rejig the timer tick stuff
 		uint64_t currentInternalTick = playbackHandler.getCurrentInternalTickCount();
 
-		uint64_t startOfSwingWindow = currentInternalTick / doubleSwingInterval * doubleSwingInterval;
+		uint64_t startOfSwingBlock = currentInternalTick / swingBlockLength * swingBlockLength;
 
-		if (startOfSwingWindow != playbackHandler.lastTimerTickActioned) {
-			playbackHandler.timeLastTimerTickBig = (uint64_t)playbackHandler.getInternalTickTime(startOfSwingWindow)
+		if (startOfSwingBlock != playbackHandler.lastTimerTickActioned) {
+			playbackHandler.timeLastTimerTickBig = (uint64_t)playbackHandler.getInternalTickTime(startOfSwingBlock)
 			                                       << 32;
 
-			playbackHandler.lastTimerTickActioned = startOfSwingWindow;
+			playbackHandler.lastTimerTickActioned = startOfSwingBlock;
 		}
 
-		playbackHandler.scheduleNextTimerTick(doubleSwingInterval);
+		playbackHandler.scheduleNextTimerTick(swingBlockLength);
 
 		// Reschedule all the other stuff
 		playbackHandler.swungTickScheduled = false;

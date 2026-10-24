@@ -34,10 +34,12 @@
 #include "gui/ui/rename/rename_drum_ui.h"
 #include "gui/ui/sample_marker_editor.h"
 #include "gui/ui/save/save_kit_row_ui.h"
+#include "gui/ui/save/save_pattern_ui.h"
 #include "gui/ui/sound_editor.h"
 #include "gui/ui/ui.h"
 #include "gui/ui_timer_manager.h"
 #include "gui/views/automation_view.h"
+#include "gui/views/kit_pattern_mode.h"
 #include "gui/views/timeline_view.h"
 #include "gui/views/view.h"
 #include "hid/buttons.h"
@@ -62,6 +64,7 @@
 #include "model/consequence/consequence_note_row_length.h"
 #include "model/drum/drum.h"
 #include "model/drum/midi_drum.h"
+#include "model/instrument/cv_instrument.h"
 #include "model/instrument/kit.h"
 #include "model/instrument/melodic_instrument.h"
 #include "model/instrument/non_audio_instrument.h"
@@ -575,6 +578,23 @@ ActionResult InstrumentClipView::buttonAction(deluge::hid::Button b, bool on, bo
 			}
 		}
 	}
+	// Kit pattern mode: save the held track's pattern over its slot
+	else if (b == SAVE && currentUIMode == UI_MODE_AUDITIONING
+	         && deluge::gui::kit_pattern::kitPatternMode.isActiveHere()) {
+		if (on) {
+			if (inCardRoutine) {
+				return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
+			}
+			int32_t noteRowIndex = -1;
+			getCurrentInstrumentClip()->getNoteRowOnScreen(lastAuditionedYDisplay, currentSong, &noteRowIndex);
+			if (deluge::gui::kit_pattern::kitPatternMode.setUpTrackSave(noteRowIndex)) {
+				AudioEngine::stopAnyPreviewing();
+				cancelAllAuditioning();
+				display->cancelPopup();
+				openUI(&savePatternUI);
+			}
+		}
+	}
 	else if (b == SAVE && currentUIMode == UI_MODE_AUDITIONING) {
 		NoteRow* noteRow = getCurrentInstrumentClip()->getNoteRowOnScreen(lastAuditionedYDisplay, currentSong, nullptr);
 		if (noteRow->drum->type == DrumType::SOUND) {
@@ -838,6 +858,14 @@ doCancelPopup:
 
 	else if (b == SELECT_ENC) {
 		if (on) {
+			// Kit pattern mode: load the picked bank into all six tracks
+			if (currentUIMode == UI_MODE_NONE && deluge::gui::kit_pattern::kitPatternMode.isActiveHere()) {
+				if (inCardRoutine) {
+					return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
+				}
+				deluge::gui::kit_pattern::kitPatternMode.loadBank();
+				return ActionResult::DEALT_WITH;
+			}
 			if (currentUIMode == UI_MODE_NOTES_PRESSED) {
 				if (enterNoteEditor()) {
 					return ActionResult::DEALT_WITH;
@@ -1114,7 +1142,7 @@ void InstrumentClipView::copyAutomation(int32_t whichModEncoder, int32_t navSysI
 	display->displayPopup(deluge::l10n::get(deluge::l10n::String::STRING_FOR_NO_AUTOMATION_TO_COPY));
 }
 
-void InstrumentClipView::copyNotes(Serializer* writer, bool selectedDrumOnly) {
+void InstrumentClipView::copyNotes(Serializer* writer, bool selectedDrumOnly, int32_t fullLength) {
 
 	bool copyToFile = false;
 	if (writer) {
@@ -1125,8 +1153,8 @@ void InstrumentClipView::copyNotes(Serializer* writer, bool selectedDrumOnly) {
 	// Clear out previously copied stuff
 	deleteCopiedNoteRows();
 
-	int32_t startPos = getPosFromSquare(0);
-	int32_t endPos = getPosFromSquare(kDisplayWidth);
+	int32_t startPos = fullLength ? 0 : getPosFromSquare(0);
+	int32_t endPos = fullLength ? fullLength : getPosFromSquare(kDisplayWidth);
 
 	copiedScreenWidth = endPos - startPos;
 	if (copiedScreenWidth == 0) {
@@ -1297,8 +1325,8 @@ ramError:
 	}
 }
 
-void InstrumentClipView::copyNotesToFile(Serializer& writer, bool selectedDrumOnly) {
-	copyNotes(&writer, selectedDrumOnly);
+void InstrumentClipView::copyNotesToFile(Serializer& writer, bool selectedDrumOnly, int32_t fullLength) {
+	copyNotes(&writer, selectedDrumOnly, fullLength);
 }
 
 void InstrumentClipView::deleteCopiedNoteRows() {
@@ -1689,9 +1717,105 @@ getOut: {}
 	}
 
 	// Pasting notes to the View
-	pasteNotes(overwriteExisting, true, noScaling, previewOnly, selectedDrumOnly);
+	if (rowPatternTarget >= 0) {
+		applyRowPattern(rowPatternTarget, firstCopiedNoteRow, copiedScreenWidth, rowPatternAction);
+	}
+	else {
+		pasteNotes(overwriteExisting, true, noScaling, previewOnly, selectedDrumOnly);
+	}
 
 	return Error::NONE;
+}
+
+Error InstrumentClipView::loadRowPatternFromFile(Deserializer& reader, int32_t noteRowIndex, Action* action) {
+	rowPatternTarget = noteRowIndex;
+	rowPatternAction = action;
+	Error error = pasteNotesFromFile(reader, true, true, false, true);
+	rowPatternTarget = -1;
+	rowPatternAction = nullptr;
+	return error;
+}
+
+// Sets a NoteRow's length the way editing it by hand does, so it can be undone
+static void setNoteRowLengthWithUndo(ModelStackWithNoteRow* modelStack, int32_t newLength, Action* action) {
+	NoteRow* noteRow = modelStack->getNoteRow();
+	int32_t oldPos = modelStack->getLastProcessedPos();
+	bool hadIndependentPlayPosBefore = noteRow->hasIndependentPlayPos();
+	void* consMemory = action ? GeneralMemoryAllocator::get().allocLowSpeed(sizeof(ConsequenceNoteRowLength)) : nullptr;
+	if (consMemory) {
+		auto* consequence = new (consMemory) ConsequenceNoteRowLength(modelStack->noteRowId, newLength);
+		action->addConsequence(consequence);
+		consequence->performChange(modelStack, action, oldPos, hadIndependentPlayPosBefore);
+	}
+	else {
+		noteRow->setLength(modelStack, newLength, nullptr, oldPos, hadIndependentPlayPosBefore);
+	}
+}
+
+void InstrumentClipView::applyRowPattern(int32_t noteRowIndex, CopiedNoteRow* source, int32_t patternLength,
+                                         Action* action) {
+	InstrumentClip* clip = getCurrentInstrumentClip();
+	if (noteRowIndex < 0 || noteRowIndex >= clip->noteRows.getNumElements()) {
+		return;
+	}
+	if (patternLength > kMaxSequenceLength) {
+		patternLength = 0; // Too long to hold, so the row stays the clip's length
+	}
+
+	char modelStackMemory[MODEL_STACK_MAX_SIZE];
+	ModelStackWithTimelineCounter* modelStack = currentSong->setupModelStackWithCurrentClip(modelStackMemory);
+
+	// A pattern longer than the clip lengthens it the way clip multiply does, repeating every row's notes to fill it
+	if (patternLength > clip->loopLength) {
+		int32_t oldLength = clip->loopLength;
+		clip->increaseLengthWithRepeats(modelStack, patternLength, IndependentNoteRowLengthIncrease::ROUND_UP, false,
+		                                action);
+		if (action) {
+			action->recordClipLengthChange(clip, oldLength);
+		}
+		clip->output->clipLengthChanged(clip, oldLength);
+		if (playbackHandler.isEitherClockActive() && currentSong->isClipActive(clip)) {
+			currentPlaybackMode->reSyncClip(modelStack);
+		}
+	}
+
+	// Every row runs the clip's length, so any shorter row is repeated out to it
+	int32_t clipLength = clip->loopLength;
+	for (int32_t i = 0; i < clip->noteRows.getNumElements(); i++) {
+		NoteRow* thisNoteRow = clip->noteRows.getElement(i);
+		int32_t rowLength = thisNoteRow->loopLengthIfIndependent;
+		if (!rowLength || rowLength > clipLength) {
+			continue;
+		}
+		ModelStackWithNoteRow* modelStackWithNoteRow = modelStack->addNoteRow(i, thisNoteRow);
+		if (rowLength < clipLength) {
+			thisNoteRow->generateRepeats(modelStackWithNoteRow, rowLength, clipLength,
+			                             (clipLength + (rowLength >> 1)) / rowLength, action);
+		}
+		setNoteRowLengthWithUndo(modelStackWithNoteRow, clipLength, action);
+	}
+
+	// The pattern replaces the row's notes, repeated to fill the clip if it's shorter
+	NoteRow* noteRow = clip->noteRows.getElement(noteRowIndex);
+	ModelStackWithNoteRow* modelStackWithNoteRow = modelStack->addNoteRow(noteRowIndex, noteRow);
+	noteRow->clearArea(0, clipLength, modelStackWithNoteRow, action, clipLength);
+	if (source && patternLength > 0) {
+		for (int32_t repeatStart = 0; repeatStart < clipLength; repeatStart += patternLength) {
+			for (int32_t n = 0; n < source->numNotes; n++) {
+				Note* note = &source->notes[n];
+				int32_t pos = repeatStart + note->pos;
+				if (note->pos < 0 || note->pos >= patternLength || pos >= clipLength) {
+					continue;
+				}
+				noteRow->attemptNoteAdd(pos, std::min(note->length, clipLength - pos), note->velocity,
+				                        note->probability, note->iterance, note->fill, modelStackWithNoteRow, action);
+			}
+		}
+	}
+
+	clip->expectEvent();
+	recalculateColours();
+	uiNeedsRendering(this);
 }
 
 void InstrumentClipView::doubleClipLengthAction() {
@@ -1774,6 +1898,21 @@ void InstrumentClipView::selectEncoderAction(int8_t offset) {
 
 	exitedShortcutOverview = true;
 	uiNeedsRendering(this);
+
+	// Kit pattern mode: step the held track's pattern, or with no pad held, pick a bank
+	if (deluge::gui::kit_pattern::kitPatternMode.isActiveHere()) {
+		int32_t step = (offset > 0) ? 1 : -1;
+		if (currentUIMode == UI_MODE_AUDITIONING) {
+			int32_t noteRowIndex = -1;
+			getCurrentInstrumentClip()->getNoteRowOnScreen(lastAuditionedYDisplay, currentSong, &noteRowIndex);
+			deluge::gui::kit_pattern::kitPatternMode.stepTrackPattern(noteRowIndex, step);
+			return;
+		}
+		if (currentUIMode == UI_MODE_NONE) {
+			deluge::gui::kit_pattern::kitPatternMode.browseBanks(step);
+			return;
+		}
+	}
 	// User may be trying to edit noteCode...
 	if (currentUIMode == UI_MODE_AUDITIONING) {
 		if (Buttons::isButtonPressed(deluge::hid::button::SELECT_ENC)) {
@@ -2585,8 +2724,17 @@ void InstrumentClipView::editPadAction(bool state, uint8_t yDisplay, uint8_t xDi
 					numEditPadPressesPerNoteRowOnScreen[yDisplay]++;
 					enterUIMode(UI_MODE_NOTES_PRESSED);
 
+					if (clip->isMono()) {
+						displayMonoNote(yDisplay);
+					}
+
 					// If new note...
 					if (squareType == SQUARE_NEW_NOTE) {
+
+						// Mono CV: one note per column, so the new note clears its column on every other row
+						if (clip->isMono()) {
+							clearOtherMonoRows(noteRow, squareStart, squareWidth, action);
+						}
 
 						// If we're cross-screen-editing, create other corresponding notes too
 						if (clip->wrapEditing) {
@@ -4935,6 +5083,25 @@ void InstrumentClipView::sendAuditionNote(bool on, uint8_t yDisplay, uint8_t vel
 	else {
 		int32_t yNote = getCurrentInstrumentClip()->getYNoteFromYDisplay(yDisplay, currentSong);
 
+		// Mono: a held note sounds in its own octave, and a CUSTOM row at its voltage
+		InstrumentClip* clip = getCurrentInstrumentClip();
+		if (clip->isMono() && yDisplay < kDisplayHeight) {
+			if (on) {
+				monoAuditionOctave[yDisplay] = getHeldMonoOctave(yDisplay);
+			}
+			int32_t octave = monoAuditionOctave[yDisplay];
+			if (clip->isMonoCV()) {
+				if (on) {
+					bool custom = clip->monoCustom && yDisplay < InstrumentClip::kMonoNumRows;
+					((CVInstrument*)instrument)
+					    ->setMonoPitchForNextNote(octave, custom ? clip->monoCustomMillivolts[yDisplay] : -1);
+				}
+			}
+			else {
+				yNote += 12 * octave;
+			}
+		}
+
 		if (on) {
 			((MelodicInstrument*)instrument)
 			    ->beginAuditioningForNote(modelStack, yNote, velocity, zeroMPEValues, MIDI_CHANNEL_NONE,
@@ -6408,6 +6575,13 @@ ActionResult InstrumentClipView::verticalEncoderAction(int32_t offset, bool inCa
 		commandShiftColour(offset);
 	}
 
+	// Mono CV: no scrolling, the 8 rows stay put. Holding notes and turning shifts their octave.
+	else if (getCurrentInstrumentClip()->isMono()) {
+		if (isUIModeActive(UI_MODE_NOTES_PRESSED)) {
+			adjustMonoOctave((offset > 0) ? 1 : -1);
+		}
+	}
+
 	// If neither button is pressed, we'll do vertical scrolling
 	else {
 		if (isUIModeWithinRange(verticalScrollUIModes)) {
@@ -7548,6 +7722,16 @@ void InstrumentClipView::notifyPlaybackBegun() {
 bool InstrumentClipView::renderMainPads(uint32_t whichRows, RGB image[][kDisplayWidth + kSideBarWidth],
                                         uint8_t occupancyMask[][kDisplayWidth + kSideBarWidth],
                                         bool drawUndefinedArea) {
+	// Mono CV: the 8 rows always start at the scale's root, whatever moved the scroll
+	InstrumentClip* monoClip = getCurrentInstrumentClip();
+	if (monoClip && monoClip->isMono()) {
+		int32_t monoYScroll = monoClip->getMonoYScroll(currentSong);
+		if (monoClip->yScroll != monoYScroll) {
+			monoClip->yScroll = monoYScroll;
+			recalculateColours();
+		}
+	}
+
 	if (!image) {
 		return true;
 	}
@@ -7607,6 +7791,9 @@ void InstrumentClipView::performActualRender(uint32_t whichRows, RGB* image,
 				                   occupancyMaskOfRow, true, modelStackWithNoteRow->getLoopLength(),
 				                   clip->allowNoteTails(modelStackWithNoteRow), renderWidth, xScroll, xZoom, 0,
 				                   renderWidth, false);
+				if (clip->isMono()) {
+					renderMonoRow(noteRow, modelStackWithNoteRow->getLoopLength(), image, renderWidth, xScroll, xZoom);
+				}
 			}
 
 			if (drawUndefinedArea) {
@@ -7654,6 +7841,12 @@ void InstrumentClipView::modEncoderAction(int32_t whichModEncoder, int32_t offse
 	dontDeleteNotesOnDepress();
 
 	InstrumentClip* clip = getCurrentInstrumentClip();
+
+	// Mono CV CUSTOM: holding a row's audition pad, the lower gold knob sets that row's voltage
+	if (whichModEncoder == 0 && clip->isMonoCV() && clip->monoCustom && isUIModeActive(UI_MODE_AUDITIONING)) {
+		adjustMonoCustomVoltage(offset);
+		return;
+	}
 
 	char modelStackMemory[MODEL_STACK_MAX_SIZE];
 	ModelStack* modelStack = setupModelStackWithSong(modelStackMemory, currentSong);
@@ -8375,4 +8568,196 @@ void InstrumentClipView::blinkSelectedNoteRow(int32_t whichMainRows) {
 	noteRowFlashOn = !noteRowFlashOn;
 	uiNeedsRendering(getRootUI(), whichMainRows, 0xFFFFFFFF);
 	uiTimerManager.setTimer(TimerName::NOTE_ROW_BLINK, 180);
+}
+
+// Mono CV sequencer
+
+void InstrumentClipView::adjustMonoOctave(int32_t offset) {
+	auto edit_targets = get_note_edit_targets();
+	Action* action = actionLogger.getNewAction(ActionType::NOTE_EDIT, ActionAddition::ALLOWED);
+	if (!action) {
+		return;
+	}
+	char modelStackMemory[MODEL_STACK_MAX_SIZE];
+	ModelStackWithTimelineCounter* modelStack = currentSong->setupModelStackWithCurrentClip(modelStackMemory);
+
+	for (int32_t i = 0; i < edit_targets.size(); i++) {
+		if (!edit_targets[i].isActive) {
+			continue;
+		}
+		edit_targets[i].deleteOnDepress = false;
+		ModelStackWithNoteRow* modelStackWithNoteRow = get_note_edit_row(modelStack, edit_targets[i]);
+		NoteRow* noteRow = modelStackWithNoteRow->getNoteRow();
+
+		// Every note in the square, so ratchets move together
+		int32_t noteI = noteRow->notes.search(edit_targets[i].intendedPos, GREATER_OR_EQUAL);
+		Note* note = noteRow->notes.getElement(noteI);
+		while (note && note->pos - edit_targets[i].intendedPos < edit_targets[i].intendedLength) {
+			noteRow->changeNotesAcrossAllScreens(note->pos, modelStackWithNoteRow, action,
+			                                     CORRESPONDING_NOTES_ADJUST_MONO_OCTAVE, offset);
+			note = noteRow->notes.getElement(++noteI);
+		}
+	}
+
+	// Sound and show each held note at its new octave
+	uint8_t shownRow = 255;
+	for (int32_t i = 0; i < edit_targets.size(); i++) {
+		if (!edit_targets[i].isActive) {
+			continue;
+		}
+		uint8_t yDisplay = edit_targets[i].yDisplay;
+		if (yDisplay < kDisplayHeight && lastAuditionedVelocityOnScreen[yDisplay] != 255) {
+			sendAuditionNote(false, yDisplay, 127, 0);
+			sendAuditionNote(true, yDisplay, lastAuditionedVelocityOnScreen[yDisplay], 0);
+		}
+		if (shownRow == 255) {
+			shownRow = yDisplay;
+		}
+	}
+	if (shownRow != 255) {
+		displayMonoNote(shownRow);
+	}
+	uiNeedsRendering(this, 0xFFFFFFFF, 0);
+}
+
+int32_t InstrumentClipView::getHeldMonoOctave(uint8_t yDisplay) {
+	InstrumentClip* clip = getCurrentInstrumentClip();
+	for (int32_t i = 0; i < kEditPadPressBufferSize; i++) {
+		if (!editPadPresses[i].isActive || editPadPresses[i].yDisplay != yDisplay) {
+			continue;
+		}
+		NoteRow* noteRow = clip->getNoteRowOnScreen(yDisplay, currentSong);
+		if (!noteRow) {
+			return 0;
+		}
+		int32_t noteI = noteRow->notes.search(editPadPresses[i].intendedPos, GREATER_OR_EQUAL);
+		Note* note = noteRow->notes.getElement(noteI);
+		if (note && note->pos < editPadPresses[i].intendedPos + editPadPresses[i].intendedLength) {
+			return InstrumentClip::getMonoOctave(note->getLift());
+		}
+	}
+	return 0;
+}
+
+void InstrumentClipView::displayMonoNote(uint8_t yDisplay) {
+	InstrumentClip* clip = getCurrentInstrumentClip();
+	int32_t octave = getHeldMonoOctave(yDisplay);
+	char text[32];
+	if (clip->isMonoCV() && clip->monoCustom && yDisplay < InstrumentClip::kMonoNumRows) {
+		int32_t millivolts = std::clamp<int32_t>(clip->monoCustomMillivolts[yDisplay] + 1000 * octave, 0, 10000);
+		if (display->haveOLED()) {
+			snprintf(text, sizeof(text), "%d.%03d V (oct %+d)", (int)(millivolts / 1000), (int)(millivolts % 1000),
+			         (int)octave);
+		}
+		else {
+			snprintf(text, sizeof(text), "%d.%02d", (int)(millivolts / 1000), (int)(millivolts % 1000 / 10));
+		}
+	}
+	else {
+		char noteName[8];
+		noteCodeToString(clip->getYNoteFromYDisplay(yDisplay, currentSong) + 12 * octave, noteName);
+		if (display->haveOLED()) {
+			snprintf(text, sizeof(text), "%s (oct %+d)", noteName, (int)octave);
+		}
+		else {
+			snprintf(text, sizeof(text), "%s", noteName);
+		}
+	}
+	display->displayPopup(text);
+}
+
+void InstrumentClipView::clearOtherMonoRows(NoteRow* keep, int32_t start, int32_t width, Action* action) {
+	InstrumentClip* clip = getCurrentInstrumentClip();
+	char modelStackMemory[MODEL_STACK_MAX_SIZE];
+	ModelStackWithTimelineCounter* modelStack = currentSong->setupModelStackWithCurrentClip(modelStackMemory);
+	for (int32_t i = 0; i < clip->noteRows.getNumElements(); i++) {
+		NoteRow* thisNoteRow = clip->noteRows.getElement(i);
+		if (thisNoteRow == keep || thisNoteRow->hasNoNotes()) {
+			continue;
+		}
+		ModelStackWithNoteRow* modelStackWithNoteRow = modelStack->addNoteRow(i, thisNoteRow);
+		thisNoteRow->clearArea(start, width, modelStackWithNoteRow, action, clip->getWrapEditLevel());
+	}
+	uiNeedsRendering(this, 0xFFFFFFFF, 0);
+}
+
+void InstrumentClipView::renderMonoRow(NoteRow* noteRow, int32_t loopLength, RGB* image, int32_t renderWidth,
+                                       int32_t xScroll, uint32_t xZoom) {
+	// White for notes in their own octave, reds going up and blues going down, warmed toward orange when a note has
+	// been edited (nudged, ratcheted, or given a probability, iterance or fill)
+	static constexpr RGB kUp[InstrumentClip::kMonoMaxOctave] = {
+	    {255, 120, 110}, {255, 70, 60}, {230, 25, 20}, {170, 0, 0}};
+	static constexpr RGB kDown[InstrumentClip::kMonoMaxOctave] = {
+	    {110, 140, 255}, {60, 90, 255}, {20, 40, 230}, {0, 0, 170}};
+	static constexpr RGB kOrange{255, 120, 0};
+	if (loopLength <= 0) {
+		return;
+	}
+
+	for (int32_t x = 0; x < renderWidth; x++) {
+		int32_t squareStart = xScroll + x * (int32_t)xZoom;
+		if (squareStart >= loopLength) {
+			break;
+		}
+		int32_t squareEnd = squareStart + (int32_t)xZoom;
+		int32_t i = noteRow->notes.search(squareEnd, LESS);
+		if (i < 0) {
+			continue;
+		}
+		Note* note = noteRow->notes.getElement(i);
+		bool head = note->pos >= squareStart;
+		if (!head && note->pos + note->length <= squareStart) {
+			continue; // Nothing sounding in this square
+		}
+
+		// The first note starting in the square decides the colour
+		int32_t notesInSquare = 0;
+		Note* first = note;
+		for (int32_t j = i; j >= 0; j--) {
+			Note* other = noteRow->notes.getElement(j);
+			if (other->pos < squareStart) {
+				break;
+			}
+			first = other;
+			notesInSquare++;
+		}
+		bool edited =
+		    head
+		    && (notesInSquare > 1 || first->pos != squareStart || first->getProbability() != kNumProbabilityValues
+		        || first->getIterance() != kDefaultIteranceValue || first->getFill() != FillMode::OFF);
+
+		int32_t octave = InstrumentClip::getMonoOctave(first->getLift());
+		RGB colour = (octave > 0) ? kUp[octave - 1] : (octave < 0) ? kDown[-octave - 1] : RGB{170, 170, 170};
+		if (edited) {
+			colour = RGB{(uint8_t)((colour.r * 7 + kOrange.r * 3) / 10), (uint8_t)((colour.g * 7 + kOrange.g * 3) / 10),
+			             (uint8_t)((colour.b * 7 + kOrange.b * 3) / 10)};
+		}
+		if (!head) {
+			colour = RGB{(uint8_t)(colour.r / 4), (uint8_t)(colour.g / 4), (uint8_t)(colour.b / 4)};
+		}
+		image[x] = colour;
+	}
+}
+
+void InstrumentClipView::adjustMonoCustomVoltage(int32_t offset) {
+	InstrumentClip* clip = getCurrentInstrumentClip();
+	int32_t row = lastAuditionedYDisplay;
+	if (row < 0 || row >= InstrumentClip::kMonoNumRows) {
+		return;
+	}
+	// 10 mV a click, or 1 mV with SHIFT held
+	int32_t step = Buttons::isShiftButtonPressed() ? 1 : 10;
+	int32_t millivolts = std::clamp<int32_t>(clip->monoCustomMillivolts[row] + offset * step, 0, 10000);
+	clip->monoCustomMillivolts[row] = millivolts;
+	((CVInstrument*)clip->output)->sendMonoCustomVoltage(millivolts);
+
+	char text[24];
+	if (display->haveOLED()) {
+		snprintf(text, sizeof(text), "Row %d: %d.%03d V", (int)row + 1, (int)(millivolts / 1000),
+		         (int)(millivolts % 1000));
+	}
+	else {
+		snprintf(text, sizeof(text), "%d.%02d", (int)(millivolts / 1000), (int)(millivolts % 1000 / 10));
+	}
+	display->displayPopup(text);
 }

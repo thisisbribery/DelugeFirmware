@@ -47,8 +47,10 @@
 #include "modulation/midi/midi_param.h"
 #include "modulation/midi/midi_param_collection.h"
 #include "modulation/patch/patch_cable_set.h"
+#include "playback/autofill.h"
 #include "processing/engines/audio_engine.h"
 #include "processing/engines/cv_engine.h"
+#include "processing/sound/sound_drum.h"
 #include "processing/sound/sound_instrument.h"
 #include "storage/storage_manager.h"
 #include "util/const_functions.h"
@@ -135,6 +137,10 @@ void InstrumentClip::copyBasicsFrom(Clip const* otherClip) {
 	yScroll = otherInstrumentClip->yScroll;
 	keyboardState = otherInstrumentClip->keyboardState;
 	sequenceDirectionMode = otherInstrumentClip->sequenceDirectionMode;
+	monoMode = otherInstrumentClip->monoMode;
+	monoCustom = otherInstrumentClip->monoCustom;
+	monoGatePercent = otherInstrumentClip->monoGatePercent;
+	monoCustomMillivolts = otherInstrumentClip->monoCustomMillivolts;
 
 	affectEntire = otherInstrumentClip->affectEntire;
 
@@ -893,6 +899,12 @@ doNewProbability:
 					}
 				}
 
+				// Autofill can take a hit away while it plays a fill
+				if (conditionPassed
+				    && deluge::autofill::autofill.shouldSilence(this, pendingNoteOnList.pendingNoteOns[i].noteRowId)) {
+					conditionPassed = false;
+				}
+
 				// probability, iterance and fill conditions have passed
 				if (conditionPassed) {
 					sendPendingNoteOn(modelStack, &pendingNoteOnList.pendingNoteOns[i]);
@@ -931,11 +943,64 @@ void InstrumentClip::sendPendingNoteOn(ModelStackWithTimelineCounter* modelStack
 	else {
 		ModelStackWithThreeMainThings* modelStackWithThreeMainThings =
 		    modelStackWithNoteRow->addOtherTwoThings(output->toModControllable(), &paramManager);
+		// Mono CV: the note's octave, or its row's custom voltage, goes straight into the voltage. The note code stays
+		// the row's own, so the note-off still matches it.
+		int32_t noteCode = pendingNoteOn->noteRow->getNoteCode();
+		if (isMonoCV()) {
+			int32_t row = getYVisualFromYNote(pendingNoteOn->noteRow->y, modelStack->song) - yScroll;
+			((CVInstrument*)output)
+			    ->setMonoPitchForNextNote(getMonoOctave(pendingNoteOn->lift),
+			                              (monoCustom && row >= 0 && row < kMonoNumRows) ? monoCustomMillivolts[row]
+			                                                                             : -1);
+		}
+		// Synth and MIDI: the octave moves the note code, and the row remembers it so the note-off matches
+		else if (monoShiftsNoteCode()) {
+			pendingNoteOn->noteRow->monoSoundingOctave = getMonoOctave(pendingNoteOn->lift);
+			noteCode += 12 * pendingNoteOn->noteRow->monoSoundingOctave;
+		}
 		((MelodicInstrument*)output)
-		    ->sendNote(modelStackWithThreeMainThings, true, pendingNoteOn->noteRow->getNoteCode(), mpeValues,
-		               MIDI_CHANNEL_NONE, pendingNoteOn->velocity, pendingNoteOn->sampleSyncLength,
-		               pendingNoteOn->ticksLate);
+		    ->sendNote(modelStackWithThreeMainThings, true, noteCode, mpeValues, MIDI_CHANNEL_NONE,
+		               pendingNoteOn->velocity, pendingNoteOn->sampleSyncLength, pendingNoteOn->ticksLate);
 	}
+}
+
+void InstrumentClip::playAutofillHit(ModelStackWithTimelineCounter* modelStack, int32_t noteRowId, int32_t velocity,
+                                     int32_t semitones) {
+	NoteRow* noteRow = noteRows.getElement(noteRowId);
+	if (output->type != OutputType::KIT || !noteRow->drum) {
+		return;
+	}
+	PendingNoteOn pendingNoteOn{};
+	pendingNoteOn.noteRow = noteRow;
+	pendingNoteOn.noteRowId = noteRowId;
+	pendingNoteOn.probability = kNumProbabilityValues;
+	pendingNoteOn.velocity = velocity;
+	pendingNoteOn.iterance = kDefaultIteranceValue;
+	pendingNoteOn.fill = FillMode::OFF;
+
+	// A voice takes its pitch from the sound's transpose when it starts, so shifting the transpose just around this
+	// note-on pitches this hit alone, without touching the pitch knob, its automation or other sounding notes
+	SoundDrum* soundDrum = (semitones && noteRow->drum->type == DrumType::SOUND) ? (SoundDrum*)noteRow->drum : nullptr;
+	int16_t oldTranspose = 0;
+	if (soundDrum) {
+		oldTranspose = soundDrum->transpose;
+		soundDrum->transpose = std::clamp<int32_t>(oldTranspose + semitones, -96, 96);
+	}
+	sendPendingNoteOn(modelStack, &pendingNoteOn);
+	if (soundDrum) {
+		soundDrum->transpose = oldTranspose;
+	}
+}
+
+void InstrumentClip::stopAutofillHit(ModelStackWithTimelineCounter* modelStack, int32_t noteRowId) {
+	NoteRow* noteRow = noteRows.getElement(noteRowId);
+	if (output->type != OutputType::KIT || !noteRow->drum) {
+		return;
+	}
+	ModelStackWithThreeMainThings* modelStackWithThreeMainThings =
+	    modelStack->addNoteRow(noteRowId, noteRow)
+	        ->addOtherTwoThings(noteRow->drum->toModControllable(), &noteRow->paramManager);
+	noteRow->drum->kit->noteOffPreKitArp(modelStackWithThreeMainThings, noteRow->drum);
 }
 
 void InstrumentClip::toggleNoteRowMute(ModelStackWithNoteRow* modelStack) {
@@ -2392,6 +2457,16 @@ void InstrumentClip::writeDataToFile(Serializer& writer, Song* song) {
 	writer.writeAttribute("drumsZoomLevel", keyboardState.drums.zoom_level);
 	writer.writeAttribute("inKeyScrollOffset", keyboardState.inKey.scrollOffset);
 	writer.writeAttribute("inKeyRowInterval", keyboardState.inKey.rowInterval);
+	if (monoMode) {
+		writer.writeAttribute("monoMode", 1);
+		writer.writeAttribute("monoCustom", monoCustom);
+		writer.writeAttribute("monoGate", monoGatePercent);
+		for (int32_t r = 0; r < kMonoNumRows; r++) {
+			char name[12];
+			snprintf(name, sizeof(name), "monoV%d", (int)r);
+			writer.writeAttribute(name, monoCustomMillivolts[r]);
+		}
+	}
 
 	writer.writeOpeningTagEnd();
 
@@ -2589,6 +2664,22 @@ someError:
 			keyboardState.inKey.scrollOffset = reader.readTagOrAttributeValueInt();
 		}
 
+		else if (!strcmp(tagName, "monoMode")) {
+			monoMode = reader.readTagOrAttributeValueInt() != 0;
+			reader.exitTag("monoMode");
+		}
+		else if (!strcmp(tagName, "monoCustom")) {
+			monoCustom = reader.readTagOrAttributeValueInt() != 0;
+			reader.exitTag("monoCustom");
+		}
+		else if (!strcmp(tagName, "monoGate")) {
+			monoGatePercent = std::clamp<int32_t>(reader.readTagOrAttributeValueInt(), 1, 100);
+			reader.exitTag("monoGate");
+		}
+		else if (!strncmp(tagName, "monoV", 5) && tagName[5] >= '0' && tagName[5] < '0' + kMonoNumRows && !tagName[6]) {
+			monoCustomMillivolts[tagName[5] - '0'] = std::clamp<int32_t>(reader.readTagOrAttributeValueInt(), 0, 10000);
+			reader.exitTag();
+		}
 		else if (!strcmp(tagName, "inKeyRowInterval")) {
 			keyboardState.inKey.rowInterval = reader.readTagOrAttributeValueInt();
 		}
@@ -3663,6 +3754,42 @@ void InstrumentClip::ensureScrollWithinKitBounds() {
 }
 
 // Make sure not a Kit before calling this
+bool InstrumentClip::isMono() const {
+	return monoMode && output
+	       && (output->type == OutputType::CV || output->type == OutputType::SYNTH
+	           || output->type == OutputType::MIDI_OUT);
+}
+
+bool InstrumentClip::isMonoCV() const {
+	return isMono() && output->type == OutputType::CV;
+}
+
+bool InstrumentClip::monoShiftsNoteCode() const {
+	return isMono() && output->type != OutputType::CV;
+}
+
+int32_t InstrumentClip::getMonoYScroll(Song* song) {
+	int32_t yNote = ((uint16_t)(song->key.rootNote + 120) % 12) + 60;
+	if (yNote > 66) {
+		yNote -= 12;
+	}
+	return getYVisualFromYNote(yNote, song);
+}
+
+int32_t InstrumentClip::getMonoOctave(int32_t lift) {
+	if (lift <= 0 || lift > 127) {
+		return 0;
+	}
+	return std::clamp<int32_t>(lift - kDefaultLiftValue, -kMonoMaxOctave, kMonoMaxOctave);
+}
+
+int32_t InstrumentClip::getGateLength(int32_t noteLength) const {
+	if (monoGatePercent >= 100 || !isMono()) {
+		return noteLength;
+	}
+	return std::max<int32_t>(1, (int64_t)noteLength * monoGatePercent / 100);
+}
+
 bool InstrumentClip::isScrollWithinRange(int32_t scrollAmount, int32_t newYNote) {
 
 	if (output->type == OutputType::SYNTH) {

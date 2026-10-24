@@ -31,6 +31,16 @@ constexpr int32_t kNumCVInstrumentChannels = both + 1;
 class CVInstrument final : public NonAudioInstrument {
 public:
 	CVInstrument();
+	/// Mono CV: the next note-on is shifted by octaves, or sends customMillivolts (if not -1) plus 1 V per octave
+	void setMonoPitchForNextNote(int32_t octave, int32_t customMillivolts) {
+		monoPitchPending = true;
+		monoOctave = octave;
+		monoCustomMillivolts = customMillivolts;
+	}
+	/// Mono CV CUSTOM: sets the pitch CV straight away, while its row is auditioned and its voltage turned
+	void sendMonoCustomVoltage(int32_t millivolts);
+	static int32_t millivoltsToCV(int32_t millivolts) { return millivolts * 6552 / 1000; }
+
 	void noteOnPostArp(int32_t noteCodePostArp, ArpNote* arpNote, int32_t noteIndex) override;
 	void noteOffPostArp(int32_t noteCode, int32_t oldMIDIChannel, int32_t velocity, int32_t noteIndex) override;
 	void polyphonicExpressionEventPostArpeggiator(int32_t newValue, int32_t noteCodeAfterArpeggiation,
@@ -119,4 +129,9 @@ private:
 	GateMode gateMode[2]{GateMode::off, GateMode::off};
 	CVMode cvmode[2]{CVMode::off, CVMode::off};
 	void sendMonophonicExpressionEvent(int32_t dimension);
+
+private:
+	bool monoPitchPending = false;
+	int32_t monoOctave = 0;
+	int32_t monoCustomMillivolts = -1;
 };

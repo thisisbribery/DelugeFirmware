@@ -47,7 +47,19 @@ SavePatternUI::SavePatternUI() {
 	filePrefix = "PATTERN";
 }
 
+void SavePatternUI::setupRowPattern(char const* dir, char const* fileName, int32_t rowLength) {
+	rowPatternDir = dir;
+	rowPatternFileName = fileName;
+	rowPatternLength = rowLength;
+	rowPatternPending = true;
+}
+
 bool SavePatternUI::opened() {
+	// A row pattern save only applies to the opening it was set up for
+	if (!rowPatternPending) {
+		rowPatternLength = 0;
+	}
+	rowPatternPending = false;
 
 	if (!getRootUI()->toClipMinder() || (getCurrentOutputType() == OutputType::AUDIO)) {
 		return false;
@@ -68,6 +80,13 @@ bool SavePatternUI::opened() {
 		display->displayError(error);
 		return false;
 	}
+	if (rowPatternLength) {
+		error = createFoldersRecursiveIfNotExists(rowPatternDir.c_str());
+		if (error != Error::NONE) {
+			display->displayError(error);
+			return false;
+		}
+	}
 
 	Instrument* currentInstrument = getCurrentInstrument();
 	// Must set this before calling SaveUI::opened(), which uses this to work out folder name
@@ -84,7 +103,13 @@ doReturnFalse:
 	currentFolderIsEmpty = false;
 
 	std::string patternFolder = "";
-	if (getCurrentOutputType() == OutputType::KIT) {
+	if (rowPatternLength) {
+		defaultDir = rowPatternDir;
+		title = "Save Track Pattern";
+		selectedDrumOnly = true;
+		enteredText.set(rowPatternFileName.c_str());
+	}
+	else if (getCurrentOutputType() == OutputType::KIT) {
 		if (getRootUI()->getAffectEntire()) {
 			defaultDir = PATTERN_RHYTHMIC_KIT_DEFAULT_FOLDER;
 			title = "Save Kit Pattern";
@@ -184,7 +209,7 @@ fail:
 
 	Serializer& writer = GetSerializer();
 
-	instrumentClipView.copyNotesToFile(writer, selectedDrumOnly);
+	instrumentClipView.copyNotesToFile(writer, selectedDrumOnly, rowPatternLength);
 
 	writer.closeFileAfterWriting();
 

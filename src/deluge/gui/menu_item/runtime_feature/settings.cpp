@@ -56,6 +56,8 @@ SettingToggle menuCatchNotes(RuntimeFeatureSettingType::CatchNotes);
 SettingToggle menuDeleteUnusedKitRows(RuntimeFeatureSettingType::DeleteUnusedKitRows);
 SettingToggle menuAltGoldenKnobDelayParams(RuntimeFeatureSettingType::AltGoldenKnobDelayParams);
 Setting menuSyncScalingAction(RuntimeFeatureSettingType::SyncScalingAction);
+Setting menuTapTempoAction(RuntimeFeatureSettingType::TapTempoAction);
+Setting menuEndlessRecord(RuntimeFeatureSettingType::EndlessRecord);
 DevSysexSetting menuDevSysexAllowed(RuntimeFeatureSettingType::DevSysexAllowed);
 SettingToggle menuHighlightIncomingNotes(RuntimeFeatureSettingType::HighlightIncomingNotes);
 SettingToggle menuDisplayNornsLayout(RuntimeFeatureSettingType::DisplayNornsLayout);
@@ -96,6 +98,8 @@ std::array<MenuItem*, RuntimeFeatureSettingType::MaxElement - kNonTopLevelSettin
     &menuAlternativePlaybackStartBehaviour,
     &menuEnableGridViewLoopPads,
     &menuAlternativeTapTempoBehaviour,
+    &menuTapTempoAction,
+    &menuEndlessRecord,
     &menuHorizontalMenus,
     &menuRoundedCorners,
     &menuTrimFromStartOfAudioClip,

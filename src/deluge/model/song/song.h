@@ -30,6 +30,7 @@
 #include "model/scale/preset_scales.h"
 #include "model/scale/scale_change.h"
 #include "model/scale/scale_mapper.h"
+#include "model/swing/swing_style.h"
 #include "model/sync.h"
 #include "model/timeline_counter.h"
 #include "modulation/params/param.h"
@@ -220,6 +221,12 @@ public:
 	int8_t swingAmount;
 	uint8_t swingInterval;
 
+	// Stumble swing. When on, a Stumble style and its level replace the classic swing amount, which is kept for when
+	// it's switched off again.
+	bool stumble;
+	deluge::swing_style::Style stumbleStyle; // Never Classic
+	int8_t stumbleLevel;                     // 0 (straight) to swing_style::kMaxLevel
+
 	Section sections[kMaxNumSections];
 
 	MusicalKey key;
@@ -283,6 +290,14 @@ public:
 	Clip* syncScalingClip;
 	void setTimePerTimerTick(uint64_t newTimeBig, bool shouldLogAction = false);
 	bool hasAnySwing();
+	bool hasSwingStyle() { return stumble && stumbleLevel > 0; }
+	uint32_t getSwingIntervalTicks();
+	/// Internal ticks between timer ticks: two swing intervals for Classic, one style block otherwise
+	uint32_t getSwingBlockLength();
+	uint64_t swungToUnswung(uint32_t swungTicksIntoBlock);
+	uint32_t unswungToSwung(uint64_t unswungIntoBlock);
+	void setStumble(bool on);
+	void changeStumbleStyle(deluge::swing_style::Style newStyle);
 	void resyncLFOs();
 	void ensureInaccessibleParamPresetValuesWithoutKnobsAreZero(Sound* sound);
 	bool areAllClipsInSectionPlaying(int32_t section);

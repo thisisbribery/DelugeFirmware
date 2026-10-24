@@ -194,6 +194,18 @@ void Session::armNextSection(int32_t oldSection, int32_t numRepetitions) {
 	lastSectionArmed = SECTION_OUT_OF_RANGE;
 }
 
+// Endless record: RECORD pressed while playing makes each playing, empty InstrumentClip record linearly from where it
+// is now, extending by its length at each loop end, the same as when recording is armed before pressing PLAY
+void Session::beginEndlessRecording() {
+	for (int32_t c = currentSong->sessionClips.getNumElements() - 1; c >= 0; c--) {
+		Clip* clip = currentSong->sessionClips.getClipAtIndex(c);
+		if (clip->type == ClipType::INSTRUMENT && !clip->isPendingOverdub && currentSong->isClipActive(clip)
+		    && !clip->getCurrentlyRecordingLinearly()) {
+			giveClipOpportunityToBeginLinearRecording(clip, c, 0);
+		}
+	}
+}
+
 // Returns whether it began
 bool Session::giveClipOpportunityToBeginLinearRecording(Clip* clip, int32_t clipIndex, int32_t buttonPressLatency) {
 

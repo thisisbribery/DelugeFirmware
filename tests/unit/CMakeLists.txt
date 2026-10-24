@@ -57,6 +57,8 @@ file(GLOB_RECURSE deluge_SOURCES
         ../../src/deluge/model/song/clip_iterators.cpp
         # For sync tests
         ../../src/deluge/model/sync.cpp
+        # For swing style tests
+        ../../src/deluge/model/swing/swing_style.cpp
         # For chord tests
         ../../src/deluge/gui/ui/keyboard/chords.cpp
         # For clock output scheduler tests
@@ -85,6 +87,7 @@ add_executable(UnitTests
         volume_param_gain_tests.cpp
         db_shift_tests.cpp
         sync_tests.cpp
+        swing_style_tests.cpp
         chord_tests.cpp
         time_tests.cpp
         clock_output_scheduler_tests.cpp

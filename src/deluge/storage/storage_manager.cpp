@@ -525,6 +525,21 @@ Error StorageManager::loadPatternFile(FilePointer* filePointer, String* fileName
 	return Error::NONE;
 }
 
+Error StorageManager::loadRowPatternFile(FilePointer* filePointer, int32_t noteRowIndex, Action* action) {
+	Error error = openPatternFile(filePointer);
+	if (error != Error::NONE) {
+		return error;
+	}
+
+	error = instrumentClipView.loadRowPatternFromFile(smDeserializer, noteRowIndex, action);
+
+	FRESULT fileSuccess = activeDeserializer->closeWriter();
+	if (error == Error::NONE && fileSuccess != FR_OK) {
+		error = Error::SD_CARD;
+	}
+	return error;
+}
+
 // Returns error status
 Error StorageManager::loadFavouriteFile(FilePointer* filePointer, String* fileName) {
 

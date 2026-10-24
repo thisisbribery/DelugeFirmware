@@ -104,6 +104,8 @@ public:
 	int32_t currentArmedLaunchLengthForOneRepeat;
 	bool switchToArrangementAtLaunchEvent;
 
+	void beginEndlessRecording();
+
 private:
 	bool giveClipOpportunityToBeginLinearRecording(Clip* clip, int32_t clipIndex, int32_t buttonPressLatency);
 	void armClipToStopAction(Clip* clip);

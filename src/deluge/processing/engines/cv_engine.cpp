@@ -239,6 +239,21 @@ void CVEngine::sendNote(bool on, uint8_t channel, int16_t note) {
 	}
 }
 
+void CVEngine::sendNoteVoltage(uint8_t channel, int16_t note, int32_t voltage) {
+	if (gateChannels[channel].mode == GateType::SPECIAL) {
+		return;
+	}
+	if (channel < NUM_PHYSICAL_CV_CHANNELS) {
+		cvOutPending = true;
+		sendVoltageOut(channel, std::clamp<int32_t>(voltage, 0, 65535));
+		switchGateOn(channel); // won't switch before the cv has been updated
+		cvChannels[channel].noteCurrentlyPlaying = note;
+	}
+	else {
+		switchGateOn(channel);
+	}
+}
+
 void CVEngine::sendVoltageOut(uint8_t channel, uint16_t voltage) {
 	uint32_t output = (uint32_t)(0b00110000 | (1 << channel)) << 24;
 	output |= (uint32_t)voltage << 8;

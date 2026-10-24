@@ -37,6 +37,7 @@
 #include "gui/views/arranger_view.h"
 #include "gui/views/automation_view.h"
 #include "gui/views/instrument_clip_view.h"
+#include "gui/views/kit_pattern_mode.h"
 #include "gui/views/performance_view.h"
 #include "gui/views/session_view.h"
 #include "hid/buttons.h"
@@ -76,6 +77,7 @@
 #include "modulation/params/param.h"
 #include "modulation/params/param_collection.h"
 #include "modulation/params/param_set.h"
+#include "playback/autofill.h"
 #include "playback/mode/arrangement.h"
 #include "playback/mode/session.h"
 #include "processing/audio_output.h"
@@ -162,11 +164,18 @@ doEndMidiLearnPressSession:
 				endMidiLearnPressSession();
 			}
 		}
+		else if (!on && deluge::autofill::Autofill::isChosenInSettings()) {
+			deluge::autofill::autofill.tapReleased();
+		}
 		else if (currentUIMode == UI_MODE_NONE || currentUIMode == UI_MODE_RECORD_COUNT_IN) {
 			if (on) {
 				// If shift button, toggle metronome
 				if (Buttons::isShiftButtonPressed()) {
 					playbackHandler.toggleMetronomeStatus();
+				}
+				// Or, with TAP set to autofill, play a fill instead of tapping the tempo
+				else if (deluge::autofill::Autofill::isChosenInSettings()) {
+					deluge::autofill::autofill.tapPressed();
 				}
 				// Otherwise, normal - tap tempo, but not during record count in
 				else if (currentUIMode == UI_MODE_NONE) {
@@ -328,8 +337,17 @@ doEndMidiLearnPressSession:
 		}
 	}
 
-	// Sync-scaling button - can be repurposed as Fill Mode in community settings
+	// Sync-scaling button - can be repurposed as Fill Mode or Kit pattern mode in community settings
 	else if (b == SYNC_SCALING) {
+		if (deluge::gui::kit_pattern::KitPatternMode::isChosenInSettings()) {
+			if (on) {
+				if (inCardRoutine) {
+					return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
+				}
+				deluge::gui::kit_pattern::kitPatternMode.toggle();
+			}
+			return ActionResult::DEALT_WITH;
+		}
 		if ((runtimeFeatureSettings.get(RuntimeFeatureSettingType::SyncScalingAction)
 		     == RuntimeFeatureStateSyncScalingAction::Fill)) {
 			// If currently in the sound editor note editor / note row editor, keep this button as the global
@@ -499,6 +517,17 @@ void View::endMIDILearn() {
 }
 
 void View::setTimeBaseScaleLedState() {
+	// In kit pattern mode the LED flashes while the mode is on, and isn't used for sync scaling
+	if (deluge::gui::kit_pattern::KitPatternMode::isChosenInSettings()) {
+		if (deluge::gui::kit_pattern::kitPatternMode.isOn()) {
+			indicator_leds::blinkLed(IndicatorLED::SYNC_SCALING);
+		}
+		else {
+			indicator_leds::setLedState(IndicatorLED::SYNC_SCALING, false);
+		}
+		return;
+	}
+
 	// If this Clip is the inputTickScaleClip, flash the LED
 	if (getCurrentUI()->toClipMinder() && getCurrentClip() == currentSong->getSyncScalingClip()) {
 		indicator_leds::blinkLed(IndicatorLED::SYNC_SCALING);

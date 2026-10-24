@@ -24,6 +24,8 @@ class SavePatternUI final : public SaveUI {
 public:
 	SavePatternUI();
 	bool opened() override;
+	/// Kit pattern mode: the next time this opens, it saves one whole kit row of rowLength into dir, offering fileName
+	void setupRowPattern(char const* dir, char const* fileName, int32_t rowLength);
 
 	ActionResult buttonAction(deluge::hid::Button b, bool on, bool inCardRoutine) override;
 
@@ -42,6 +44,10 @@ public:
 private:
 	bool selectedDrumOnly;
 	std::string defaultDir;
+	std::string rowPatternDir;
+	std::string rowPatternFileName;
+	int32_t rowPatternLength = 0; // Not 0 while saving a kit row for kit pattern mode
+	bool rowPatternPending = false;
 };
 
 extern SavePatternUI savePatternUI;

@@ -809,6 +809,11 @@ void Clip::posReachedEnd(ModelStackWithTimelineCounter* modelStack) {
 	// If linear recording (which means it must be a loop / session playback if we reached the end)
 	if (getCurrentlyRecordingLinearly()) {
 
+		// Endless record: a stop is waiting for the loop end, so recording switches off here
+		if (playbackHandler.endlessRecordStopPending && type == ClipType::INSTRUMENT) {
+			playbackHandler.stopAnyRecording();
+		}
+
 		// If they exited recording mode (as in the illuminated RECORD button), don't auto extend
 		if (playbackHandler.recording == RecordingMode::OFF) {
 			finishLinearRecording(modelStack);
