@@ -821,6 +821,9 @@ char const* synthModeToString(SynthMode synthMode) {
 	case SynthMode::RINGMOD:
 		return "ringmod";
 
+	case SynthMode::TB303:
+		return "tb303";
+
 	default:
 		return "subtractive";
 	}
@@ -832,6 +835,9 @@ SynthMode stringToSynthMode(char const* string) {
 	}
 	else if (!strcmp(string, "ringmod")) {
 		return SynthMode::RINGMOD;
+	}
+	else if (!strcmp(string, "tb303")) {
+		return SynthMode::TB303;
 	}
 	else {
 		return SynthMode::SUBTRACTIVE;

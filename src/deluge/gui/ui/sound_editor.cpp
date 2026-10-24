@@ -1151,6 +1151,10 @@ void SoundEditor::updatePadLightsFor(MenuItem* currentItem) {
 			}
 
 			// First, see if there's a shortcut for the actual MenuItem we're currently on
+			if (int32_t x, y; tb303ShortcutFor(currentItem, &x, &y)) {
+				setupShortcutBlink(x, y, 0);
+				goto stopThat;
+			}
 			for (int32_t x = 0; x < kDisplayWidth; x++) {
 				for (int32_t y = 0; y < kDisplayHeight; y++) {
 					if (paramShortcutsForSoundsSecondLayer[x][y] == currentItem) {
@@ -1651,6 +1655,13 @@ ActionResult SoundEditor::potentialShortcutPadAction(int32_t x, int32_t y, bool 
 					item = soundShortcut(x, y);
 					if (getCurrentOutputType() == OutputType::KIT && item == &editNameMenu) {
 						item = &drumNameEditMenu;
+					}
+					// 303 mode's knobs
+					if (getCurrentOutputType() == OutputType::SYNTH
+					    && static_cast<SoundInstrument*>(getCurrentOutput())->isTb303()) {
+						if (MenuItem* tb303Item = tb303ShortcutAt(x, y)) {
+							item = tb303Item;
+						}
 					}
 
 					// Replace the current shortcut with a second layer shortcut if the pad was pressed twice

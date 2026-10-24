@@ -144,8 +144,28 @@ public:
 	int32_t getMonoYScroll(Song* song);
 	/// The octave offset, -kMonoMaxOctave to kMonoMaxOctave, a note carries in a mono CV clip
 	static int32_t getMonoOctave(int32_t lift);
-	/// How long a note sounds, after the mono gate %
-	int32_t getGateLength(int32_t noteLength) const;
+	/// Whether a mono note slides into the next one. Slide notes keep their lift kMonoSlideLift higher.
+	static bool isMonoSlide(int32_t lift);
+	static int32_t getMonoLift(int32_t octave, bool slide) {
+		return kDefaultLiftValue + octave + (slide ? kMonoSlideLift : 0);
+	}
+	static constexpr int32_t kMonoSlideLift = 32;
+	/// How long a note sounds, after the mono gate %. A slide note sounds for all of its length.
+	int32_t getGateLength(Note* note) const;
+
+	// A slide note's note-off waits until the notes starting on the same tick have been sent, so it overlaps the next
+	// note. Synths, the 303 and MIDI slide when notes overlap; CV keeps its gate open.
+	bool deferMonoSlideOff(NoteRow* noteRow, int32_t noteRowId, int32_t noteCode);
+	/// If a slide note held back is the same note as the one now starting, it just carries on, like a tie
+	bool cancelMonoSlideOff(int32_t noteCode);
+	void sendMonoSlideOffs(ModelStackWithTimelineCounter* modelStack);
+	struct MonoSlideOff {
+		NoteRow* noteRow;
+		int32_t noteRowId;
+		int32_t noteCode;
+	};
+	std::array<MonoSlideOff, 4> monoSlideOffs{};
+	int32_t numMonoSlideOffs = 0;
 
 	// These *only* store a valid preset number for the instrument-types that the Clip is not currently on
 	int8_t backedUpInstrumentSlot[4]{};

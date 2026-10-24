@@ -470,6 +470,10 @@ ArpeggiatorBase* SoundInstrument::getArp() {
 
 bool SoundInstrument::noteIsOn(int32_t noteCode, bool resetTimeEntered) {
 
+	if (isTb303()) {
+		return tb303NoteHeld(noteCode);
+	}
+
 	ArpeggiatorSettings* arpSettings = getArpSettings();
 
 	if (arpSettings != nullptr

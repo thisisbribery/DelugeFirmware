@@ -363,6 +363,28 @@ char const* getParamDisplayName(Kind kind, int32_t p) {
 char const* getParamDisplayName(Kind kind, int32_t p, ModControllableAudio* modControllable) {
 	using enum l10n::String;
 
+	// 303 mode's knobs
+	if (modControllable != nullptr && modControllable->isTb303() && kind == Kind::PATCHED) {
+		switch (p) {
+		case LOCAL_LPF_FREQ:
+			return l10n::get(STRING_FOR_TB303_CUTOFF);
+		case LOCAL_LPF_RESONANCE:
+			return l10n::get(STRING_FOR_TB303_RESONANCE);
+		case LOCAL_MODULATOR_0_VOLUME:
+			return l10n::get(STRING_FOR_TB303_ENV_MOD);
+		case LOCAL_MODULATOR_1_VOLUME:
+			return l10n::get(STRING_FOR_TB303_DECAY);
+		case LOCAL_CARRIER_0_FEEDBACK:
+			return l10n::get(STRING_FOR_TB303_ACCENT);
+		case LOCAL_CARRIER_1_FEEDBACK:
+			return l10n::get(STRING_FOR_TB303_WAVEFORM);
+		case LOCAL_MODULATOR_0_FEEDBACK:
+			return l10n::get(STRING_FOR_TB303_SLIDE);
+		default:
+			break;
+		}
+	}
+
 	if (modControllable != nullptr) {
 		if (kind == Kind::PATCHED) {
 			if (char const* name = modControllable->getPatchedParamDisplayNameOverride(p)) {

@@ -423,8 +423,9 @@ enum class SynthMode : uint8_t {
 	SUBTRACTIVE,
 	FM,
 	RINGMOD,
+	TB303, // One mono Open303 voice in place of the Deluge's oscillators, filters and envelopes
 };
-constexpr int kNumSynthModes = util::to_underlying(::SynthMode::RINGMOD) + 1;
+constexpr int kNumSynthModes = util::to_underlying(::SynthMode::TB303) + 1;
 
 constexpr int32_t SAMPLE_MAX_TRANSPOSE = 24;
 constexpr int32_t SAMPLE_MIN_TRANSPOSE = (-96);

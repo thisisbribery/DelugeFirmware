@@ -805,12 +805,19 @@ doCancelPopup:
 		// If holding notes down...
 		if (isUIModeActiveExclusively(UI_MODE_NOTES_PRESSED)) {
 			if (on) {
+				// Mono: a click without a turn toggles slide. A turn while pressed is still note repeat.
+				monoSlideClickPending = getCurrentInstrumentClip()->isMono();
 				// Just pop up number - don't do anything
 				// Wait, why?
 				editNoteRepeat(0);
 				goto passToOthers;
 			}
 			else {
+				if (monoSlideClickPending) {
+					monoSlideClickPending = false;
+					toggleMonoSlide();
+					goto passToOthers;
+				}
 				goto doCancelPopup;
 			}
 		}
@@ -6639,6 +6646,7 @@ ActionResult InstrumentClipView::verticalEncoderAction(int32_t offset, bool inCa
 		// Or note repeat...
 		else if (isUIModeActiveExclusively(UI_MODE_NOTES_PRESSED)
 		         || (inNoteRowEditor && isUIModeActive(UI_MODE_NOTES_PRESSED))) {
+			monoSlideClickPending = false;
 			editNoteRepeat(offset);
 		}
 
@@ -8699,6 +8707,56 @@ void InstrumentClipView::adjustMonoOctave(int32_t offset) {
 	uiNeedsRendering(this, 0xFFFFFFFF, 0);
 }
 
+void InstrumentClipView::toggleMonoSlide() {
+	auto edit_targets = get_note_edit_targets();
+	char modelStackMemory[MODEL_STACK_MAX_SIZE];
+	ModelStackWithTimelineCounter* modelStack = currentSong->setupModelStackWithCurrentClip(modelStackMemory);
+
+	// Slide on for all the held notes, unless they all slide already
+	bool slide = false;
+	for (int32_t i = 0; i < edit_targets.size() && !slide; i++) {
+		if (!edit_targets[i].isActive) {
+			continue;
+		}
+		NoteRow* noteRow = get_note_edit_row(modelStack, edit_targets[i])->getNoteRow();
+		Note* note = noteRow->notes.getElement(noteRow->notes.search(edit_targets[i].intendedPos, GREATER_OR_EQUAL));
+		if (note && note->pos - edit_targets[i].intendedPos < edit_targets[i].intendedLength
+		    && !InstrumentClip::isMonoSlide(note->getLift())) {
+			slide = true;
+		}
+	}
+
+	Action* action = actionLogger.getNewAction(ActionType::NOTE_EDIT, ActionAddition::ALLOWED);
+	if (!action) {
+		return;
+	}
+	for (int32_t i = 0; i < edit_targets.size(); i++) {
+		if (!edit_targets[i].isActive) {
+			continue;
+		}
+		edit_targets[i].deleteOnDepress = false;
+		ModelStackWithNoteRow* modelStackWithNoteRow = get_note_edit_row(modelStack, edit_targets[i]);
+		NoteRow* noteRow = modelStackWithNoteRow->getNoteRow();
+
+		// Every note in the square, so ratchets slide together
+		int32_t noteI = noteRow->notes.search(edit_targets[i].intendedPos, GREATER_OR_EQUAL);
+		Note* note = noteRow->notes.getElement(noteI);
+		while (note && note->pos - edit_targets[i].intendedPos < edit_targets[i].intendedLength) {
+			noteRow->changeNotesAcrossAllScreens(note->pos, modelStackWithNoteRow, action,
+			                                     CORRESPONDING_NOTES_SET_MONO_SLIDE, slide);
+			note = noteRow->notes.getElement(++noteI);
+		}
+	}
+
+	if (display->haveOLED()) {
+		display->displayPopup(slide ? "Slide on" : "Slide off");
+	}
+	else {
+		display->displayPopup(slide ? "SLID" : "OFF");
+	}
+	uiNeedsRendering(this, 0xFFFFFFFF, 0);
+}
+
 int32_t InstrumentClipView::getHeldMonoOctave(uint8_t yDisplay) {
 	InstrumentClip* clip = getCurrentInstrumentClip();
 	for (int32_t i = 0; i < kEditPadPressBufferSize; i++) {
@@ -8769,6 +8827,7 @@ void InstrumentClipView::renderMonoRow(NoteRow* noteRow, int32_t loopLength, RGB
 	static constexpr RGB kDown[InstrumentClip::kMonoMaxOctave] = {
 	    {110, 140, 255}, {60, 90, 255}, {20, 40, 230}, {0, 0, 170}};
 	static constexpr RGB kOrange{255, 120, 0};
+	static constexpr RGB kSlideGreen{0, 230, 90};
 	if (loopLength <= 0) {
 		return;
 	}
@@ -8810,6 +8869,12 @@ void InstrumentClipView::renderMonoRow(NoteRow* noteRow, int32_t loopLength, RGB
 		if (edited) {
 			colour = RGB{(uint8_t)((colour.r * 7 + kOrange.r * 3) / 10), (uint8_t)((colour.g * 7 + kOrange.g * 3) / 10),
 			             (uint8_t)((colour.b * 7 + kOrange.b * 3) / 10)};
+		}
+		// Slide notes lean green, tails and all
+		if (InstrumentClip::isMonoSlide(first->getLift())) {
+			colour = RGB{(uint8_t)((colour.r * 2 + kSlideGreen.r * 3) / 5),
+			             (uint8_t)((colour.g * 2 + kSlideGreen.g * 3) / 5),
+			             (uint8_t)((colour.b * 2 + kSlideGreen.b * 3) / 5)};
 		}
 		if (!head) {
 			colour = RGB{(uint8_t)(colour.r / 4), (uint8_t)(colour.g / 4), (uint8_t)(colour.b / 4)};

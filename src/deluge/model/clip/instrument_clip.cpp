@@ -917,6 +917,11 @@ doNewProbability:
 				pendingNoteOnList.pendingNoteOns[i].noteRow->sequenced = false;
 			}
 		}
+
+		// Mono slides: now the next notes have started, the notes sliding into them can stop
+		if (numMonoSlideOffs) {
+			sendMonoSlideOffs(modelStack);
+		}
 	}
 
 	if (ticksTilNextNoteRowEvent < playbackHandler.swungTicksTilNextEvent) {
@@ -957,6 +962,10 @@ void InstrumentClip::sendPendingNoteOn(ModelStackWithTimelineCounter* modelStack
 		else if (monoShiftsNoteCode()) {
 			pendingNoteOn->noteRow->monoSoundingOctave = getMonoOctave(pendingNoteOn->lift);
 			noteCode += 12 * pendingNoteOn->noteRow->monoSoundingOctave;
+		}
+		// Sliding into the same note that's sounding: it carries on, like a tie. CV still takes the new voltage.
+		if (numMonoSlideOffs && cancelMonoSlideOff(noteCode) && !isMonoCV()) {
+			return;
 		}
 		((MelodicInstrument*)output)
 		    ->sendNote(modelStackWithThreeMainThings, true, noteCode, mpeValues, MIDI_CHANNEL_NONE,
@@ -3755,7 +3764,14 @@ void InstrumentClip::ensureScrollWithinKitBounds() {
 
 // Make sure not a Kit before calling this
 bool InstrumentClip::isMono() const {
-	return monoMode && output
+	if (!output) {
+		return false;
+	}
+	// A 303 always plays from the mono sequencer
+	if (output->type == OutputType::SYNTH && static_cast<SoundInstrument*>(output)->isTb303()) {
+		return true;
+	}
+	return monoMode
 	       && (output->type == OutputType::CV || output->type == OutputType::SYNTH
 	           || output->type == OutputType::MIDI_OUT);
 }
@@ -3780,14 +3796,53 @@ int32_t InstrumentClip::getMonoOctave(int32_t lift) {
 	if (lift <= 0 || lift > 127) {
 		return 0;
 	}
+	if (isMonoSlide(lift)) {
+		lift -= kMonoSlideLift;
+	}
 	return std::clamp<int32_t>(lift - kDefaultLiftValue, -kMonoMaxOctave, kMonoMaxOctave);
 }
 
-int32_t InstrumentClip::getGateLength(int32_t noteLength) const {
-	if (monoGatePercent >= 100 || !isMono()) {
-		return noteLength;
+bool InstrumentClip::isMonoSlide(int32_t lift) {
+	int32_t slideLift = kDefaultLiftValue + kMonoSlideLift;
+	return lift >= slideLift - kMonoMaxOctave && lift <= slideLift + kMonoMaxOctave;
+}
+
+int32_t InstrumentClip::getGateLength(Note* note) const {
+	if (monoGatePercent >= 100 || !isMono() || isMonoSlide(note->getLift())) {
+		return note->length;
 	}
-	return std::max<int32_t>(1, (int64_t)noteLength * monoGatePercent / 100);
+	return std::max<int32_t>(1, (int64_t)note->length * monoGatePercent / 100);
+}
+
+bool InstrumentClip::deferMonoSlideOff(NoteRow* noteRow, int32_t noteRowId, int32_t noteCode) {
+	if (numMonoSlideOffs >= (int32_t)monoSlideOffs.size()) {
+		return false;
+	}
+	monoSlideOffs[numMonoSlideOffs++] = {noteRow, noteRowId, noteCode};
+	return true;
+}
+
+bool InstrumentClip::cancelMonoSlideOff(int32_t noteCode) {
+	for (int32_t i = 0; i < numMonoSlideOffs; i++) {
+		if (monoSlideOffs[i].noteCode == noteCode) {
+			monoSlideOffs[i] = monoSlideOffs[--numMonoSlideOffs];
+			return true;
+		}
+	}
+	return false;
+}
+
+void InstrumentClip::sendMonoSlideOffs(ModelStackWithTimelineCounter* modelStack) {
+	for (int32_t i = 0; i < numMonoSlideOffs; i++) {
+		MonoSlideOff& off = monoSlideOffs[i];
+		ModelStackWithNoteRow* modelStackWithNoteRow = modelStack->addNoteRow(off.noteRowId, off.noteRow);
+		ModelStackWithThreeMainThings* modelStackWithThreeMainThings =
+		    modelStackWithNoteRow->addOtherTwoThings(output->toModControllable(), &paramManager);
+		((MelodicInstrument*)output)
+		    ->sendNote(modelStackWithThreeMainThings, false, off.noteCode, nullptr, MIDI_CHANNEL_NONE,
+		               kDefaultLiftValue);
+	}
+	numMonoSlideOffs = 0;
 }
 
 bool InstrumentClip::isScrollWithinRange(int32_t scrollAmount, int32_t newYNote) {

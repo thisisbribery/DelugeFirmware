@@ -1826,7 +1826,13 @@ Error NoteRow::changeNotesAcrossAllScreens(int32_t editPos, ModelStackWithNoteRo
 			case CORRESPONDING_NOTES_ADJUST_MONO_OCTAVE: {
 				int32_t octave = InstrumentClip::getMonoOctave(thisNote->getLift()) + changeValue;
 				octave = std::clamp<int32_t>(octave, -InstrumentClip::kMonoMaxOctave, InstrumentClip::kMonoMaxOctave);
-				thisNote->setLift(kDefaultLiftValue + octave);
+				thisNote->setLift(
+				    InstrumentClip::getMonoLift(octave, InstrumentClip::isMonoSlide(thisNote->getLift())));
+			} break;
+
+			case CORRESPONDING_NOTES_SET_MONO_SLIDE: {
+				thisNote->setLift(
+				    InstrumentClip::getMonoLift(InstrumentClip::getMonoOctave(thisNote->getLift()), changeValue != 0));
 			} break;
 			}
 		}
@@ -2193,8 +2199,18 @@ noFurtherNotes:
 
 			if (!notes.getNumElements()) {
 stopNote:
+				// A mono slide note stops only once the next note has started, so they overlap and slide
+				if (thisNote && !playingReversedNow && clip->isMono()
+				    && InstrumentClip::isMonoSlide(thisNote->getLift())
+				    && clip->deferMonoSlideOff(this, modelStack->noteRowId,
+				                               getNoteCode()
+				                                   + (clip->monoShiftsNoteCode() ? 12 * monoSoundingOctave : 0))) {
+					sequenced = false;
+				}
 				// Ideally (but optionally) supply the note, so lift-velocity can be used
-				stopCurrentlyPlayingNote(modelStack, true, thisNote);
+				else {
+					stopCurrentlyPlayingNote(modelStack, true, thisNote);
+				}
 			}
 			else {
 
@@ -2223,7 +2239,7 @@ stopNote:
 					if (posRelativeToNoteLeftEdge < 0) {
 						posRelativeToNoteLeftEdge += effectiveLength;
 					}
-					if (posRelativeToNoteLeftEdge >= clip->getGateLength(thisNote->length)) {
+					if (posRelativeToNoteLeftEdge >= clip->getGateLength(thisNote)) {
 						goto stopNote; // This is probably fine as either ">" or ">="
 					}
 				}
@@ -2231,7 +2247,7 @@ stopNote:
 				int32_t noteLateEdgePos = thisNote->pos; // Depending on play direction, this will be either the
 				                                         // left or right edge of the Note.
 				if (!playingReversedNow) {
-					noteLateEdgePos += clip->getGateLength(thisNote->length);
+					noteLateEdgePos += clip->getGateLength(thisNote);
 				}
 
 				if (wrapping) {
@@ -2389,7 +2405,7 @@ gotValidNoteIndex:
 					}
 
 					// Want this even if we're "skipping" playing the note (why exactly?)
-					newTicksTil = clip->getGateLength(nextNote->length);
+					newTicksTil = clip->getGateLength(nextNote);
 				}
 
 				ticksTilNextNoteEvent = newTicksTil;

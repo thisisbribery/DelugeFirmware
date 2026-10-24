@@ -26,13 +26,14 @@
 #include "processing/sound/sound_drum.h"
 
 namespace deluge::gui::menu_item {
-/// The Deluge's synth modes, then the drum synth engines. Choosing an engine puts it on osc 1 of this sound, which
-/// keeps every envelope, filter and effect, so any kit row can go from a sample to TIA and back.
+/// The Deluge's synth modes, then the drum synth engines, then (on synths) the 303. Choosing a drum engine puts it on
+/// osc 1 of this sound, which keeps every envelope, filter and effect, so any kit row can go from a sample to TIA and
+/// back.
 class SynthModeSelection final : public Selection {
 public:
 	using Selection::Selection;
 
-	enum Choice : uint8_t { SUBTRACTIVE, FM, RINGMOD, TIA, IIA, DRUM_SYNTH };
+	enum Choice : uint8_t { SUBTRACTIVE, FM, RINGMOD, TIA, IIA, DRUM_SYNTH, TB303 };
 
 	void readCurrentValue() override {
 		const Source& source = soundEditor.currentSound->sources[0];
@@ -48,6 +49,10 @@ public:
 				this->setValue(DRUM_SYNTH);
 				return;
 			}
+		}
+		if (soundEditor.currentSound->synthMode == ::SynthMode::TB303) {
+			this->setValue(TB303);
+			return;
 		}
 		this->setValue(soundEditor.currentSound->synthMode);
 	}
@@ -67,6 +72,10 @@ public:
 			    || dsp::drum_synth::isXia(sound.sources[0].drumPatch.engine())) {
 				drum_synth::setDrumEngine(Engine::DRUM);
 			}
+			break;
+		case TB303:
+			drum_synth::leaveDrumSynth();
+			setSynthMode(::SynthMode::TB303);
 			break;
 		default: {
 			auto current_value = this->getValue<::SynthMode>();
@@ -91,7 +100,7 @@ public:
 		(void)optType;
 		using enum l10n::String;
 		// On a kit row, plain subtractive is a sample
-		return {
+		deluge::vector<std::string_view> options{
 		    l10n::getView(soundEditor.editingKitRow() ? STRING_FOR_SAMPLE : STRING_FOR_SUBTRACTIVE),
 		    l10n::getView(STRING_FOR_FM),
 		    l10n::getView(STRING_FOR_RINGMOD),
@@ -99,6 +108,11 @@ public:
 		    l10n::getView(STRING_FOR_DRUM_ENGINE_IIA),
 		    l10n::getView(STRING_FOR_DRUM_SYNTH),
 		};
+		// The 303 is a mono synth, played from a clip's mono sequencer, so not on kit rows
+		if (!soundEditor.editingKitRow()) {
+			options.push_back(l10n::getView(STRING_FOR_TB303));
+		}
+		return options;
 	}
 
 	bool isRelevant(ModControllableAudio* modControllable, int32_t whichThing) const override {
@@ -127,7 +141,13 @@ private:
 		}
 		// Or, the normal case of just one sound
 		else if (soundEditor.currentSound->synthMode != current_value) {
-			soundEditor.currentSound->setSynthMode(current_value, currentSong);
+			Sound* sound = soundEditor.currentSound;
+			bool becoming303 = current_value == ::SynthMode::TB303;
+			sound->setSynthMode(current_value, currentSong);
+			// A fresh 303 starts on an acid sound. Its clips play from the mono sequencer while it's a 303.
+			if (becoming303 && sound->isTb303()) {
+				sound->setupTb303Defaults(soundEditor.currentParamManager);
+			}
 		}
 	}
 };

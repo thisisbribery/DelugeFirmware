@@ -646,6 +646,9 @@ Error Sound::readTagFromFileOrError(Deserializer& reader, char const* tagName, P
 		if (synthMode != SynthMode::RINGMOD) { // Compatibility with old XML files
 			synthMode = stringToSynthMode(contents);
 		}
+		if (synthMode == SynthMode::TB303 && !ensureTb303()) {
+			synthMode = SynthMode::SUBTRACTIVE;
+		}
 		// Uart::print("synth mode set to: ");
 		// Uart::println(synthMode);
 		reader.exitTag("mode");
@@ -1460,6 +1463,11 @@ Error Sound::readTagFromFileOrError(Deserializer& reader, char const* tagName, P
 		reader.exitTag("envelope3", true);
 	}
 
+	else if (!strcmp(tagName, "tb303Filter")) {
+		tb303ClassicFilter = reader.readTagOrAttributeValueInt() == 0;
+		reader.exitTag("tb303Filter");
+	}
+
 	else if (!strcmp(tagName, "polyphonic")) {
 		polyphonic = stringToPolyphonyMode(reader.readTagOrAttributeValue());
 		reader.exitTag("polyphonic");
@@ -1725,7 +1733,8 @@ void Sound::noteOn(ModelStackWithThreeMainThings* modelStack, ArpeggiatorBase* a
 
 	ModelStackWithSoundFlags* modelStackWithSoundFlags = modelStack->addSoundFlags();
 
-	if (!((synthMode == SynthMode::RINGMOD) || (modelStackWithSoundFlags->checkSourceEverActive(0))
+	if (!((synthMode == SynthMode::RINGMOD) || (synthMode == SynthMode::TB303)
+	      || (modelStackWithSoundFlags->checkSourceEverActive(0))
 	      || (modelStackWithSoundFlags->checkSourceEverActive(1))
 	      || (paramManager->getPatchedParamSet()->params[params::LOCAL_NOISE_VOLUME].containsSomething(-2147483648))))
 	    [[unlikely]] {
@@ -1857,7 +1866,17 @@ void Sound::noteOnPostArpeggiator(ModelStackWithSoundFlags* modelStack, int32_t 
 		}
 	}
 
-	if (polyphonic == PolyphonyMode::LEGATO && voiceForLegato) [[unlikely]] {
+	// The 303 is always mono, and slides when notes overlap
+	if (synthMode == SynthMode::TB303) [[unlikely]] {
+		if (tb303_) {
+			tb303_->noteOn(noteCodePostArp, velocity);
+			if (sideChainSendLevel != 0) {
+				AudioEngine::registerSideChainHit(sideChainSendLevel);
+			}
+			reassessRenderSkippingStatus(modelStack);
+		}
+	}
+	else if (polyphonic == PolyphonyMode::LEGATO && voiceForLegato) [[unlikely]] {
 		(*voiceForLegato)->changeNoteCode(modelStack, noteCodePreArp, noteCodePostArp, fromMIDIChannel, mpeValues);
 	}
 	else {
@@ -2076,6 +2095,16 @@ void Sound::noteOffPostArpeggiator(ModelStackWithSoundFlags* modelStack, int32_t
 		midiEngine.sendAllNotesOff(this, outputMidiChannel, kMIDIOutputFilterNoMPE);
 	}
 
+	if (tb303_ && synthMode == SynthMode::TB303) {
+		if (noteCode == ALL_NOTES_OFF) {
+			tb303_->allNotesOff();
+		}
+		else {
+			tb303_->noteOff(noteCode);
+		}
+		return;
+	}
+
 	if (voices_.empty()) {
 		return;
 	}
@@ -2137,6 +2166,11 @@ justSwitchOff:
 
 bool Sound::allowNoteTails(ModelStackWithSoundFlags* modelStack, bool disregardSampleLoop) {
 	// Return yes unless all active sources are play-once samples, or envelope 0 has no sustain
+
+	// The 303 has its own envelopes, and plays every note to its end
+	if (synthMode == SynthMode::TB303) {
+		return true;
+	}
 
 	// If arp on, then definitely yes
 	ArpeggiatorSettings* arpSettings = getArpSettings((InstrumentClip*)modelStack->getTimelineCounterAllowNull());
@@ -2387,7 +2421,7 @@ void Sound::reassessRenderSkippingStatus(ModelStackWithSoundFlags* modelStack, b
 	// A note that couldn't get a voice yet is only ever started from render(), so we must keep rendering while one is
 	// pending - otherwise it'd stay pending forever (issue #2262)
 	bool skippingStatusNow =
-	    (voices_.empty() && (delay.repeatsUntilAbandon == 0u) && !stutterer.isStuttering(this)
+	    (voices_.empty() && !tb303Sounding() && (delay.repeatsUntilAbandon == 0u) && !stutterer.isStuttering(this)
 	     && ((arpSettings == nullptr) || !getArp()->hasAnyInputNotesActive() || arpSettings->mode == ArpMode::OFF)
 	     && !getArp()->hasPendingNotes(arpSettings));
 
@@ -2714,11 +2748,14 @@ void Sound::render(ModelStackWithThreeMainThings* modelStack, std::span<StereoSa
 	}
 	delayWorkingState.userDelayRate = paramFinalValues[params::GLOBAL_DELAY_RATE - params::FIRST_GLOBAL];
 	uint32_t timePerTickInverse = playbackHandler.getTimePerInternalTickInverse(true);
-	delay.setupWorkingState(delayWorkingState, timePerTickInverse, !voices_.empty());
+	// The 303 renders mono, in place of the voices
+	bool renderingTb303 = synthMode == SynthMode::TB303 && tb303Sounding();
+	bool anyVoicesActive = !voices_.empty() || renderingTb303;
+	delay.setupWorkingState(delayWorkingState, timePerTickInverse, anyVoicesActive);
 	delayWorkingState.analog_saturation = 8;
 
 	// Render each voice into a local buffer here
-	bool voice_rendered_in_stereo = renderingVoicesInStereo(modelStackWithSoundFlags);
+	bool voice_rendered_in_stereo = !renderingTb303 && renderingVoicesInStereo(modelStackWithSoundFlags);
 
 	// FIXME(@stellar-aria): if we have simulataneous sounds rendering, they'll overwrite
 	// each other in this buffer. It probably should be object or thread-local
@@ -2728,12 +2765,16 @@ void Sound::render(ModelStackWithThreeMainThings* modelStack, std::span<StereoSa
 	std::span sound_mono{sound_memory, output.size()};
 	std::span sound_stereo{(StereoSample*)sound_memory, output.size()};
 
-	if (!voices_.empty()) {
+	if (anyVoicesActive) {
 
 		// Very often, we'll just apply panning here at the Sound level rather than the Voice level
 		bool applyingPanAtVoiceLevel =
-		    (AudioEngine::renderInStereo
-		     && paramManager->getPatchCableSet()->doesParamHaveSomethingPatchedToIt(params::LOCAL_PAN));
+		    !renderingTb303 && AudioEngine::renderInStereo
+		    && paramManager->getPatchCableSet()->doesParamHaveSomethingPatchedToIt(params::LOCAL_PAN);
+
+		if (renderingTb303) {
+			renderTb303(paramManager, sound_mono);
+		}
 
 		// Setup filters
 		bool thisHasFilters = hasFilters();
@@ -2820,7 +2861,7 @@ void Sound::render(ModelStackWithThreeMainThings* modelStack, std::span<StereoSa
 
 	processSRRAndBitcrushing(sound_stereo, &postFXVolume, paramManager);
 	processFX(sound_stereo, modFXType_, modFXRate, modFXDepth, delayWorkingState, &postFXVolume, paramManager,
-	          !voices_.empty(), reverbSendAmount >> 1);
+	          anyVoicesActive, reverbSendAmount >> 1);
 	processStutter(sound_stereo, paramManager);
 
 	processReverbSendAndVolume(sound_stereo, reverbBuffer, postFXVolume, postReverbVolume, reverbSendAmount, 0, true);
@@ -3266,7 +3307,34 @@ void Sound::setSynthMode(SynthMode value, Song* song) {
 	killAllVoices(); // This saves a lot of potential problems, to do with samples playing. E002 was being caused
 
 	SynthMode oldSynthMode = synthMode;
+	if (value == SynthMode::TB303 && !ensureTb303()) {
+		display->displayError(Error::INSUFFICIENT_RAM);
+		return;
+	}
 	synthMode = value;
+
+	// The 303's knobs go on the gold knobs: env mod and decay on attack and release, accent on portamento
+	if (synthMode == SynthMode::TB303 && oldSynthMode != SynthMode::TB303) {
+		if (modKnobs[2][1].paramDescriptor.isSetToParamWithNoSource(params::LOCAL_ENV_0_ATTACK)
+		    && modKnobs[2][0].paramDescriptor.isSetToParamWithNoSource(params::LOCAL_ENV_0_RELEASE)) {
+			modKnobs[2][1].paramDescriptor.setToHaveParamOnly(kTb303EnvModParam);
+			modKnobs[2][0].paramDescriptor.setToHaveParamOnly(kTb303DecayParam);
+		}
+		if (modKnobs[6][0].paramDescriptor.isSetToParamWithNoSource(params::UNPATCHED_START
+		                                                            + params::UNPATCHED_PORTAMENTO)) {
+			modKnobs[6][0].paramDescriptor.setToHaveParamOnly(kTb303AccentParam);
+		}
+	}
+	else if (synthMode != SynthMode::TB303 && oldSynthMode == SynthMode::TB303) {
+		if (modKnobs[2][1].paramDescriptor.isSetToParamWithNoSource(kTb303EnvModParam)
+		    && modKnobs[2][0].paramDescriptor.isSetToParamWithNoSource(kTb303DecayParam)) {
+			modKnobs[2][1].paramDescriptor.setToHaveParamOnly(params::LOCAL_ENV_0_ATTACK);
+			modKnobs[2][0].paramDescriptor.setToHaveParamOnly(params::LOCAL_ENV_0_RELEASE);
+		}
+		if (modKnobs[6][0].paramDescriptor.isSetToParamWithNoSource(kTb303AccentParam)) {
+			modKnobs[6][0].paramDescriptor.setToHaveParamOnly(params::UNPATCHED_START + params::UNPATCHED_PORTAMENTO);
+		}
+	}
 
 	// Change mod knob functions over. Switching *to* FM...
 	if (synthMode == SynthMode::FM && oldSynthMode != SynthMode::FM) {
@@ -3310,6 +3378,72 @@ void Sound::setSynthMode(SynthMode value, Song* song) {
 	// in Sound::maySourcePatchToParam, the filter mode is checked to determine if patch cables are allowed
 	// Setup patching after changing filter mode above to ensure PatchCableAcceptance is correctly determined
 	setupPatchingForAllParamManagers(song);
+}
+
+bool Sound::ensureTb303() {
+	deluge::dsp::tb303::wavetables::ensureBuilt();
+	if (!tb303_) {
+		try {
+			tb303_ = std::make_unique<deluge::dsp::tb303::Open303>();
+		} catch (deluge::exception e) {
+			return false;
+		}
+	}
+	return true;
+}
+
+namespace {
+/// A knob's position, 0 to 1
+float tb303Knob(PatchedParamSet* params, int32_t p) {
+	return ((float)params->getValue(p) + 2147483648.f) * (1.f / 4294967296.f);
+}
+
+int32_t tb303KnobValue(float position) {
+	return (int32_t)std::clamp<double>(position * 4294967296.0 - 2147483648.0, -2147483648.0, 2147483647.0);
+}
+
+/// Exponential, like Open303's panel
+float tb303ExpKnob(float position, float min, float max) {
+	return min * std::pow(max / min, position);
+}
+
+float tb303ExpKnobPosition(float value, float min, float max) {
+	return std::log(value / min) / std::log(max / min);
+}
+} // namespace
+
+void Sound::setupTb303Defaults(ParamManager* paramManager) {
+	PatchedParamSet* patchedParams = paramManager->getPatchedParamSet();
+	auto set = [&](int32_t p, float position) {
+		patchedParams->params[p].setCurrentValueBasicForSetup(tb303KnobValue(position));
+	};
+	set(params::LOCAL_LPF_FREQ, tb303ExpKnobPosition(500.f, kTb303CutoffMin, kTb303CutoffMax));
+	set(params::LOCAL_LPF_RESONANCE, 0.65f);
+	set(kTb303EnvModParam, 0.45f);
+	set(kTb303DecayParam, tb303ExpKnobPosition(400.f, kTb303DecayMin, kTb303DecayMax));
+	set(kTb303AccentParam, 0.6f);
+	set(kTb303WaveformParam, 0.f);
+	set(kTb303SlideParam, tb303ExpKnobPosition(60.f, kTb303SlideMin, kTb303SlideMax));
+	tb303ClassicFilter = true;
+}
+
+void Sound::renderTb303(ParamManagerForTimeline* paramManager, std::span<q31_t> buffer) {
+	// Turning 1.0 into the level a plain Deluge saw voice sits at
+	constexpr float kOutputGain = 4194304.f;
+
+	PatchedParamSet* patchedParams = paramManager->getPatchedParamSet();
+	deluge::dsp::tb303::Controls controls;
+	controls.cutoff = tb303ExpKnob(tb303Knob(patchedParams, params::LOCAL_LPF_FREQ), kTb303CutoffMin, kTb303CutoffMax);
+	controls.resonance = 100.f * tb303Knob(patchedParams, params::LOCAL_LPF_RESONANCE);
+	controls.envMod = 100.f * tb303Knob(patchedParams, kTb303EnvModParam);
+	controls.decay = tb303ExpKnob(tb303Knob(patchedParams, kTb303DecayParam), kTb303DecayMin, kTb303DecayMax);
+	controls.accent = 100.f * tb303Knob(patchedParams, kTb303AccentParam);
+	controls.waveform = tb303Knob(patchedParams, kTb303WaveformParam);
+	controls.slideTime = tb303ExpKnob(tb303Knob(patchedParams, kTb303SlideParam), kTb303SlideMin, kTb303SlideMax);
+	controls.classicFilter = tb303ClassicFilter;
+	tb303_->setControls(controls);
+	tb303_->setPitchOffset((float)transpose + (float)cents * 0.01f);
+	tb303_->render(buffer, kOutputGain);
 }
 
 void Sound::setModulatorTranspose(int32_t m, int32_t value, ModelStackWithSoundFlags* modelStack) {
@@ -3425,7 +3559,7 @@ bool Sound::anyNoteIsOn() {
 		return (getArp()->hasAnyInputNotesActive());
 	}
 
-	return !voices_.empty();
+	return !voices_.empty() || tb303Sounding();
 }
 
 bool Sound::hasFilters() {
@@ -4422,6 +4556,9 @@ void Sound::writeToFile(Serializer& writer, bool savingSong, ParamManager* param
 	}
 
 	writer.writeAttribute("mode", (char*)synthModeToString(synthMode));
+	if (synthMode == SynthMode::TB303 && !tb303ClassicFilter) {
+		writer.writeAttribute("tb303Filter", 1);
+	}
 
 	if (transpose != 0) {
 		writer.writeAttribute("transpose", transpose);
@@ -5188,6 +5325,9 @@ void Sound::killAllVoices() {
 		voice->setAsUnassigned(nullptr);
 	}
 	voices_.clear();
+	if (tb303_) {
+		tb303_->reset();
+	}
 }
 
 const Sound::ActiveVoice& Sound::getLowestPriorityVoice() const {

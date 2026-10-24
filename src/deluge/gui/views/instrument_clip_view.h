@@ -361,6 +361,9 @@ public:
 private:
 	// Mono CV sequencer
 	void adjustMonoOctave(int32_t offset);
+	/// Turns slide on for the held notes, or off if they all slide already
+	void toggleMonoSlide();
+	bool monoSlideClickPending{}; // Vertical encoder pressed on held mono notes, not turned yet
 	void clearOtherMonoRows(NoteRow* keep, int32_t start, int32_t width, Action* action);
 	void renderMonoRow(NoteRow* noteRow, int32_t loopLength, RGB* image, int32_t renderWidth, int32_t xScroll,
 	                   uint32_t xZoom);

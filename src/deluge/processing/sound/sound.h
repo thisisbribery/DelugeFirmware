@@ -18,6 +18,7 @@
 #pragma once
 
 #include "definitions_cxx.hpp"
+#include "dsp/tb303/open303.h"
 #include "model/mod_controllable/mod_controllable_audio.h"
 #include "model/sample/sample_recorder.h"
 #include "model/voiced.h"
@@ -72,6 +73,21 @@ struct ParamLPF {
 constexpr int32_t kDefaultSoundVolumeUserValue = 40;
 /// The depth of the VELOCITY -> LOCAL_VOLUME patch cable that Sound::setupAsSample() installs, as a user value.
 constexpr int32_t kSampleDrumVelocityCableUserValue = 50;
+
+// 303 mode's knobs. Cutoff and resonance are the LPF's; the rest sit on the FM operators' params, which 303 mode
+// doesn't otherwise use, and take their grid shortcuts.
+constexpr int32_t kTb303EnvModParam = deluge::modulation::params::LOCAL_MODULATOR_0_VOLUME;
+constexpr int32_t kTb303DecayParam = deluge::modulation::params::LOCAL_MODULATOR_1_VOLUME;
+constexpr int32_t kTb303AccentParam = deluge::modulation::params::LOCAL_CARRIER_0_FEEDBACK;
+constexpr int32_t kTb303WaveformParam = deluge::modulation::params::LOCAL_CARRIER_1_FEEDBACK;
+constexpr int32_t kTb303SlideParam = deluge::modulation::params::LOCAL_MODULATOR_0_FEEDBACK;
+// Ranges, in Hz and ms. Cutoff and decay are the 303 panel's.
+constexpr float kTb303CutoffMin = 314.f;
+constexpr float kTb303CutoffMax = 2394.f;
+constexpr float kTb303DecayMin = 200.f;
+constexpr float kTb303DecayMax = 2000.f;
+constexpr float kTb303SlideMin = 10.f;
+constexpr float kTb303SlideMax = 300.f;
 
 class Sound : public ModControllableAudio, public virtual Voiced {
 public:
@@ -310,8 +326,19 @@ public:
 	}
 	uint32_t getSyncedLFOPhaseIncrement(const LFOConfig& config);
 
-	/// @brief Does this sound have any active voices?
-	[[nodiscard]] bool hasActiveVoices() const override { return !voices_.empty(); }
+	/// @brief Does this sound have any active voices? A 303 counts while it sounds.
+	[[nodiscard]] bool hasActiveVoices() const override { return !voices_.empty() || tb303Sounding(); }
+
+	// 303 mode: one mono Open303 voice, played from this sound's knobs, in place of the Deluge's voices
+
+	[[nodiscard]] bool isTb303() const override { return synthMode == SynthMode::TB303; }
+	[[nodiscard]] bool tb303Sounding() const { return tb303_ && tb303_->isSounding(); }
+	[[nodiscard]] bool tb303NoteHeld(int32_t noteCode) const { return tb303_ && tb303_->isNoteHeld(noteCode); }
+	/// Makes the 303 voice and its wavetables. Call from outside the audio routine. False if out of memory.
+	bool ensureTb303();
+	/// Sets this sound's 303 knobs, and the gold knobs, to a starting acid sound
+	void setupTb303Defaults(ParamManager* paramManager);
+	bool tb303ClassicFilter = true; // The TB-303 ladder model, or Open303's plain 18 dB lowpass
 
 	/// @brief Get the number of active voices
 	[[nodiscard]] size_t numActiveVoices() const { return voices_.size(); }
@@ -373,6 +400,9 @@ private:
 	// Went with a vector instead of a list so that we don't need to always allocate if
 	// we're constantly cycling between a minimum and maximum number of voices.
 	deluge::fast_vector<ActiveVoice> voices_;
+
+	std::unique_ptr<deluge::dsp::tb303::Open303> tb303_;
+	void renderTb303(ParamManagerForTimeline* paramManager, std::span<q31_t> buffer);
 
 	/// @brief Acquire a voice for use by a note
 	/// Internally this will either acquire a new voice or steal an existing one

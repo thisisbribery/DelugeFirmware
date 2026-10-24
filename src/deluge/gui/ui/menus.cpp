@@ -225,6 +225,7 @@
 #include "gui/menu_item/swing/stumble.h"
 #include "gui/menu_item/swing/style.h"
 #include "gui/menu_item/synth_mode.h"
+#include "gui/menu_item/tb303/settings.h"
 #include "gui/menu_item/trigger/in/ppqn.h"
 #include "gui/menu_item/trigger/out/ppqn.h"
 #include "gui/menu_item/unison/count.h"
@@ -1823,6 +1824,55 @@ PLACE_SDRAM_BSS patch_cable_strength::Fixed vibratoMenu{STRING_FOR_VIBRATO, para
 
 // Synth only
 PLACE_SDRAM_BSS SynthModeSelection synthModeMenu{STRING_FOR_SYNTH_MODE};
+
+// 303 synth mode
+PLACE_SDRAM_BSS tb303::Param tb303CutoffMenu{STRING_FOR_TB303_CUTOFF, STRING_FOR_TB303_CUTOFF, params::LOCAL_LPF_FREQ};
+PLACE_SDRAM_BSS tb303::Param tb303ResonanceMenu{STRING_FOR_TB303_RESONANCE, STRING_FOR_TB303_RESONANCE,
+                                                params::LOCAL_LPF_RESONANCE};
+PLACE_SDRAM_BSS tb303::Param tb303EnvModMenu{STRING_FOR_TB303_ENV_MOD, STRING_FOR_TB303_ENV_MOD, kTb303EnvModParam};
+PLACE_SDRAM_BSS tb303::Param tb303DecayMenu{STRING_FOR_TB303_DECAY, STRING_FOR_TB303_DECAY, kTb303DecayParam};
+PLACE_SDRAM_BSS tb303::Param tb303AccentMenu{STRING_FOR_TB303_ACCENT, STRING_FOR_TB303_ACCENT, kTb303AccentParam};
+PLACE_SDRAM_BSS tb303::Param tb303WaveformMenu{STRING_FOR_TB303_WAVEFORM, STRING_FOR_TB303_WAVEFORM,
+                                               kTb303WaveformParam};
+PLACE_SDRAM_BSS tb303::Param tb303SlideMenu{STRING_FOR_TB303_SLIDE, STRING_FOR_TB303_SLIDE, kTb303SlideParam};
+PLACE_SDRAM_BSS tb303::Filter tb303FilterMenu{STRING_FOR_TB303_FILTER};
+PLACE_SDRAM_BSS tb303::Menu tb303Menu{
+    STRING_FOR_TB303_SETTINGS,
+    {&tb303CutoffMenu, &tb303ResonanceMenu, &tb303EnvModMenu, &tb303DecayMenu, &tb303AccentMenu, &tb303WaveformMenu,
+     &tb303SlideMenu, &tb303FilterMenu},
+};
+
+// In 303 mode these pads take over from the FM operators' and the LPF's. The params sit where the automation view's
+// grid already puts them.
+struct Tb303Shortcut {
+	uint8_t x;
+	uint8_t y;
+	MenuItem* item;
+};
+PLACE_SDRAM_DATA Tb303Shortcut tb303Shortcuts[] = {
+    {8, 7, &tb303CutoffMenu}, {8, 6, &tb303ResonanceMenu}, {4, 0, &tb303EnvModMenu}, {5, 0, &tb303DecayMenu},
+    {2, 5, &tb303AccentMenu}, {3, 5, &tb303WaveformMenu},  {4, 5, &tb303SlideMenu},  {5, 5, &tb303FilterMenu},
+};
+
+MenuItem* tb303ShortcutAt(int32_t x, int32_t y) {
+	for (Tb303Shortcut& shortcut : tb303Shortcuts) {
+		if (shortcut.x == x && shortcut.y == y) {
+			return shortcut.item;
+		}
+	}
+	return nullptr;
+}
+
+bool tb303ShortcutFor(MenuItem* item, int32_t* x, int32_t* y) {
+	for (Tb303Shortcut& shortcut : tb303Shortcuts) {
+		if (shortcut.item == item) {
+			*x = shortcut.x;
+			*y = shortcut.y;
+			return true;
+		}
+	}
+	return false;
+}
 PLACE_SDRAM_BSS bend_range::PerFinger drumBendRangeMenu{STRING_FOR_BEND_RANGE}; // The single option available for Drums
 PLACE_SDRAM_BSS patched_param::Integer volumeMenu{STRING_FOR_VOLUME_LEVEL, STRING_FOR_MASTER_LEVEL,
                                                   params::GLOBAL_VOLUME_POST_FX, BAR};
@@ -1868,6 +1918,7 @@ PLACE_SDRAM_BSS Submenu soundEditorRootMenu{
         &drumSnappyDecayMenu,         // Only shown on drum synth sounds
         &soundEditorRootActionsMenu,
         &soundMasterMenu,
+        &tb303Menu,
         &arpMenu,
         &randomizerMenu,
         &audioCompMenu,

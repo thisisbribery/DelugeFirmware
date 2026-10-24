@@ -158,8 +158,10 @@ int32_t timeLastPopup{0};
 SoundDrum* sampleForPreview;
 ParamManagerForTimeline* paramManagerForSamplePreview;
 
-PLACE_SDRAM_BSS char paramManagerForSamplePreviewMemory[sizeof(ParamManagerForTimeline)];
-PLACE_SDRAM_BSS char sampleForPreviewMemory[sizeof(SoundDrum)];
+// Aligned like the objects built in them: the compiler stores to these with instructions that fault if they're not
+PLACE_SDRAM_BSS alignas(
+    ParamManagerForTimeline) char paramManagerForSamplePreviewMemory[sizeof(ParamManagerForTimeline)];
+PLACE_SDRAM_BSS alignas(SoundDrum) char sampleForPreviewMemory[sizeof(SoundDrum)];
 
 SampleRecorder* firstRecorder = nullptr;
 

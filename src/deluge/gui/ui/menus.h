@@ -116,6 +116,10 @@ extern gui::menu_item::source::patched_param::ModulatorLevel modulator1Volume;
 extern MenuItem* midiOrCVParamShortcuts[kDisplayHeight];
 extern MenuItem* gateDrumParamShortcuts[kDisplayHeight];
 extern MenuItem* paramShortcutsForSounds[kDisplayWidth][kDisplayHeight];
+/// In 303 mode, the menu item that takes over a shortcut pad, or nullptr
+MenuItem* tb303ShortcutAt(int32_t x, int32_t y);
+/// The shortcut pad of a 303 mode menu item, if it has one
+bool tb303ShortcutFor(MenuItem* item, int32_t* x, int32_t* y);
 extern MenuItem* paramShortcutsForSoundsSecondLayer[kDisplayWidth][kDisplayHeight];
 class Sound;
 /// On drum synth sounds, some sound shortcut pads open the engine's settings instead (see menus.cpp). nullptr = the

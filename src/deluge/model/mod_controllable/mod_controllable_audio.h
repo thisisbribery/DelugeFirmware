@@ -74,6 +74,8 @@ public:
 	/// A name to show for a patched param instead of its usual one, or nullptr. Lets a sound that repurposes a param
 	/// (like the drum synth does with osc PW and wave index) say what it actually does.
 	virtual char const* getPatchedParamDisplayNameOverride(int32_t p) { return nullptr; }
+	/// A Sound playing its 303 voice, whose knobs take the 303's names
+	[[nodiscard]] virtual bool isTb303() const { return false; }
 	virtual bool setModFXType(ModFXType newType);
 	bool offerReceivedCCToLearnedParamsForClip(MIDICable& cable, uint8_t channel, uint8_t ccNumber, uint8_t value,
 	                                           ModelStackWithTimelineCounter* modelStack, int32_t noteRowIndex = -1);

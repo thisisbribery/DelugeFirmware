@@ -46,7 +46,10 @@ public:
 			clip->yScroll = clip->getMonoYScroll(currentSong);
 		}
 	}
-	bool isRelevant(ModControllableAudio* modControllable, int32_t whichThing) const override { return canBeMono(); }
+	bool isRelevant(ModControllableAudio* modControllable, int32_t whichThing) const override {
+		// A 303 is always on the mono sequencer
+		return canBeMono() && !(modControllable && modControllable->isTb303());
+	}
 };
 
 /// CV only: the song's scale, or a voltage set for each row
@@ -73,7 +76,7 @@ public:
 	[[nodiscard]] int32_t getMinValue() const override { return 1; }
 	[[nodiscard]] int32_t getMaxValue() const override { return 100; }
 	bool isRelevant(ModControllableAudio* modControllable, int32_t whichThing) const override {
-		return canBeMono() && getCurrentInstrumentClip()->monoMode;
+		return canBeMono() && getCurrentInstrumentClip()->isMono();
 	}
 };
 
