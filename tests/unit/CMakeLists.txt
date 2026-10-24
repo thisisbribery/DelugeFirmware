@@ -77,6 +77,8 @@ file(GLOB_RECURSE deluge_SOURCES
         # For drum synth tests
         ../../src/deluge/dsp/drum_synth/drum_synth.cpp
         ../../src/deluge/dsp/drum_synth/drum_synth_transients.c
+        ../../src/deluge/dsp/drum_synth/xia.cpp
+        ../../src/deluge/dsp/drum_synth/xia_tables.c
 )
 
 add_executable(UnitTests
@@ -103,6 +105,7 @@ add_executable(UnitTests
         waveform_peak_math_tests.cpp
         midi_queue_tests.cpp
         drum_synth_tests.cpp
+        xia_tests.cpp
 )
 add_test(NAME UnitTests
         COMMAND UnitTests)

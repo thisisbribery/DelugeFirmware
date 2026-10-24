@@ -31,7 +31,7 @@ namespace deluge::gui::menu_item::drum_synth {
 /// One column of the drum synth pad editor: a menu item edited by tapping a pad for its level
 struct Column {
 	enum class Kind : uint8_t { NUMBER, CHOICE };
-	enum class Group : uint8_t { OSC, PITCH, MOD, MOD2, NOISE, TRANSIENT, SOUND };
+	enum class Group : uint8_t { OSC, PITCH, MOD, MOD2, NOISE, TRANSIENT, SOUND, XIA_ENVELOPE };
 
 	Value<int32_t>* item;
 	Kind kind;
@@ -53,8 +53,9 @@ class Editor final : public MenuItem {
 public:
 	using Layout = std::span<const Column>;
 
-	Editor(l10n::String name, Layout drumLayout, Layout snareLayout, Layout metalLayout, MenuItem* fullMenu)
-	    : MenuItem(name), layouts_{drumLayout, snareLayout, metalLayout}, fullMenu_(fullMenu) {}
+	Editor(l10n::String name, Layout drumLayout, Layout snareLayout, Layout metalLayout, Layout tiaLayout,
+	       Layout iiaLayout, MenuItem* fullMenu)
+	    : MenuItem(name), layouts_{drumLayout, snareLayout, metalLayout, tiaLayout, iiaLayout}, fullMenu_(fullMenu) {}
 
 	void beginSession(MenuItem* navigatedBackwardFrom) override;
 	void endSession() override;

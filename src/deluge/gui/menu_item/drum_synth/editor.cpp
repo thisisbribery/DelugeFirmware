@@ -56,6 +56,8 @@ RGB groupColour(Column::Group group) {
 		return RGB(170, 255, 40);
 	case Column::Group::TRANSIENT:
 		return RGB(255, 0, 170);
+	case Column::Group::XIA_ENVELOPE:
+		return RGB(255, 200, 0);
 	default:
 		return RGB(0, 255, 70);
 	}
@@ -138,6 +140,10 @@ std::string_view Editor::getTitle() const {
 		return l10n::getView(STRING_FOR_DRUM_ENGINE_SNARE);
 	case Engine::METAL:
 		return l10n::getView(STRING_FOR_DRUM_ENGINE_METAL);
+	case Engine::TIA:
+		return l10n::getView(STRING_FOR_DRUM_ENGINE_TIA);
+	case Engine::IIA:
+		return l10n::getView(STRING_FOR_DRUM_ENGINE_IIA);
 	default:
 		return l10n::getView(STRING_FOR_DRUM_ENGINE_DRUM);
 	}

@@ -1506,16 +1506,44 @@ PLACE_SDRAM_BSS drum_synth::Value drumNoiseResonanceMenu{STRING_FOR_DRUM_NOISE_R
 PLACE_SDRAM_BSS drum_synth::TransientMode drumTransientMenu{STRING_FOR_DRUM_TRANSIENT};
 PLACE_SDRAM_BSS drum_synth::Value drumTransientVolumeMenu{STRING_FOR_DRUM_TRANSIENT_VOLUME, DrumParam::TRANS_VOLUME};
 PLACE_SDRAM_BSS drum_synth::Value drumTransientPitchMenu{STRING_FOR_DRUM_TRANSIENT_PITCH, DrumParam::TRANS_PITCH};
+PLACE_SDRAM_BSS drum_synth::XiaVariant xiaVariantMenu{STRING_FOR_XIA_VARIANT};
+PLACE_SDRAM_BSS drum_synth::Value tiaFreq1Menu{STRING_FOR_TIA_FREQ1, DrumParam::TIA_FREQ1};
+PLACE_SDRAM_BSS drum_synth::Value tiaFreq2Menu{STRING_FOR_TIA_FREQ2, DrumParam::TIA_FREQ2};
+PLACE_SDRAM_BSS drum_synth::Value tiaFreq3Menu{STRING_FOR_TIA_FREQ3, DrumParam::TIA_FREQ3};
+PLACE_SDRAM_BSS drum_synth::Value tiaBlendex1Menu{STRING_FOR_TIA_BLENDEX1, DrumParam::TIA_BLENDEX1};
+PLACE_SDRAM_BSS drum_synth::Value tiaBlendex2Menu{STRING_FOR_TIA_BLENDEX2, DrumParam::TIA_BLENDEX2};
+PLACE_SDRAM_BSS drum_synth::Value tiaBlendex3Menu{STRING_FOR_TIA_BLENDEX3, DrumParam::TIA_BLENDEX3};
+PLACE_SDRAM_BSS drum_synth::Value iiaWeightMenu{STRING_FOR_IIA_WEIGHT, DrumParam::IIA_WEIGHT};
+PLACE_SDRAM_BSS drum_synth::Value iiaAlloyMenu{STRING_FOR_IIA_ALLOY, DrumParam::IIA_ALLOY};
+PLACE_SDRAM_BSS drum_synth::Value iiaShapeMenu{STRING_FOR_IIA_SHAPE, DrumParam::IIA_SHAPE};
+PLACE_SDRAM_BSS drum_synth::Value iiaAttackMenu{STRING_FOR_IIA_ATTACK, DrumParam::IIA_ATTACK};
+PLACE_SDRAM_BSS drum_synth::Value xiaLowPassMenu{STRING_FOR_XIA_LOW_PASS, DrumParam::XIA_LOW_PASS};
+PLACE_SDRAM_BSS drum_synth::Value xiaDriveMenu{STRING_FOR_XIA_DRIVE, DrumParam::XIA_DRIVE};
+PLACE_SDRAM_BSS drum_synth::Value xiaDecayMenu{STRING_FOR_XIA_DECAY, DrumParam::XIA_DECAY};
+PLACE_SDRAM_BSS drum_synth::OffOn xiaPunchMenu{STRING_FOR_XIA_PUNCH, DrumParam::XIA_PUNCH};
 // Items the current engine doesn't use hide themselves
 PLACE_SDRAM_BSS menu_item::Submenu drumSynthMenu{
     STRING_FOR_DRUM_SYNTH,
     {
-        &drumEngineMenu,     &drumPresetMenu,          &drumOscWaveMenu,        &drumPitchAmountMenu,
-        &drumPitchDecayMenu, &drumPitchSlopeMenu,      &drumMixModeMenu,        &drumFmAmountMenu,
-        &drumModWaveMenu,    &drumModCoarseMenu,       &drumModFineMenu,        &drumFm2AmountMenu,
-        &drumMod2WaveMenu,   &drumMod2CoarseMenu,      &drumMod2FineMenu,       &drumNoiseMixMenu,
-        &drumNoisePitchMenu, &drumNoiseFilterMenu,     &drumNoiseCutoffMenu,    &drumNoiseResonanceMenu,
-        &drumTransientMenu,  &drumTransientVolumeMenu, &drumTransientPitchMenu,
+        &drumEngineMenu,         &drumPresetMenu,
+        &drumOscWaveMenu,        &drumPitchAmountMenu,
+        &drumPitchDecayMenu,     &drumPitchSlopeMenu,
+        &drumMixModeMenu,        &drumFmAmountMenu,
+        &drumModWaveMenu,        &drumModCoarseMenu,
+        &drumModFineMenu,        &drumFm2AmountMenu,
+        &drumMod2WaveMenu,       &drumMod2CoarseMenu,
+        &drumMod2FineMenu,       &drumNoiseMixMenu,
+        &drumNoisePitchMenu,     &drumNoiseFilterMenu,
+        &drumNoiseCutoffMenu,    &drumNoiseResonanceMenu,
+        &drumTransientMenu,      &drumTransientVolumeMenu,
+        &drumTransientPitchMenu, &xiaVariantMenu,
+        &tiaFreq1Menu,           &tiaFreq2Menu,
+        &tiaFreq3Menu,           &tiaBlendex1Menu,
+        &tiaBlendex2Menu,        &tiaBlendex3Menu,
+        &iiaWeightMenu,          &iiaAlloyMenu,
+        &iiaShapeMenu,           &iiaAttackMenu,
+        &xiaLowPassMenu,         &xiaDriveMenu,
+        &xiaDecayMenu,           &xiaPunchMenu,
     },
 };
 
@@ -1576,13 +1604,49 @@ PLACE_SDRAM_DATA std::array<DrumColumn, 16> drumEditorMetalLayout{{
     DRUM_TRANSIENT_COLUMNS,
     DRUM_SOUND_COLUMNS,
 }};
+// The XIA engines have their own decay, so their sound columns swap the Deluge's amp decay for its release
+#define XIA_SOUND_COLUMNS                                                                                              \
+	DrumColumn{&source0TransposeMenu, DrumKind::NUMBER, DrumGroup::SOUND, -2400, 2400, 100, 100},                      \
+	    DrumColumn{&env1ReleaseMenu, DrumKind::NUMBER, DrumGroup::SOUND},                                              \
+	    DrumColumn{&lpfFreqMenu, DrumKind::NUMBER, DrumGroup::SOUND}, DrumColumn {                                     \
+		&hpfFreqMenu, DrumKind::NUMBER, DrumGroup::SOUND                                                               \
+	}
+#define XIA_FILTER_COLUMNS                                                                                             \
+	DrumColumn{&xiaLowPassMenu, DrumKind::NUMBER, DrumGroup::TRANSIENT},                                               \
+	    DrumColumn{&xiaDriveMenu, DrumKind::NUMBER, DrumGroup::TRANSIENT},                                             \
+	    DrumColumn{&xiaDecayMenu, DrumKind::NUMBER, DrumGroup::XIA_ENVELOPE}, DrumColumn {                             \
+		&xiaPunchMenu, DrumKind::CHOICE, DrumGroup::XIA_ENVELOPE                                                       \
+	}
+PLACE_SDRAM_DATA std::array<DrumColumn, 15> drumEditorTiaLayout{{
+    {&xiaVariantMenu, DrumKind::CHOICE, DrumGroup::OSC},
+    {&tiaFreq1Menu, DrumKind::NUMBER, DrumGroup::PITCH},
+    {&tiaFreq2Menu, DrumKind::NUMBER, DrumGroup::PITCH},
+    {&tiaFreq3Menu, DrumKind::NUMBER, DrumGroup::PITCH},
+    {&tiaBlendex1Menu, DrumKind::NUMBER, DrumGroup::MOD},
+    {&tiaBlendex2Menu, DrumKind::NUMBER, DrumGroup::MOD},
+    {&tiaBlendex3Menu, DrumKind::NUMBER, DrumGroup::MOD},
+    XIA_FILTER_COLUMNS,
+    XIA_SOUND_COLUMNS,
+}};
+PLACE_SDRAM_DATA std::array<DrumColumn, 13> drumEditorIiaLayout{{
+    {&xiaVariantMenu, DrumKind::CHOICE, DrumGroup::OSC},
+    {&iiaWeightMenu, DrumKind::NUMBER, DrumGroup::MOD},
+    {&iiaAlloyMenu, DrumKind::NUMBER, DrumGroup::MOD},
+    {&iiaShapeMenu, DrumKind::NUMBER, DrumGroup::MOD2},
+    {&iiaAttackMenu, DrumKind::NUMBER, DrumGroup::NOISE},
+    XIA_FILTER_COLUMNS,
+    XIA_SOUND_COLUMNS,
+}};
+#undef XIA_SOUND_COLUMNS
+#undef XIA_FILTER_COLUMNS
 #undef DRUM_SOUND_COLUMNS
 #undef DRUM_TRANSIENT_COLUMNS
 #undef DRUM_PITCH_COLUMNS
 
 namespace deluge::gui::menu_item::drum_synth {
 PLACE_SDRAM_BSS Editor drumSynthEditor{STRING_FOR_DRUM_SYNTH, drumEditorDrumLayout, drumEditorSnareLayout,
-                                       drumEditorMetalLayout, &drumSynthMenu};
+                                       drumEditorMetalLayout, drumEditorTiaLayout,  drumEditorIiaLayout,
+                                       &drumSynthMenu};
 } // namespace deluge::gui::menu_item::drum_synth
 
 // Not FM

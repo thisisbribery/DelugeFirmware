@@ -454,6 +454,18 @@ char const* Sound::getPatchedParamDisplayNameOverride(int32_t p) {
 		return deluge::l10n::get(STRING_FOR_DRUM_PITCH_DECAY);
 	case Patch::MOD_COARSE:
 		return deluge::l10n::get(STRING_FOR_DRUM_METAL_TUNE);
+	case Patch::TIA_FREQ1:
+		return deluge::l10n::get(STRING_FOR_TIA_FREQ1);
+	case Patch::TIA_BLENDEX1:
+		return deluge::l10n::get(STRING_FOR_TIA_BLENDEX1);
+	case Patch::IIA_WEIGHT:
+		return deluge::l10n::get(STRING_FOR_IIA_WEIGHT);
+	case Patch::IIA_ALLOY:
+		return deluge::l10n::get(STRING_FOR_IIA_ALLOY);
+	case Patch::XIA_LOW_PASS:
+		return deluge::l10n::get(STRING_FOR_XIA_LOW_PASS);
+	case Patch::XIA_DECAY:
+		return deluge::l10n::get(STRING_FOR_XIA_DECAY);
 	default:
 		return deluge::l10n::get(STRING_FOR_DRUM_TRANSIENT_VOLUME);
 	}

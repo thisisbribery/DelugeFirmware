@@ -4,11 +4,13 @@ title: Drum Synth
 
 The drum synth is an oscillator type for synthesised drums. It is a port of the drum voices from the open source LXR-02 firmware by Erica Synths, adapted to run inside a Deluge sound. The Deluge's own envelopes, filters, FX, mod matrix, automation and parameter locks all work on top of it.
 
-It has three engines:
+It has five engines. The first three are ported from the LXR-02:
 
 - **Kick / tom**: a main oscillator with a pitch envelope, plus a mod oscillator that either frequency modulates it or is mixed with it.
 - **Snare**: a pitched oscillator with a pitch envelope, plus sample-and-hold noise through its own low, high or band pass filter.
 - **Cymbal / hat**: a main oscillator frequency modulated by two more oscillators, one of them usually noise.
+
+The other two, **TIA** and **IIA**, come from the XIA engine set made for the Elektron Model:Cycles. See [XIA engines](#xia-engines) below.
 
 Every engine also has a **transient**: a pitch "snap", a start-phase "offset" click, or one of twelve short click samples.
 
@@ -83,6 +85,55 @@ Values run 0 to 127, as on the original hardware.
 
 The pitch of a row is set with the usual oscillator transpose and the Deluge's pitch controls, so the drum synth responds to note, pitch automation and the mod matrix like any other oscillator.
 
+## XIA engines
+
+TIA and IIA are ported from the compiled Model:Cycles firmware they were written for. At the Cycles' own sample rate and block size they produce the original's output sample for sample, which the unit tests check.
+
+- **TIA**: three sine oscillators and a fourth carrier sine. **Blendex 1-3** move each oscillator from being heard (0) to phase modulating (127). The variant sets the routing:
+  - **L**: all three modulate the carrier.
+  - **B**: a chain, 1 into 2 into 3 into the carrier.
+  - **C**: a loop, 1 into 2 into 3 and back into 1, with no carrier.
+- **IIA**: inharmonic partials for bells, metal and struck sounds. **Weight** picks the partial ratios, **Alloy** their levels (or the modulation depth on H), and **Shape** morphs each partial from sine to triangle to square to saw. **Attack** below 64 sets the level of a noise strike at the start of each hit, and above 68 sets a fade-in. The variant:
+  - **G**: six partials added, with the noise strike.
+  - **I**: six partials, with a falling pitch at the start.
+  - **H**: eight sines in a phase modulation chain.
+
+Both engines have their own **XIA LPF** (a 4-pole low pass that follows the note, off at 127), **Drive** (a wavefolder, then a saturator above 95), **XIA decay** (127 holds) and **Punch** (a shorter decay and a soft clipper).
+
+**Envelope.** The XIA engines bring their own amp envelope. Switching a row to TIA or IIA, from the Engine setting or by loading one of their presets, opens the Deluge's envelope up (attack 0, sustain full, release 40), so a short note doesn't cut the XIA decay. Switching back to an LXR engine puts a short Deluge decay back. A voice ends as soon as the XIA envelope does.
+
+**Presets.** Load preset lists **TIA L**, **TIA B**, **TIA C**, **IIA G**, **IIA I** and **IIA H** after the kit presets. Each loads the Cycles' own defaults for that variant. The Cycles plays its engines an octave below middle C, so set the row's tuning to -12 for the same pitch.
+
+**Pad editor.**
+
+| Column | TIA | IIA |
+|---|---|---|
+| 1 | Variant (L, B, C) | Variant (G, I, H) |
+| 2 | Freq 1 | Weight |
+| 3 | Freq 2 | Alloy |
+| 4 | Freq 3 | Shape |
+| 5 | Blendex 1 | Attack |
+| 6 | Blendex 2 | XIA LPF |
+| 7 | Blendex 3 | Drive |
+| 8 | XIA LPF | XIA decay |
+| 9 | Drive | Punch |
+| 10 | XIA decay | Tune |
+| 11 | Punch | Release (Deluge) |
+| 12 | Tune | LPF cutoff (Deluge) |
+| 13 | Release (Deluge) | HPF cutoff (Deluge) |
+| 14 | LPF cutoff (Deluge) | |
+| 15 | HPF cutoff (Deluge) | |
+
+Freq 1-3 run from 24 semitones down at 0, through unison at 64, to 24 up at 127.
+
+**Gold knobs on XIA rows.** Attack / release: XIA decay (upper) and XIA LPF (lower). Mod rate / depth: Blendex 1 and Freq 1 on TIA, Alloy and Weight on IIA.
+
+**Differences from the Cycles.**
+- The envelopes and other once-per-block changes run about 9% slower, because the Deluge runs at 44.1 kHz rather than 48 kHz. Pitch is exact.
+- Blendex 3 runs 0 to 127 like Blendex 1 and 2. On the Cycles it sits on the fine tune slot and mirrors around 64.
+- The Cycles' Gate setting, which holds the envelope while the note is held, isn't offered. The Deluge's own envelope covers held notes.
+- Drive is TIA's hidden fourth knob on the Cycles, the slot MIA uses for Fold.
+
 ## Gold knobs
 
 On drum synth rows, two pairs of gold knobs are set up for drums:
@@ -112,5 +163,8 @@ One sample lasts 22,676 ns, so a Voice reading of 900 means each playing voice u
 Kits that use the drum synth won't play those rows on firmware without it.
 
 ## Licence
+
+The TIA and IIA engines are not covered by the paragraph below: they are ported from another author's Model:Cycles firmware, and must not be distributed until that author has agreed to it and to a GPL-3.0 compatible licence.
+
 
 The drum synth code is licensed GPL-3.0-only, with the additional terms in the LXR firmware's NOTICE.md: it is marked as a modified version, and no rights to the Erica Synths or LXR trademarks are granted.

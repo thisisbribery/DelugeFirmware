@@ -12,18 +12,26 @@
 
 #pragma once
 
+#include "dsp/drum_synth/xia.h"
 #include <array>
 #include <cstdint>
 
 namespace deluge::dsp::drum_synth {
 
-/// The three LXR voice structures
+/// The three LXR voice structures, then two engines from the XIA set for the Model:Cycles (see xia.h)
 enum class Engine : uint8_t {
 	DRUM,  ///< Kick and toms: main osc, FM or mixed mod osc, pitch envelope
 	SNARE, ///< Pitched osc with pitch envelope, plus filtered sample-and-hold noise
 	METAL, ///< Cymbal and hi-hat: main osc frequency modulated by two more oscs, one usually noise
+	TIA,   ///< XIA TIA: three sines phase modulating a carrier, with its own decay, filter and drive
+	IIA,   ///< XIA IIA: inharmonic partials with a noise strike, with its own envelope, filter and drive
 	NUM_ENGINES,
 };
+
+/// Whether an engine is one of the XIA engines, which bring their own amp envelope
+constexpr bool isXia(Engine engine) {
+	return engine == Engine::TIA || engine == Engine::IIA;
+}
 
 enum class Wave : uint8_t { SINE, TRIANGLE, SAW, SQUARE, NOISE, NUM_WAVES };
 
@@ -67,12 +75,30 @@ public:
 		TRANS_MODE,        ///< kTransientSnap, kTransientOffset, or a transient sample
 		TRANS_VOLUME,      ///< Transient level
 		TRANS_PITCH,       ///< Transient speed
+		// XIA engines. Knobs run 0-127 as on the Model:Cycles.
+		XIA_VARIANT,  ///< The Cycles variant: TIA L, B, C or IIA G, I, H
+		TIA_FREQ1,    ///< Oscillator 1 tuning, 64 = unison, 0 / 127 = 24 semitones down / up
+		TIA_FREQ2,    ///< Oscillator 2 tuning
+		TIA_FREQ3,    ///< Oscillator 3 tuning
+		TIA_BLENDEX1, ///< Oscillator 1 from heard (0) to modulating (127)
+		TIA_BLENDEX2, ///< Oscillator 2 from heard to modulating
+		TIA_BLENDEX3, ///< Oscillator 3 from heard to modulating
+		IIA_WEIGHT,   ///< Partial ratios
+		IIA_ALLOY,    ///< Partial levels or modulation depth
+		IIA_SHAPE,    ///< Partial waveform, sine > triangle > square > saw
+		IIA_ATTACK,   ///< Below 64: noise strike level. Above 68: attack time
+		XIA_LOW_PASS, ///< The engine's own low pass, which follows the note. 127 = off
+		XIA_DRIVE,    ///< Wavefolder, then a saturator at the top of the range
+		XIA_DECAY,    ///< The engine's amp decay. 127 holds
+		XIA_PUNCH,    ///< 1 = shorter decay and a soft clipper
 		NUM_PARAMS,
 	};
 
 	Patch() { setPreset(Preset::KICK); }
 
 	void setPreset(Preset preset);
+	/// Switch to an XIA engine with a Cycles variant's own default settings
+	void setXiaPreset(Engine engine, uint8_t variant);
 
 	[[nodiscard]] uint8_t get(Param p) const { return params_[p]; }
 	void set(Param p, uint8_t value);
@@ -113,6 +139,9 @@ public:
 	void render(const Patch& patch, const KnobOffsets& knobs, int32_t* buffer, int32_t numSamples,
 	            uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement);
 
+	/// True once an XIA engine's own envelope has finished, so the Deluge voice can be freed
+	[[nodiscard]] bool finished() const { return xiaFinished_; }
+
 private:
 	/// Patch values after knob offsets, turned into the numbers the render loop wants
 	struct Settings {
@@ -136,6 +165,10 @@ private:
 		uint32_t phaseIncrement = 0;
 		int32_t held = 0; ///< Current sample-and-hold value, for noise
 	};
+
+	void renderXia(const std::array<uint8_t, Patch::NUM_PARAMS>& p, int32_t* buffer, int32_t numSamples,
+	               uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement);
+	void startXia(Engine engine);
 
 	void updateSettings(const Patch& patch, const KnobOffsets& knobs);
 	void controlTick(uint32_t basePhaseIncrement);
@@ -165,6 +198,17 @@ private:
 	float filterState2_ = 0;
 	uint32_t random_ = 0x12345678;
 	int32_t samplesUntilTick_ = 0;
+
+	// XIA engines render whole blocks; samples left over from the last one wait here
+	union {
+		xia::TiaState tia;
+		xia::IiaState iia;
+	} xia_{};
+	std::array<int32_t, xia::kBlockSize> xiaBlock_{};
+	int32_t xiaBlockPos_ = xia::kBlockSize;
+	Engine xiaEngine_ = Engine::DRUM; ///< The XIA engine xia_ holds, or DRUM for none
+	bool xiaTrigger_ = false;
+	bool xiaFinished_ = false;
 };
 
 } // namespace deluge::dsp::drum_synth

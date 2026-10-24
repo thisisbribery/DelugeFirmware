@@ -19,6 +19,8 @@
  * - Envelopes tick every 16 samples rather than every 64, with their rates scaled to match.
  * - Saw and square are naive rather than band-limited.
  * - The snare noise filter is a plain TPT state variable filter with low, high and band pass outputs.
+ *
+ * The TIA and IIA engines are not LXR code: they are in xia.cpp, and only hooked in here.
  */
 
 #include "dsp/drum_synth/drum_synth.h"
@@ -125,6 +127,8 @@ void Patch::setPreset(Preset preset) {
 	params_[TRANS_MODE] = kTransientSnap;
 	params_[TRANS_VOLUME] = 0;
 	params_[TRANS_PITCH] = 64;
+	setXiaPreset(Engine::TIA, 0);
+	params_[ENGINE] = static_cast<uint8_t>(Engine::DRUM);
 
 	switch (preset) {
 	case Preset::KICK:
@@ -209,6 +213,26 @@ void Patch::setPreset(Preset preset) {
 	}
 }
 
+void Patch::setXiaPreset(Engine engine, uint8_t variant) {
+	// The Model:Cycles' own defaults for each variant
+	params_[ENGINE] = static_cast<uint8_t>(engine);
+	params_[XIA_VARIANT] = std::min<uint8_t>(variant, 2);
+	params_[TIA_FREQ1] = 64;
+	params_[TIA_FREQ2] = 64;
+	params_[TIA_FREQ3] = 64;
+	params_[TIA_BLENDEX1] = 0;
+	params_[TIA_BLENDEX2] = 0;
+	params_[TIA_BLENDEX3] = 0;
+	params_[IIA_WEIGHT] = (variant == 2) ? 40 : 30;
+	params_[IIA_ALLOY] = (variant == 1) ? 40 : 50;
+	params_[IIA_SHAPE] = 0;
+	params_[IIA_ATTACK] = 64;
+	params_[XIA_LOW_PASS] = 127;
+	params_[XIA_DRIVE] = 0;
+	params_[XIA_DECAY] = (engine == Engine::TIA) ? 70 : 60;
+	params_[XIA_PUNCH] = 0;
+}
+
 uint8_t Patch::maxValue(Param p) {
 	switch (p) {
 	case ENGINE:
@@ -223,6 +247,10 @@ uint8_t Patch::maxValue(Param p) {
 		return static_cast<uint8_t>(NoiseFilter::NUM_FILTERS) - 1;
 	case TRANS_MODE:
 		return kNumTransientModes - 1;
+	case XIA_VARIANT:
+		return 2;
+	case XIA_PUNCH:
+		return 1;
 	default:
 		return 127;
 	}
@@ -230,17 +258,24 @@ uint8_t Patch::maxValue(Param p) {
 
 bool Patch::isUsedBy(Param p, Engine engine) {
 	switch (p) {
+	case ENGINE:
+		return true;
+	case OSC_WAVE:
+	case TRANS_MODE:
+	case TRANS_VOLUME:
+	case TRANS_PITCH:
+		return !isXia(engine);
 	case PITCH_AMOUNT:
 	case PITCH_DECAY:
 	case PITCH_SLOPE:
-		return engine != Engine::METAL;
+		return engine == Engine::DRUM || engine == Engine::SNARE;
 	case MIX_MODE:
 		return engine == Engine::DRUM;
 	case FM_AMOUNT:
 	case MOD_WAVE:
 	case MOD_COARSE:
 	case MOD_FINE:
-		return engine != Engine::SNARE;
+		return engine == Engine::DRUM || engine == Engine::METAL;
 	case FM2_AMOUNT:
 	case MOD2_WAVE:
 	case MOD2_COARSE:
@@ -252,8 +287,20 @@ bool Patch::isUsedBy(Param p, Engine engine) {
 	case NOISE_CUTOFF:
 	case NOISE_RESONANCE:
 		return engine == Engine::SNARE;
+	case TIA_FREQ1:
+	case TIA_FREQ2:
+	case TIA_FREQ3:
+	case TIA_BLENDEX1:
+	case TIA_BLENDEX2:
+	case TIA_BLENDEX3:
+		return engine == Engine::TIA;
+	case IIA_WEIGHT:
+	case IIA_ALLOY:
+	case IIA_SHAPE:
+	case IIA_ATTACK:
+		return engine == Engine::IIA;
 	default:
-		return true;
+		return isXia(engine);
 	}
 }
 
@@ -281,6 +328,18 @@ void Patch::readLegacyDrumBytes(const uint8_t* bytes, int32_t length) {
 }
 
 Patch::Param KnobOffsets::targetFor(Slot slot, Engine engine) {
+	if (isXia(engine)) {
+		switch (slot) {
+		case TONE:
+			return (engine == Engine::TIA) ? Patch::TIA_FREQ1 : Patch::IIA_WEIGHT;
+		case PITCH_AMOUNT:
+			return (engine == Engine::TIA) ? Patch::TIA_BLENDEX1 : Patch::IIA_ALLOY;
+		case PITCH_DECAY:
+			return Patch::XIA_LOW_PASS;
+		default:
+			return Patch::XIA_DECAY;
+		}
+	}
 	switch (slot) {
 	case TONE:
 		return (engine == Engine::SNARE) ? Patch::NOISE_MIX : Patch::FM_AMOUNT;
@@ -352,6 +411,12 @@ void Voice::updateSettings(const Patch& patch, const KnobOffsets& knobs) {
 void Voice::trigger(const Patch& patch, const KnobOffsets& knobs) {
 	updateSettings(patch, knobs);
 	const Settings& s = settings_;
+	if (isXia(s.engine)) {
+		startXia(s.engine);
+		return;
+	}
+	xiaEngine_ = Engine::DRUM;
+	xiaFinished_ = false;
 
 	// In offset mode the transient volume moves the start phase towards zero, softening the click an osc gets from
 	// starting at its peak
@@ -576,6 +641,11 @@ void Voice::renderMetal(int32_t* out, int32_t n, int32_t& amplitude, int32_t amp
 void Voice::render(const Patch& patch, const KnobOffsets& knobs, int32_t* buffer, int32_t numSamples,
                    uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement) {
 	updateSettings(patch, knobs);
+	if (isXia(settings_.engine)) {
+		renderXia(settingsFrom_, buffer, numSamples, basePhaseIncrement, amplitude, amplitudeIncrement);
+		return;
+	}
+	xiaFinished_ = false;
 
 	int32_t* out = buffer;
 	int32_t remaining = numSamples;
@@ -600,6 +670,113 @@ void Voice::render(const Patch& patch, const KnobOffsets& knobs, int32_t* buffer
 			break;
 		}
 		out += n;
+	}
+}
+
+// XIA engines ---------------------------------------------------------------------------------------------------------
+
+namespace {
+
+/// The XIA engines take their pitch in 16.16 semitones, as their own phase increment tables see it. Converting the
+/// Deluge's increment through those tables plays the note at the Deluge's pitch, even though the engines were made for
+/// 48 kHz and the Deluge runs at 44.1 kHz. Their envelopes and other per-block steps run about 9% slower here.
+int32_t xiaPitch(uint32_t basePhaseIncrement) {
+	static const float kLowest = static_cast<float>(xia::phaseIncrement(0));
+	if (basePhaseIncrement == 0) {
+		return 0;
+	}
+	const float semitones = 12.f * log2f(static_cast<float>(basePhaseIncrement) / kLowest);
+	return static_cast<int32_t>(std::clamp(semitones * 65536.f, 0.f, static_cast<float>(xia::kMaxPitch)));
+}
+
+/// A 0-127 knob as the Cycles hands it to its machines: 8.8 fixed point
+int32_t knob(uint8_t value) {
+	return value << 8;
+}
+
+/// The Cycles scales its extra knob slots to 0-0x7FFF
+int32_t fullKnob(uint8_t value) {
+	return (knob(value) * 0x7FFF) / 0x7F00;
+}
+
+} // namespace
+
+void Voice::startXia(Engine engine) {
+	xiaEngine_ = engine;
+	if (engine == Engine::TIA) {
+		xia::reset(xia_.tia);
+	}
+	else {
+		xia::reset(xia_.iia);
+	}
+	xiaBlockPos_ = xia::kBlockSize;
+	xiaTrigger_ = true;
+	xiaFinished_ = false;
+}
+
+void Voice::renderXia(const std::array<uint8_t, Patch::NUM_PARAMS>& p, int32_t* buffer, int32_t numSamples,
+                      uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement) {
+	const auto engine = static_cast<Engine>(p[Patch::ENGINE]);
+	if (engine != xiaEngine_) {
+		// Switched engine while the note was sounding: start the new one fresh
+		startXia(engine);
+	}
+
+	int32_t* out = buffer;
+	int32_t remaining = numSamples;
+	while (remaining > 0) {
+		if (xiaBlockPos_ >= xia::kBlockSize) {
+			const int32_t pitch = xiaPitch(basePhaseIncrement);
+			if (engine == Engine::TIA) {
+				const xia::TiaSettings t{
+				    .variant = p[Patch::XIA_VARIANT],
+				    .freq = {knob(p[Patch::TIA_FREQ1]), knob(p[Patch::TIA_FREQ2]), knob(p[Patch::TIA_FREQ3])},
+				    .blendex = {fullKnob(p[Patch::TIA_BLENDEX1]), fullKnob(p[Patch::TIA_BLENDEX2]),
+				                fullKnob(p[Patch::TIA_BLENDEX3])},
+				    .lowPass = knob(p[Patch::XIA_LOW_PASS]),
+				    .drive = knob(p[Patch::XIA_DRIVE]),
+				    .decay = knob(p[Patch::XIA_DECAY]),
+				    .pitch = pitch,
+				    .punch = p[Patch::XIA_PUNCH],
+				    .gate = 0,
+				    .release = 0,
+				};
+				xia::render(xia_.tia, t, xiaTrigger_, false, xiaBlock_.data());
+				xiaFinished_ = !xia_.tia.active;
+			}
+			else {
+				const xia::IiaSettings t{
+				    .variant = p[Patch::XIA_VARIANT],
+				    .weight = knob(p[Patch::IIA_WEIGHT]),
+				    .alloy = knob(p[Patch::IIA_ALLOY]),
+				    .lowPass = knob(p[Patch::XIA_LOW_PASS]),
+				    .drive = knob(p[Patch::XIA_DRIVE]),
+				    .shape = knob(p[Patch::IIA_SHAPE]),
+				    .decay = knob(p[Patch::XIA_DECAY]),
+				    // The Cycles never sends 0 here: its attack knob starts at 1
+				    .attack = knob(std::max<uint8_t>(p[Patch::IIA_ATTACK], 1)),
+				    .pitch = pitch,
+				    .punch = p[Patch::XIA_PUNCH],
+				    .gate = 0,
+				    .release = 0,
+				};
+				xia::render(xia_.iia, t, xiaTrigger_, false, xiaBlock_.data());
+				xiaFinished_ = !xia_.iia.active;
+			}
+			xiaTrigger_ = false;
+			xiaBlockPos_ = 0;
+		}
+
+		const int32_t n = std::min(remaining, xia::kBlockSize - xiaBlockPos_);
+		const int32_t* in = &xiaBlock_[xiaBlockPos_];
+		for (int32_t i = 0; i < n; i++) {
+			amplitude += amplitudeIncrement;
+			// The Cycles halves each voice's output, which leaves it q30 like the LXR engines'
+			out[i] += multiply_32x32_rshift32(in[i] >> 1, amplitude) << 2;
+		}
+		out += n;
+		xiaBlockPos_ += n;
+		remaining -= n;
 	}
 }
 

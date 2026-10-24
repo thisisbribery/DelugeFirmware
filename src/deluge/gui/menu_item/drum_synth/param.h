@@ -22,7 +22,11 @@
 #include "gui/menu_item/selection.h"
 #include "gui/ui/sound_editor.h"
 #include "hid/display/display.h"
+#include "model/model_stack.h"
+#include "modulation/automation/auto_param.h"
+#include "modulation/params/param.h"
 #include "processing/sound/sound.h"
+#include "util/functions.h"
 
 namespace deluge::gui::menu_item::drum_synth {
 
@@ -39,6 +43,36 @@ inline bool usedBySound(ModControllableAudio* modControllable, Patch::Param para
 	// Patched sound menus are only ever opened on a Sound
 	const auto* sound = static_cast<Sound*>(modControllable);
 	return Patch::isUsedBy(param, sound->sources[0].drumPatch.engine());
+}
+
+/// The XIA engines bring their own amp envelope. Moving a row onto one opens the Deluge's envelope up, so that a short
+/// note doesn't cut the XIA decay, and puts the XIA decay on the amp decay gold knob. Moving back undoes both.
+inline void applyEngineChange(Engine from, Engine to) {
+	using deluge::dsp::drum_synth::isXia;
+	namespace params = deluge::modulation::params;
+	if (isXia(from) == isXia(to) || soundEditor.currentSound == nullptr) {
+		return;
+	}
+
+	auto setParam = [](int32_t p, int32_t userValue) {
+		char memory[MODEL_STACK_MAX_SIZE];
+		ModelStackWithAutoParam* modelStack = soundEditor.getCurrentModelStack(memory)->getPatchedAutoParamFromId(p);
+		modelStack->autoParam->setCurrentValueInResponseToUserInput(getParamFromUserValue(p, userValue), modelStack);
+	};
+
+	Sound& sound = *soundEditor.currentSound;
+	if (isXia(to)) {
+		setParam(params::LOCAL_ENV_0_ATTACK, 0);
+		setParam(params::LOCAL_ENV_0_SUSTAIN, 50);
+		setParam(params::LOCAL_ENV_0_RELEASE, 40);
+		sound.modKnobs[2][1].paramDescriptor.setToHaveParamOnly(params::LOCAL_OSC_B_WAVE_INDEX);
+	}
+	else {
+		setParam(params::LOCAL_ENV_0_DECAY, 25);
+		setParam(params::LOCAL_ENV_0_SUSTAIN, 0);
+		setParam(params::LOCAL_ENV_0_RELEASE, 0);
+		sound.modKnobs[2][1].paramDescriptor.setToHaveParamOnly(params::LOCAL_ENV_0_DECAY);
+	}
 }
 
 /// A drum synth setting edited as its raw 0-127 value, the way the LXR shows it
@@ -92,7 +126,39 @@ public:
 		(void)optType;
 		using enum l10n::String;
 		return {l10n::getView(STRING_FOR_DRUM_ENGINE_DRUM), l10n::getView(STRING_FOR_DRUM_ENGINE_SNARE),
-		        l10n::getView(STRING_FOR_DRUM_ENGINE_METAL)};
+		        l10n::getView(STRING_FOR_DRUM_ENGINE_METAL), l10n::getView(STRING_FOR_DRUM_ENGINE_TIA),
+		        l10n::getView(STRING_FOR_DRUM_ENGINE_IIA)};
+	}
+
+	void writeCurrentValue() override {
+		const Engine from = currentPatch().engine();
+		Choice::writeCurrentValue();
+		applyEngineChange(from, currentPatch().engine());
+	}
+};
+
+/// The Model:Cycles variant of the current XIA engine, under its Cycles name
+class XiaVariant final : public Choice {
+public:
+	explicit XiaVariant(l10n::String name) : Choice(name, Patch::XIA_VARIANT) {}
+
+	deluge::vector<std::string_view> getOptions(OptType optType) override {
+		(void)optType;
+		if (currentPatch().engine() == Engine::IIA) {
+			return {"G", "I", "H"};
+		}
+		return {"L", "B", "C"};
+	}
+};
+
+class OffOn final : public Choice {
+public:
+	using Choice::Choice;
+
+	deluge::vector<std::string_view> getOptions(OptType optType) override {
+		(void)optType;
+		using enum l10n::String;
+		return {l10n::getView(STRING_FOR_OFF), l10n::getView(STRING_FOR_ON)};
 	}
 };
 
@@ -151,7 +217,19 @@ public:
 	void readCurrentValue() override { setValue(0); }
 	void writeCurrentValue() override {}
 	MenuItem* selectButtonPress() override {
-		currentPatch().setPreset(static_cast<deluge::dsp::drum_synth::Preset>(getValue()));
+		using deluge::dsp::drum_synth::Preset;
+		constexpr int32_t kKitPresets = static_cast<int32_t>(Preset::NUM_PRESETS);
+		const Engine from = currentPatch().engine();
+		const int32_t choice = getValue();
+		if (choice < kKitPresets) {
+			currentPatch().setPreset(static_cast<Preset>(choice));
+		}
+		else {
+			// After the kit presets come the XIA engines' variants, with the Cycles' own defaults
+			const int32_t xia = choice - kKitPresets;
+			currentPatch().setXiaPreset((xia < 3) ? Engine::TIA : Engine::IIA, xia % 3);
+		}
+		applyEngineChange(from, currentPatch().engine());
 		display->displayPopup(l10n::get(l10n::String::STRING_FOR_DRUM_PRESET_LOADED));
 		return nullptr; // Back up to the drum synth menu
 	}
@@ -163,7 +241,10 @@ public:
 		    l10n::getView(STRING_FOR_DRUM_PRESET_KICK),       l10n::getView(STRING_FOR_DRUM_PRESET_SNARE),
 		    l10n::getView(STRING_FOR_DRUM_PRESET_CLOSED_HAT), l10n::getView(STRING_FOR_DRUM_PRESET_OPEN_HAT),
 		    l10n::getView(STRING_FOR_DRUM_PRESET_LOW_TOM),    l10n::getView(STRING_FOR_DRUM_PRESET_HIGH_TOM),
-		    l10n::getView(STRING_FOR_DRUM_PRESET_CYMBAL),
+		    l10n::getView(STRING_FOR_DRUM_PRESET_CYMBAL),     l10n::getView(STRING_FOR_DRUM_PRESET_TIA_L),
+		    l10n::getView(STRING_FOR_DRUM_PRESET_TIA_B),      l10n::getView(STRING_FOR_DRUM_PRESET_TIA_C),
+		    l10n::getView(STRING_FOR_DRUM_PRESET_IIA_G),      l10n::getView(STRING_FOR_DRUM_PRESET_IIA_I),
+		    l10n::getView(STRING_FOR_DRUM_PRESET_IIA_H),
 		};
 	}
 };

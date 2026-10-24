@@ -2470,6 +2470,11 @@ dontUseCache: {}
 
 			deluge::cpu_meter::drumSynth.add(startTicks, getSystemTicks(), numSamples);
 
+			// The XIA engines have their own amp envelope: once it's done, so is this part of the voice
+			if (unisonParts[u].sources[s].drumVoice.finished()) {
+				goto instantUnassign;
+			}
+
 			// Or regular wave
 		}
 		else [[likely]] {
