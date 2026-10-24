@@ -21,6 +21,7 @@
 #include "deluge/dsp/granular/GranularProcessor.h"
 #include "dsp/compressor/rms_feedback.h"
 #include "dsp/delay/delay.h"
+#include "dsp/saturator.h"
 #include "dsp/stereo_sample.h"
 #include "hid/button.h"
 #include "model/fx/stutterer.h"
@@ -107,7 +108,22 @@ public:
 	StutterConfig stutterConfig;
 
 	bool sampleRateReductionOnLastTime;
-	uint8_t clippingAmount; // Song probably doesn't currently use this?
+	// Saturation. Song doesn't use this, only sounds, kits and audio clips.
+	deluge::dsp::SaturationSettings saturation;
+	/// The old 1..15 amount, for the CLASSIC type and for files read by older firmware
+	int32_t getLegacyClippingAmount() const {
+		return deluge::dsp::SaturationSettings::legacyFromDrive(saturation.drive);
+	}
+	/// Saturator set up for the current settings, only recalculated when they change
+	const deluge::dsp::Saturator& getSaturator() {
+		if (!(saturation == saturatorConfiguredFor_)) {
+			saturator_.configure(saturation);
+			saturatorConfiguredFor_ = saturation;
+		}
+		return saturator_;
+	}
+	deluge::dsp::Saturator saturator_;
+	deluge::dsp::SaturationSettings saturatorConfiguredFor_{.drive = 255}; // forces the first configure
 	FilterMode lpfMode;
 	FilterMode hpfMode;
 	FilterRoute filterRoute;

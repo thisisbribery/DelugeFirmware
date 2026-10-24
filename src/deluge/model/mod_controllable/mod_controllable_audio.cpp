@@ -65,9 +65,6 @@ ModControllableAudio::ModControllableAudio() {
 	// Sample rate reduction
 	sampleRateReductionOnLastTime = false;
 
-	// Saturation
-	clippingAmount = 0;
-
 	SyncLevel syncLevel;
 	Song* song = preLoadedSong;
 	if (!song) {
@@ -90,7 +87,7 @@ ModControllableAudio::~ModControllableAudio() {
 void ModControllableAudio::cloneFrom(ModControllableAudio* other) {
 	lpfMode = other->lpfMode;
 	hpfMode = other->hpfMode;
-	clippingAmount = other->clippingAmount;
+	saturation = other->saturation;
 	modFXType_ = other->modFXType_;
 	bassFreq = other->bassFreq; // Eventually, these shouldn't be variables like this
 	trebleFreq = other->trebleFreq;
@@ -409,8 +406,17 @@ void ModControllableAudio::writeAttributesToFile(Serializer& writer) {
 	// Community Firmware parameters (always write them after the official ones, just before closing the parent tag)
 	writer.writeAttribute("hpfMode", (char*)lpfTypeToString(hpfMode));
 	writer.writeAttribute("filterRoute", (char*)filterRouteToString(filterRoute));
-	if (clippingAmount) {
-		writer.writeAttribute("clippingAmount", clippingAmount);
+	if (saturation.drive) {
+		// Older firmware only knows this one, and plays it with the classic curve
+		writer.writeAttribute("clippingAmount", getLegacyClippingAmount());
+	}
+	if (!(saturation == deluge::dsp::SaturationSettings{})) {
+		writer.writeAttribute("satType", deluge::dsp::saturationTypeToString(saturation.type));
+		writer.writeAttribute("satDrive", (int32_t)saturation.drive);
+		writer.writeAttribute("satBias", (int32_t)saturation.bias);
+		writer.writeAttribute("satTone", (int32_t)saturation.tone);
+		writer.writeAttribute("satLowCut", (int32_t)saturation.lowCut);
+		writer.writeAttribute("satMix", (int32_t)saturation.mix);
 	}
 }
 
@@ -734,8 +740,41 @@ Error ModControllableAudio::readTagFromFile(Deserializer& reader, char const* ta
 	}
 
 	else if (!strcmp(tagName, "clippingAmount")) {
-		clippingAmount = reader.readTagOrAttributeValueInt();
+		// Files from older firmware: keep the classic curve so they sound the same. The sat* tags below,
+		// written after this one, override it for files saved by this firmware.
+		int32_t legacy = std::clamp<int32_t>(reader.readTagOrAttributeValueInt(), 0, 15);
+		saturation.drive = deluge::dsp::SaturationSettings::driveFromLegacy(legacy);
+		saturation.type = deluge::dsp::SaturationType::CLASSIC;
 		reader.exitTag("clippingAmount");
+	}
+	else if (!strcmp(tagName, "satType")) {
+		saturation.type = deluge::dsp::stringToSaturationType(reader.readTagOrAttributeValue());
+		reader.exitTag("satType");
+	}
+	else if (!strcmp(tagName, "satDrive")) {
+		saturation.drive =
+		    std::clamp<int32_t>(reader.readTagOrAttributeValueInt(), 0, deluge::dsp::SaturationSettings::kMaxDrive);
+		reader.exitTag("satDrive");
+	}
+	else if (!strcmp(tagName, "satBias")) {
+		int32_t max = deluge::dsp::SaturationSettings::kMaxBias;
+		saturation.bias = std::clamp<int32_t>(reader.readTagOrAttributeValueInt(), -max, max);
+		reader.exitTag("satBias");
+	}
+	else if (!strcmp(tagName, "satTone")) {
+		saturation.tone =
+		    std::clamp<int32_t>(reader.readTagOrAttributeValueInt(), 0, deluge::dsp::SaturationSettings::kMaxTone);
+		reader.exitTag("satTone");
+	}
+	else if (!strcmp(tagName, "satLowCut")) {
+		saturation.lowCut =
+		    std::clamp<int32_t>(reader.readTagOrAttributeValueInt(), 0, deluge::dsp::SaturationSettings::kMaxLowCut);
+		reader.exitTag("satLowCut");
+	}
+	else if (!strcmp(tagName, "satMix")) {
+		saturation.mix =
+		    std::clamp<int32_t>(reader.readTagOrAttributeValueInt(), 0, deluge::dsp::SaturationSettings::kMaxMix);
+		reader.exitTag("satMix");
 	}
 
 	// Arpeggiator

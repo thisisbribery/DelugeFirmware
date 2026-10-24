@@ -560,6 +560,28 @@
 
         "STRING_FOR_WAVEFOLD": "FOLD",
 
+        "STRING_FOR_SAT_TYPE": "STYP",
+
+        "STRING_FOR_SAT_TONE": "STON",
+
+        "STRING_FOR_SAT_LOW_CUT": "SLOW",
+
+        "STRING_FOR_SAT_BIAS": "SBIA",
+
+        "STRING_FOR_SAT_MIX": "SMIX",
+
+        "STRING_FOR_SAT_CLASSIC": "CLAS",
+
+        "STRING_FOR_SAT_TAPE": "TAPE",
+
+        "STRING_FOR_SAT_WARM": "WARM",
+
+        "STRING_FOR_SAT_CLIP": "CLIP",
+
+        "STRING_FOR_SAT_HARD": "HARD",
+
+        "STRING_FOR_SAT_FOLD": "FOLD",
+
         "STRING_FOR_LOOP_TOO_SHORT": "CANT",
         "STRING_FOR_LOOP_HALVED": "HALF",
         "STRING_FOR_LOOP_TOO_LONG": "CANT",

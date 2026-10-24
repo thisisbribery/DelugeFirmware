@@ -20,6 +20,7 @@
 #include "definitions_cxx.hpp"
 #include "dsp/drum_synth/drum_synth.h"
 #include "dsp/filter/filter_set.h"
+#include "dsp/saturator.h"
 #include "model/voice/voice_sample_playback_guide.h"
 #include "model/voice/voice_unison_part.h"
 #include "modulation/envelope.h"
@@ -75,6 +76,7 @@ public:
 	int32_t portaEnvelopeMaxAmplitude;
 
 	std::array<uint32_t, 2> lastSaturationTanHWorkingValue;
+	std::array<dsp::Saturator::Channel, 2> saturatorChannels;
 
 	int32_t overallOscAmplitudeLastTime;
 	std::array<int32_t, kNumSources> sourceAmplitudesLastTime;

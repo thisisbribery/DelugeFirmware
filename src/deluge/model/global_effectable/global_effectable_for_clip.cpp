@@ -118,11 +118,17 @@ GlobalEffectableForClip::GlobalEffectableForClip() {
 	    shouldLimitDelayFeedback, isClipActive, pitchAdjust, 134217728, 134217728);
 
 	// Render saturation
-	if (clippingAmount != 0u) {
-		int32_t shiftAmount = getShiftAmountForSaturation();
-		for (StereoSample& sample : global_effectable_audio) {
-			sample.l = saturate(sample.l, &lastSaturationTanHWorkingValue[0], shiftAmount);
-			sample.r = saturate(sample.r, &lastSaturationTanHWorkingValue[1], shiftAmount);
+	if (saturation.drive != 0u) {
+		if (saturation.type == deluge::dsp::SaturationType::CLASSIC) {
+			int32_t shiftAmount = getShiftAmountForSaturation();
+			for (StereoSample& sample : global_effectable_audio) {
+				sample.l = saturate(sample.l, &lastSaturationTanHWorkingValue[0], shiftAmount);
+				sample.r = saturate(sample.r, &lastSaturationTanHWorkingValue[1], shiftAmount);
+			}
+		}
+		else {
+			getSaturator().processStereo(reinterpret_cast<int32_t*>(global_effectable_audio.data()),
+			                             global_effectable_audio.size(), saturatorChannels[0], saturatorChannels[1]);
 		}
 	}
 

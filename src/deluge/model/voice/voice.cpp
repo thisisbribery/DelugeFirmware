@@ -180,6 +180,7 @@ bool Voice::noteOn(ModelStackWithSoundFlags* modelStack, int32_t newNoteCodeBefo
 
 		lastSaturationTanHWorkingValue[0] = 2147483648;
 		lastSaturationTanHWorkingValue[1] = 2147483648;
+		saturatorChannels.fill({});
 	}
 
 	// Porta
@@ -1530,7 +1531,7 @@ skipUnisonPart: {}
 		filterSet.renderLongStereo(oscBuffer, oscBufferEnd);
 
 		// No clipping
-		if (!sound.clippingAmount) {
+		if (!sound.saturation.drive) {
 
 			int32_t const* __restrict__ oscBufferPos = oscBuffer; // For traversal
 			StereoSample* __restrict__ outputSample = (StereoSample*)soundBuffer;
@@ -1558,7 +1559,37 @@ skipUnisonPart: {}
 			} while (oscBufferPos != oscBufferEnd);
 		}
 
-		// Yes clipping
+		// Saturation with the new curves: apply the amplitude in place, saturate the block, then mix out
+		else if (sound.saturation.type != dsp::SaturationType::CLASSIC) {
+			if (synthMode != SynthMode::FM) {
+				int32_t overallOscAmplitudeNow = overallOscAmplitudeLastTime;
+				for (int32_t* p = oscBuffer; p != oscBufferEnd; p += 2) {
+					overallOscAmplitudeNow += overallOscillatorAmplitudeIncrement;
+					p[0] = multiply_32x32_rshift32_rounded(p[0], overallOscAmplitudeNow) << 1;
+					p[1] = multiply_32x32_rshift32_rounded(p[1], overallOscAmplitudeNow) << 1;
+				}
+			}
+			sound.getSaturator().processStereo(oscBuffer, numSamples, saturatorChannels[0], saturatorChannels[1]);
+
+			int32_t const* __restrict__ oscBufferPos = oscBuffer; // For traversal
+			StereoSample* __restrict__ outputSample = (StereoSample*)soundBuffer;
+			do {
+				int32_t outputSampleL = *(oscBufferPos++);
+				int32_t outputSampleR = *(oscBufferPos++);
+
+				// Write to the output buffer, panning or not
+				if (doPanning) {
+					outputSample->addPannedStereo(outputSampleL, outputSampleR, amplitudeL, amplitudeR);
+				}
+				else {
+					outputSample->addStereo(outputSampleL, outputSampleR);
+				}
+
+				outputSample++;
+			} while (oscBufferPos != oscBufferEnd);
+		}
+
+		// Classic clipping
 		else {
 
 			int32_t const* __restrict__ oscBufferPos = oscBuffer; // For traversal
@@ -1614,7 +1645,7 @@ skipUnisonPart: {}
 		filterSet.renderLong(oscBuffer, oscBufferEnd, numSamples);
 
 		// No clipping
-		if (!sound.clippingAmount) {
+		if (!sound.saturation.drive) {
 			int32_t const* __restrict__ oscBufferPos = oscBuffer; // For traversal
 			int32_t* __restrict__ outputSample = soundBuffer;
 			int32_t overallOscAmplitudeNow = overallOscAmplitudeLastTime;
@@ -1643,7 +1674,39 @@ skipUnisonPart: {}
 			} while (++oscBufferPos != oscBufferEnd);
 		}
 
-		// Yes clipping
+		// Saturation with the new curves: apply the amplitude in place, saturate the block, then mix out
+		else if (sound.saturation.type != dsp::SaturationType::CLASSIC) {
+			if (synthMode != SynthMode::FM) {
+				int32_t overallOscAmplitudeNow = overallOscAmplitudeLastTime;
+				for (int32_t* p = oscBuffer; p != oscBufferEnd; p++) {
+					overallOscAmplitudeNow += overallOscillatorAmplitudeIncrement;
+					*p = multiply_32x32_rshift32_rounded(*p, overallOscAmplitudeNow) << 1;
+				}
+			}
+			sound.getSaturator().process(oscBuffer, numSamples, saturatorChannels[0]);
+
+			int32_t const* __restrict__ oscBufferPos = oscBuffer; // For traversal
+			int32_t* __restrict__ outputSample = soundBuffer;
+			do {
+				int32_t output = *oscBufferPos;
+
+				if (soundRenderingInStereo) {
+					if (doPanning) {
+						((StereoSample*)outputSample)->addPannedMono(output, amplitudeL, amplitudeR);
+					}
+					else {
+						((StereoSample*)outputSample)->addMono(output);
+					}
+					outputSample += 2;
+				}
+				else {
+					*outputSample += output;
+					outputSample++;
+				}
+			} while (++oscBufferPos != oscBufferEnd);
+		}
+
+		// Classic clipping
 		else {
 			int32_t const* __restrict__ oscBufferPos = oscBuffer; // For traversal
 			int32_t* __restrict__ outputSample = soundBuffer;

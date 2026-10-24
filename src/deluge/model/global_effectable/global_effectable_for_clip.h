@@ -43,16 +43,20 @@ public:
 	                            GlobalEffectableForClip** globalEffectableWithMostReverb,
 	                            int32_t* highestReverbAmountFound);
 
-	int32_t getShiftAmountForSaturation() { return (clippingAmount >= 3) ? (clippingAmount - 3) : 0; }
+	int32_t getShiftAmountForSaturation() {
+		int32_t legacy = getLegacyClippingAmount();
+		return (legacy >= 3) ? (legacy - 3) : 0;
+	}
 
-	/// clipping amount must be greater than 0! Check before calling
+	/// Classic saturation only. Drive must be greater than 0! Check before calling
 	/// Shift amount is givben by getShiftAmountForSaturation
 	[[gnu::always_inline]] q31_t saturate(q31_t data, uint32_t* workingValue, int32_t shiftAmount) {
 		// Clipping
-		return getTanHAntialiased(data, workingValue, 3 + clippingAmount) << (shiftAmount);
+		return getTanHAntialiased(data, workingValue, 3 + getLegacyClippingAmount()) << (shiftAmount);
 	}
 
 	std::array<uint32_t, 2> lastSaturationTanHWorkingValue = {2147483648u, 2147483648u};
+	std::array<deluge::dsp::Saturator::Channel, 2> saturatorChannels{};
 
 protected:
 	int32_t getParameterFromKnob(int32_t whichModEncoder) final;

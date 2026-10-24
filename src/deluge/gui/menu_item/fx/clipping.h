@@ -30,7 +30,7 @@ class Clipping final : public IntegerWithOff {
 public:
 	using IntegerWithOff::IntegerWithOff;
 
-	void readCurrentValue() override { this->setValue(soundEditor.currentModControllable->clippingAmount); }
+	void readCurrentValue() override { this->setValue(soundEditor.currentModControllable->saturation.drive); }
 	bool usesAffectEntire() override { return true; }
 	void writeCurrentValue() override {
 		int32_t current_value = this->getValue();
@@ -43,16 +43,16 @@ public:
 			for (Drum* thisDrum = kit->firstDrum; thisDrum != nullptr; thisDrum = thisDrum->next) {
 				if (thisDrum->type == DrumType::SOUND) {
 					auto* soundDrum = static_cast<SoundDrum*>(thisDrum);
-					soundDrum->clippingAmount = current_value;
+					soundDrum->saturation.drive = current_value;
 				}
 			}
 		}
 		// Or, the normal case of just one sound
 		else {
-			soundEditor.currentModControllable->clippingAmount = current_value;
+			soundEditor.currentModControllable->saturation.drive = current_value;
 		}
 	}
-	[[nodiscard]] int32_t getMaxValue() const override { return 15; }
+	[[nodiscard]] int32_t getMaxValue() const override { return dsp::SaturationSettings::kMaxDrive; }
 	[[nodiscard]] RenderingStyle getRenderingStyle() const override { return BAR; }
 };
 
