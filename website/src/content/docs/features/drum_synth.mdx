@@ -20,11 +20,46 @@ Every engine also has a **transient**: a pitch "snap", a start-phase "offset" cl
 
 The two hat rows are in choke mode, so an open hat is cut off by the next closed hat.
 
-You can also turn any row of any kit, or any synth, into a drum synth: open the sound editor, go to **OSC1 > TYPE** and choose **Drum synth**. That way sampled and synthesised drums can share a kit.
+You can also turn any row of any kit, or any synth, into a drum synth: open the sound editor, go to **OSC1 > TYPE** and choose **Drum synth**, then press **SELECT** for the pad editor. That way sampled and synthesised drums can share a kit.
 
-## Editing
+## Pad editor
 
-Open the sound editor for a row and go to **OSC1 > TYPE**, which shows **Drum synth**. Press **SELECT** to open the drum synth menu. Settings that the current engine doesn't use are hidden.
+Select a drum synth row and press **SELECT**. Instead of the usual sound menu, the pad editor opens: every pad column is one setting, shown as a level meter from the bottom row (lowest) to the top row (highest).
+
+- **Tap a pad** to set that column to that level. The screen shows the setting's name and value.
+- **Turn SELECT** to fine tune the column you last touched.
+- **Turn the horizontal encoder** to move between columns without changing anything.
+- **Audition pads** still play the row, so you can hold one and tap settings while you listen.
+- **SELECT press** opens the full drum synth menu below, with Engine and Load preset.
+- **BACK** goes up to the normal sound menu. The pad editor is its first item, **Drum synth**.
+- **SHIFT** shows the usual grid shortcuts while held.
+
+Single-choice settings (waves, osc mode, noise filter) light one pad per option instead of a meter. The transient column runs from Snap at the bottom, through Offset, to Click 12 at the top.
+
+Columns are coloured by section: white for the main osc, orange for the pitch envelope, light blue for the mod osc and FM, dark blue for the second mod osc, lime for the snare noise, pink for the transient, and green for the Deluge's own controls.
+
+| Column | Kick / tom | Snare | Cymbal / hat |
+|---|---|---|---|
+| 1 | Osc wave | Osc wave | Osc wave |
+| 2 | Pitch amount | Pitch amount | FM amount |
+| 3 | Pitch decay | Pitch decay | Mod wave |
+| 4 | Pitch curve | Pitch curve | Mod pitch |
+| 5 | Osc mode | Noise mix | Mod fine |
+| 6 | FM amount | Noise rate | FM 2 amount |
+| 7 | Mod wave | Noise filter | Mod 2 wave |
+| 8 | Mod pitch | Noise cutoff | Mod 2 pitch |
+| 9 | Mod fine | Noise resonance | Mod 2 fine |
+| 10 | Transient | Transient | Transient |
+| 11 | Transient level | Transient level | Transient level |
+| 12 | Transient speed | Transient speed | Transient speed |
+| 13 | Tune (osc 1 transpose, -24 to +24 semitones across the pads) | same | same |
+| 14 | Amp decay | same | same |
+| 15 | LPF cutoff | same | same |
+| 16 | HPF cutoff | same | same |
+
+## Drum synth menu
+
+The same settings as a list: press **SELECT** in the pad editor, or go to **OSC1 > TYPE** and press **SELECT**, then **SELECT** again. Settings that the current engine doesn't use are hidden.
 
 | Setting | Engines | What it does |
 |---|---|---|

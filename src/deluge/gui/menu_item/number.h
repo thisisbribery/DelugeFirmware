@@ -41,10 +41,11 @@ class Number : public Value<int32_t> {
 public:
 	using Value::Value;
 	void drawHorizontalBar(int32_t y_top, int32_t margin_l, int32_t margin_r = -1, int32_t height = 8);
-
-protected:
+	// Public so editors that drive several items at once (like the drum synth pad editor) can read their range
 	[[nodiscard]] virtual int32_t getMaxValue() const = 0;
 	[[nodiscard]] virtual int32_t getMinValue() const { return 0; }
+
+protected:
 	[[nodiscard]] virtual RenderingStyle getRenderingStyle() const { return KNOB; }
 	virtual float normalize(int32_t value);
 

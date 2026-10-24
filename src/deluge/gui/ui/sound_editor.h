@@ -59,6 +59,8 @@ public:
 	void focusRegained() override;
 	void displayOrLanguageChanged() final;
 	bool getGreyoutColsAndRows(uint32_t* cols, uint32_t* rows) override;
+	/// True while the drum synth pad editor is showing on the main grid
+	bool isDrumSynthEditorOnGrid();
 	Sound* currentSound;
 	bool allowsNoteTails;
 	ModControllableAudio* currentModControllable;

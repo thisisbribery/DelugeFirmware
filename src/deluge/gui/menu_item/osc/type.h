@@ -16,6 +16,7 @@
  */
 #pragma once
 #include "definitions_cxx.hpp"
+#include "gui/menu_item/drum_synth/editor.h"
 #include "gui/menu_item/formatted_title.h"
 #include "gui/menu_item/selection.h"
 #include "gui/menu_item/submenu.h"
@@ -29,7 +30,6 @@
 #include <hid/display/oled.h>
 
 extern gui::menu_item::Submenu dxMenu;
-extern gui::menu_item::Submenu drumSynthMenu;
 
 namespace deluge::gui::menu_item::osc {
 class Type final : public Selection, public FormattedTitle {
@@ -143,7 +143,7 @@ public:
 		case OscType::DX7:
 			return &dxMenu;
 		case OscType::DRUM_SYNTH:
-			return &drumSynthMenu;
+			return &drum_synth::drumSynthEditor;
 		default:
 			return nullptr;
 		}

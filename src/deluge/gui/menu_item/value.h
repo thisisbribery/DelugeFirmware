@@ -48,9 +48,10 @@ public:
 		return static_cast<E>(value_);
 	}
 
-protected:
+	/// Public so editors that drive several items at once (like the drum synth pad editor) can apply a value
 	virtual void writeCurrentValue() {}
 
+protected:
 	// 7SEG ONLY
 	virtual void drawValue() = 0;
 

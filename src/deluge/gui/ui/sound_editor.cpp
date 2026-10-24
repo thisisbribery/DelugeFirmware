@@ -3,6 +3,7 @@
 #include "definitions_cxx.hpp"
 #include "extern.h"
 #include "gui/l10n/strings.h"
+#include "gui/menu_item/drum_synth/editor.h"
 #include "gui/menu_item/dx/param.h"
 #include "gui/menu_item/file_selector.h"
 #include "gui/menu_item/horizontal_menu.h"
@@ -215,7 +216,15 @@ bool SoundEditor::in_sound_editor() {
 bool SoundEditor::renderMainPads(uint32_t whichRows, RGB image[][kDisplayWidth + kSideBarWidth],
                                  uint8_t occupancyMask[][kDisplayWidth + kSideBarWidth], bool drawUndefinedArea)
 {
-	
+	// The drum synth editor takes over the grid, unless SHIFT is showing the shortcuts
+	if (isDrumSynthEditorOnGrid()) {
+		if (image) {
+			menu_item::drum_synth::drumSynthEditor.renderPads(whichRows, image, occupancyMask);
+			haveRenderedPads = true;
+		}
+		return true;
+	}
+
 	if (!image)
 	{
 		D_PRINTLN("no image");
@@ -420,7 +429,16 @@ void SoundEditor::setCurrentSource(int32_t sourceIndex) {
 	}
 }
 
+bool SoundEditor::isDrumSynthEditorOnGrid() {
+	return in_sound_editor() && getCurrentMenuItem() == &menu_item::drum_synth::drumSynthEditor
+	       && !Buttons::isShiftButtonPressed();
+}
+
 bool SoundEditor::getGreyoutColsAndRows(uint32_t* cols, uint32_t* rows) {
+	if (in_sound_editor() && getCurrentMenuItem() == &menu_item::drum_synth::drumSynthEditor) {
+		return false; // The editor draws its own grid
+	}
+
 	bool doGreyout = true;
 
 	RootUI* rootUI = getRootUI();
@@ -1704,6 +1722,14 @@ ActionResult SoundEditor::padAction(int32_t x, int32_t y, int32_t on) {
 		return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 	}
 
+	// Main grid pads set the drum synth editor's columns. The audition pads still play.
+	if (x < kDisplayWidth && isDrumSynthEditorOnGrid()) {
+		if (on) {
+			menu_item::drum_synth::drumSynthEditor.padAction(x, y);
+		}
+		return ActionResult::DEALT_WITH;
+	}
+
 	RootUI* rootUI = getRootUI();
 
 	if (!inSettingsMenu() && !inNoteEditor() && !inNoteRowEditor()) {
@@ -2147,6 +2173,13 @@ doMIDIOrCV:
 	navigationDepth = 0;
 	shouldGoUpOneLevelOnBegin = false;
 	menuItemNavigationRecord[navigationDepth] = newItem;
+
+	// Drum synth sounds open straight into the pad editor. BACK goes up to the normal sound menu.
+	if (item == nullptr && newSound != nullptr && newSound->sources[0].oscType == OscType::DRUM_SYNTH
+	    && (newItem == &soundEditorRootMenuDrum || newItem == &soundEditorRootMenu)) {
+		navigationDepth = 1;
+		menuItemNavigationRecord[navigationDepth] = &menu_item::drum_synth::drumSynthEditor;
+	}
 	display->setNextTransitionDirection(1);
 
 	return true;

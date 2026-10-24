@@ -64,6 +64,7 @@
 #include "gui/menu_item/delay/analog.h"
 #include "gui/menu_item/delay/ping_pong.h"
 #include "gui/menu_item/delay/sync.h"
+#include "gui/menu_item/drum_synth/editor.h"
 #include "gui/menu_item/drum_synth/param.h"
 #include "gui/menu_item/dx/browse.h"
 #include "gui/menu_item/dx/engine_select.h"
@@ -1518,6 +1519,72 @@ PLACE_SDRAM_BSS menu_item::Submenu drumSynthMenu{
     },
 };
 
+// Drum synth pad editor: one setting per column, bottom row = lowest. The last four columns are the Deluge's own
+// tuning, amp decay and filters, so a whole drum can be shaped without leaving the grid.
+using DrumColumn = drum_synth::Column;
+using DrumKind = DrumColumn::Kind;
+using DrumGroup = DrumColumn::Group;
+#define DRUM_SOUND_COLUMNS                                                                                             \
+	DrumColumn{&source0TransposeMenu, DrumKind::NUMBER, DrumGroup::SOUND, -2400, 2400, 100, 100},                      \
+	    DrumColumn{&env1DecayMenu, DrumKind::NUMBER, DrumGroup::SOUND},                                                \
+	    DrumColumn{&lpfFreqMenu, DrumKind::NUMBER, DrumGroup::SOUND}, DrumColumn {                                     \
+		&hpfFreqMenu, DrumKind::NUMBER, DrumGroup::SOUND                                                               \
+	}
+#define DRUM_TRANSIENT_COLUMNS                                                                                         \
+	DrumColumn{&drumTransientMenu, DrumKind::CHOICE, DrumGroup::TRANSIENT},                                            \
+	    DrumColumn{&drumTransientVolumeMenu, DrumKind::NUMBER, DrumGroup::TRANSIENT}, DrumColumn {                     \
+		&drumTransientPitchMenu, DrumKind::NUMBER, DrumGroup::TRANSIENT                                                \
+	}
+#define DRUM_PITCH_COLUMNS                                                                                             \
+	DrumColumn{&drumPitchAmountMenu, DrumKind::NUMBER, DrumGroup::PITCH},                                              \
+	    DrumColumn{&drumPitchDecayMenu, DrumKind::NUMBER, DrumGroup::PITCH}, DrumColumn {                              \
+		&drumPitchSlopeMenu, DrumKind::NUMBER, DrumGroup::PITCH                                                        \
+	}
+
+PLACE_SDRAM_DATA std::array<DrumColumn, 16> drumEditorDrumLayout{{
+    {&drumOscWaveMenu, DrumKind::CHOICE, DrumGroup::OSC},
+    DRUM_PITCH_COLUMNS,
+    {&drumMixModeMenu, DrumKind::CHOICE, DrumGroup::MOD},
+    {&drumFmAmountMenu, DrumKind::NUMBER, DrumGroup::MOD},
+    {&drumModWaveMenu, DrumKind::CHOICE, DrumGroup::MOD},
+    {&drumModCoarseMenu, DrumKind::NUMBER, DrumGroup::MOD},
+    {&drumModFineMenu, DrumKind::NUMBER, DrumGroup::MOD},
+    DRUM_TRANSIENT_COLUMNS,
+    DRUM_SOUND_COLUMNS,
+}};
+PLACE_SDRAM_DATA std::array<DrumColumn, 16> drumEditorSnareLayout{{
+    {&drumOscWaveMenu, DrumKind::CHOICE, DrumGroup::OSC},
+    DRUM_PITCH_COLUMNS,
+    {&drumNoiseMixMenu, DrumKind::NUMBER, DrumGroup::NOISE},
+    {&drumNoisePitchMenu, DrumKind::NUMBER, DrumGroup::NOISE},
+    {&drumNoiseFilterMenu, DrumKind::CHOICE, DrumGroup::NOISE},
+    {&drumNoiseCutoffMenu, DrumKind::NUMBER, DrumGroup::NOISE},
+    {&drumNoiseResonanceMenu, DrumKind::NUMBER, DrumGroup::NOISE},
+    DRUM_TRANSIENT_COLUMNS,
+    DRUM_SOUND_COLUMNS,
+}};
+PLACE_SDRAM_DATA std::array<DrumColumn, 16> drumEditorMetalLayout{{
+    {&drumOscWaveMenu, DrumKind::CHOICE, DrumGroup::OSC},
+    {&drumFmAmountMenu, DrumKind::NUMBER, DrumGroup::MOD},
+    {&drumModWaveMenu, DrumKind::CHOICE, DrumGroup::MOD},
+    {&drumModCoarseMenu, DrumKind::NUMBER, DrumGroup::MOD},
+    {&drumModFineMenu, DrumKind::NUMBER, DrumGroup::MOD},
+    {&drumFm2AmountMenu, DrumKind::NUMBER, DrumGroup::MOD2},
+    {&drumMod2WaveMenu, DrumKind::CHOICE, DrumGroup::MOD2},
+    {&drumMod2CoarseMenu, DrumKind::NUMBER, DrumGroup::MOD2},
+    {&drumMod2FineMenu, DrumKind::NUMBER, DrumGroup::MOD2},
+    DRUM_TRANSIENT_COLUMNS,
+    DRUM_SOUND_COLUMNS,
+}};
+#undef DRUM_SOUND_COLUMNS
+#undef DRUM_TRANSIENT_COLUMNS
+#undef DRUM_PITCH_COLUMNS
+
+namespace deluge::gui::menu_item::drum_synth {
+PLACE_SDRAM_BSS Editor drumSynthEditor{STRING_FOR_DRUM_SYNTH, drumEditorDrumLayout, drumEditorSnareLayout,
+                                       drumEditorMetalLayout, &drumSynthMenu};
+} // namespace deluge::gui::menu_item::drum_synth
+
 // Not FM
 PLACE_SDRAM_BSS MasterTranspose masterTransposeMenu{STRING_FOR_MASTER_TRANSPOSE, STRING_FOR_MASTER_TRAN_MENU_TITLE};
 
@@ -1567,6 +1634,7 @@ PLACE_SDRAM_BSS Submenu soundEditorRootDrumActionsMenu{
 PLACE_SDRAM_BSS Submenu soundEditorRootMenu{
     STRING_FOR_SOUND,
     {
+        &drum_synth::drumSynthEditor, // Only shown on drum synth sounds
         &soundEditorRootActionsMenu,
         &soundMasterMenu,
         &arpMenu,
@@ -1602,6 +1670,7 @@ PLACE_SDRAM_BSS Submenu soundEditorRootMenu{
 PLACE_SDRAM_BSS Submenu soundEditorRootMenuDrum{
     STRING_FOR_SOUND,
     {
+        &drum_synth::drumSynthEditor, // Only shown on drum synth sounds
         &soundEditorRootDrumActionsMenu,
         &soundMasterMenu,
         &arpMenu,
