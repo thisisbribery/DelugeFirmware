@@ -1,11 +1,12 @@
 /*
- * The TIA and IIA engines from the XIA engine set for the Model:Cycles, ported to the Deluge. See xia.h.
+ * The TIA and IIA engines (Drom1 and Drom2 on the Deluge), from the XIA engine set for the Model:Cycles. See xia.h.
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * The arithmetic is the original's, step for step: 32-bit wrapping integer maths, and the ColdFire EMAC's signed
  * fractional multiply (mul()) wherever the original used it. Keep it that way: the tests compare every sample and every
  * word of state with the original.
  *
- * Not for distribution until the engines' author has agreed to it and to a GPL-3.0 compatible licence.
  */
 
 #include "dsp/drum_synth/xia.h"

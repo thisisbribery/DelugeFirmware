@@ -1,11 +1,14 @@
 /*
- * The TIA and IIA engines from the XIA engine set for the Model:Cycles, ported to the Deluge.
+ * The TIA and IIA engines, shown on the Deluge as Drom1 and Drom2. They come from the XIA engine set for the
+ * Model:Cycles, whose author released them as open source; they are distributed here under the GPL-3.0 with the
+ * rest of this firmware.
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * Ported from the compiled Model:Cycles firmware they were written for (model-cycles_OS1.13_XIA_2lfo.syx), not from
  * source. The render code reproduces the original output sample for sample at its own block size and settings, and
  * is checked against an emulation of that firmware (see tests/unit/xia_tests.cpp).
  *
- * Not for distribution until the engines' author has agreed to it and to a GPL-3.0 compatible licence.
  */
 
 #pragma once

@@ -10,7 +10,7 @@ It has five engines. The first three are ported from the LXR-02:
 - **Snare**: a pitched oscillator with a pitch envelope, plus sample-and-hold noise through its own low, high or band pass filter.
 - **Cymbal / hat**: a main oscillator frequency modulated by two more oscillators, one of them usually noise.
 
-The other two, **TIA** and **IIA**, come from the XIA engine set made for the Elektron Model:Cycles. See [XIA engines](#xia-engines) below.
+The other two, **Drom1** and **Drom2**, come from the XIA engine set made for the Elektron Model:Cycles. See [Drom1 and Drom2](#drom1-and-drom2) below.
 
 Every engine also has a **transient**: a pitch "snap", a start-phase "offset" click, or one of twelve short click samples.
 
@@ -85,30 +85,30 @@ Values run 0 to 127, as on the original hardware.
 
 The pitch of a row is set with the usual oscillator transpose and the Deluge's pitch controls, so the drum synth responds to note, pitch automation and the mod matrix like any other oscillator.
 
-## XIA engines
+## Drom1 and Drom2
 
-TIA and IIA are ported from the compiled Model:Cycles firmware they were written for. At the Cycles' own sample rate and block size they produce the original's output sample for sample, which the unit tests check.
+Drom1 and Drom2 are ported from the compiled Model:Cycles firmware they were written for. At the Cycles' own sample rate and block size they produce the original's output sample for sample, which the unit tests check.
 
 They work like any other Deluge sound engine: the envelopes, filters, FX, mod matrix and automation all apply on top.
 
 ### Putting one on a row
 
-On any kit row (or synth), open the **SYNTH MODE** shortcut and choose **TIA** or **IIA**. On a kit row the first option reads **Sample**: choose it to go back to the row's sample. **Drum synth** gives the LXR engines.
+On any kit row (or synth), open the **SYNTH MODE** shortcut and choose **Drom1** or **Drom2**. On a kit row the first option reads **Sample**: choose it to go back to the row's sample. **Drum synth** gives the LXR engines.
 
 A row that wasn't a drum synth gets a percussive Deluge envelope (attack 0, decay 30, sustain 0, release 30), so each hit decays, and keeps decaying if you let go early, plus envelope 2 as a short blip for patching to pitch. Shape it with the Deluge's envelopes as usual.
 
-**OSC1 TYPE** on a drum synth row picks the variant: **L**, **B** or **C** for TIA, **G**, **I** or **H** for IIA, or the LXR voice.
+**OSC1 TYPE** on a drum synth row picks the variant: **L**, **B** or **C** for Drom1, **G**, **I** or **H** for Drom2, or the LXR voice.
 
-- **TIA**: three sine operators and a carrier. Each operator's **Blendex** moves it from being heard (0) to modulating (127). L: all three modulate the carrier. B: a chain, 1 into 2 into 3 into the carrier. C: a loop, 1 into 2 into 3 and back into 1, with no carrier.
-- **IIA**: inharmonic partials. G adds six, I adds six with a falling pitch at the start, H chains eight sines.
+- **Drom1**: three sine operators and a carrier. Each operator's **Blendex** moves it from being heard (0) to modulating (127). L: all three modulate the carrier. B: a chain, 1 into 2 into 3 into the carrier. C: a loop, 1 into 2 into 3 and back into 1, with no carrier.
+- **Drom2**: inharmonic partials. G adds six, I adds six with a falling pitch at the start, H chains eight sines.
 
 ### Controls and shortcuts
 
 The engines' settings are Deluge parameters, so they can be parameter locked, automated and put on gold knobs. They run 0-127 like the Cycles' knobs.
 
-Read the shortcut grid as an FM synth. The OSC1 column is the engine, and the OSC2, MOD1 and MOD2 columns are TIA's three operators:
+Read the shortcut grid as an FM synth. The OSC1 column is the engine, and the OSC2, MOD1 and MOD2 columns are Drom1's three operators:
 
-| Pad | TIA | IIA |
+| Pad | Drom1 | Drom2 |
 |---|---|---|
 | OSC1 TYPE | Variant | Variant |
 | OSC1 PULSE WIDTH | | Shape (sine > triangle > square > saw) |
@@ -121,11 +121,11 @@ Read the shortcut grid as an FM synth. The OSC1 column is the engine, and the OS
 
 The other shortcuts work as usual: OSC1 LEVEL, TRANSPOSE and NOISE, the envelopes, filters and FX.
 
-**Custom 2 / Custom 3** (the last gold knob pair) carry the two key settings: **Blendex 1 / Freq 1** on TIA, **Weight / Alloy** on IIA. Hold a step and turn them to parameter lock.
+**Custom 2 / Custom 3** (the last gold knob pair) carry the two key settings: **Blendex 1 / Freq 1** on Drom1, **Weight / Alloy** on Drom2. Hold a step and turn them to parameter lock.
 
 - **Freq 1-3**: each operator's tuning, from 24 semitones down at 0, through unison at 64, to 24 up at 127.
-- **Weight** picks IIA's partial ratios, **Alloy** their levels (or the modulation depth on H), and **Strike** the level of a noise burst at the start of each hit.
-- **Engine decay** is the engine's own decay, on top of the Deluge's envelope. It starts at 127, which holds (about 9 seconds on IIA), so the Deluge envelope does the shaping. Turning it down brings back the Cycles' own decay, including IIA H's brightness fading with it.
+- **Weight** picks Drom2's partial ratios, **Alloy** their levels (or the modulation depth on H), and **Strike** the level of a noise burst at the start of each hit.
+- **Engine decay** is the engine's own decay, on top of the Deluge's envelope. It starts at 127, which holds (about 9 seconds on Drom2), so the Deluge envelope does the shaping. Turning it down brings back the Cycles' own decay, including Drom2 H's brightness fading with it.
 
 The full list of settings, and the pad editor's columns, are in the sound menu's **Drum synth** item, or press SELECT on OSC1 TYPE.
 
@@ -133,7 +133,7 @@ The full list of settings, and the pad editor's columns, are in the sound menu's
 - The Deluge's envelope shapes the level, and the engines' own low pass is left open: use the Deluge's filters.
 - Engine decay and other once-per-block changes run about 9% slower, because the Deluge runs at 44.1 kHz rather than 48 kHz. Pitch is exact.
 - Blendex 3 runs 0 to 127 like Blendex 1 and 2. On the Cycles it sits on the fine tune slot and mirrors around 64.
-- IIA's attack setting is split: below the middle it set the strike level, which is **Strike** here, and above it a fade-in, which is the Deluge envelope's attack.
+- Drom2's attack setting is split: below the middle it set the strike level, which is **Strike** here, and above it a fade-in, which is the Deluge envelope's attack.
 - The settings can be parameter locked and automated, but not yet modulated from the mod matrix.
 
 ## Controls, shortcuts and gold knobs
@@ -161,7 +161,7 @@ The shortcut grid reads as an FM synth. The **OSC1** column is the drum voice it
 | MOD1 PULSE WIDTH | | | Mod 2 fine |
 | MOD1 FEEDBACK | Pitch curve | Pitch curve | |
 
-TIA and IIA have their own layout: see [XIA engines](#xia-engines).
+Drom1 and Drom2 have their own layout: see [Drom1 and Drom2](#drom1-and-drom2).
 
 **Gold knobs.** Custom 1 tunes the drum. **Custom 2 / Custom 3** (the last pair) carry each engine's two key settings:
 
@@ -170,8 +170,8 @@ TIA and IIA have their own layout: see [XIA engines](#xia-engines).
 | Kick / tom | Pitch amount | FM amount |
 | Snare | Noise mix | Pitch amount |
 | Cymbal / hat | FM amount | FM 2 amount |
-| TIA | Blendex 1 | Freq 1 |
-| IIA | Weight | Alloy |
+| Drom1 | Blendex 1 | Freq 1 |
+| Drom2 | Weight | Alloy |
 
 The other gold knobs keep their usual Deluge jobs. Hold a step and turn a knob to parameter lock it.
 
@@ -201,7 +201,7 @@ Kits that use the drum synth won't play those rows on firmware without it.
 
 ## Licence
 
-The TIA and IIA engines are not covered by the paragraph below: they are ported from another author's Model:Cycles firmware, and must not be distributed until that author has agreed to it and to a GPL-3.0 compatible licence.
+Drom1 and Drom2 are the TIA and IIA engines of the XIA engine set for the Model:Cycles, released as open source by their author and distributed here under the GPL-3.0 with the rest of the firmware.
 
 
 The drum synth code is licensed GPL-3.0-only, with the additional terms in the LXR firmware's NOTICE.md: it is marked as a modified version, and no rights to the Erica Synths or LXR trademarks are granted.

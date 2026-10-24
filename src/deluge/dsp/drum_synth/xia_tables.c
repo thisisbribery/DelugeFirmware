@@ -1,6 +1,8 @@
 /*
  * Lookup tables of the XIA TIA and IIA engines, read from the Model:Cycles firmware they were written for
  * (model-cycles_OS1.13_XIA_2lfo.syx, payload at 0x43000000). Generated, do not edit.
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
 #include <stdint.h>

@@ -25,8 +25,8 @@ enum class Engine : uint8_t {
 	DRUM,  ///< Kick and toms: main osc, FM or mixed mod osc, pitch envelope
 	SNARE, ///< Pitched osc with pitch envelope, plus filtered sample-and-hold noise
 	METAL, ///< Cymbal and hi-hat: main osc frequency modulated by two more oscs, one usually noise
-	TIA,   ///< XIA TIA: three sines phase modulating a carrier
-	IIA,   ///< XIA IIA: inharmonic partials with a noise strike
+	TIA,   ///< "Drom1" on the Deluge (XIA TIA): three sines phase modulating a carrier
+	IIA,   ///< "Drom2" on the Deluge (XIA IIA): inharmonic partials with a noise strike
 	NUM_ENGINES,
 };
 
