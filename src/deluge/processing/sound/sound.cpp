@@ -68,6 +68,7 @@
 #include <ranges>
 
 #include "processing/engines/cpu_meter.h"
+#include "processing/sound/drum_synth_params.h"
 
 namespace params = deluge::modulation::params;
 
@@ -276,8 +277,9 @@ void Sound::setupAsDrumSynth(ParamManagerForTimeline* paramManager, deluge::dsp:
 	    getParamFromUserValue(params::LOCAL_ENV_0_DECAY, row.decay));
 	patchedParams->params[params::LOCAL_ENV_0_SUSTAIN].setCurrentValueBasicForSetup(
 	    getParamFromUserValue(params::LOCAL_ENV_0_SUSTAIN, 0));
+	// Letting go early carries on the decay rather than cutting it
 	patchedParams->params[params::LOCAL_ENV_0_RELEASE].setCurrentValueBasicForSetup(
-	    getParamFromUserValue(params::LOCAL_ENV_0_RELEASE, 0));
+	    getParamFromUserValue(params::LOCAL_ENV_0_RELEASE, row.decay));
 
 	patchedParams->params[params::LOCAL_LPF_RESONANCE].setCurrentValueBasicForSetup(-2147483648);
 	patchedParams->params[params::LOCAL_LPF_FREQ].setCurrentValueBasicForSetup(2147483647);
@@ -423,6 +425,33 @@ char const* Sound::getPatchedParamDisplayNameOverride(int32_t p) {
 		return nullptr;
 	}
 
+	// The XIA engines' controls sit on the FM operator params
+	const auto engine = sources[0].drumPatch.engine();
+	if (deluge::dsp::drum_synth::isXia(engine)) {
+		using deluge::dsp::drum_synth::XiaControls;
+		const bool tia = engine == deluge::dsp::drum_synth::Engine::TIA;
+		switch (deluge::dsp::drum_synth::xiaSlotForParam(p)) {
+		case XiaControls::TIA_BLENDEX1:
+			return deluge::l10n::get(tia ? STRING_FOR_TIA_BLENDEX1 : STRING_FOR_IIA_WEIGHT);
+		case XiaControls::TIA_BLENDEX2:
+			return deluge::l10n::get(tia ? STRING_FOR_TIA_BLENDEX2 : STRING_FOR_IIA_ALLOY);
+		case XiaControls::TIA_BLENDEX3:
+			return deluge::l10n::get(tia ? STRING_FOR_TIA_BLENDEX3 : STRING_FOR_IIA_SHAPE);
+		case XiaControls::DRIVE:
+			return deluge::l10n::get(STRING_FOR_XIA_DRIVE);
+		case XiaControls::ENGINE_DECAY:
+			return deluge::l10n::get(STRING_FOR_XIA_DECAY);
+		case XiaControls::TIA_FREQ1:
+			return deluge::l10n::get(tia ? STRING_FOR_TIA_FREQ1 : STRING_FOR_IIA_STRIKE);
+		case XiaControls::TIA_FREQ2:
+			return tia ? deluge::l10n::get(STRING_FOR_TIA_FREQ2) : nullptr;
+		case XiaControls::TIA_FREQ3:
+			return tia ? deluge::l10n::get(STRING_FOR_TIA_FREQ3) : nullptr;
+		default:
+			return nullptr;
+		}
+	}
+
 	KnobOffsets::Slot slot;
 	switch (p) {
 	case params::LOCAL_OSC_A_PHASE_WIDTH:
@@ -454,18 +483,6 @@ char const* Sound::getPatchedParamDisplayNameOverride(int32_t p) {
 		return deluge::l10n::get(STRING_FOR_DRUM_PITCH_DECAY);
 	case Patch::MOD_COARSE:
 		return deluge::l10n::get(STRING_FOR_DRUM_METAL_TUNE);
-	case Patch::TIA_FREQ1:
-		return deluge::l10n::get(STRING_FOR_TIA_FREQ1);
-	case Patch::TIA_BLENDEX1:
-		return deluge::l10n::get(STRING_FOR_TIA_BLENDEX1);
-	case Patch::IIA_WEIGHT:
-		return deluge::l10n::get(STRING_FOR_IIA_WEIGHT);
-	case Patch::IIA_ALLOY:
-		return deluge::l10n::get(STRING_FOR_IIA_ALLOY);
-	case Patch::XIA_LOW_PASS:
-		return deluge::l10n::get(STRING_FOR_XIA_LOW_PASS);
-	case Patch::XIA_DECAY:
-		return deluge::l10n::get(STRING_FOR_XIA_DECAY);
 	default:
 		return deluge::l10n::get(STRING_FOR_DRUM_TRANSIENT_VOLUME);
 	}

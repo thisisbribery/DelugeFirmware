@@ -152,12 +152,13 @@ uint32_t phaseIncrementFor(double hz) {
 
 /// Render a triggered voice, returning how many samples it ran before finishing (or the whole length)
 int32_t renderVoice(Voice& voice, const Patch& patch, int32_t* out, int32_t length, double hz,
-                    const KnobOffsets& knobs = {}) {
+                    const XiaControls& controls) {
+	const KnobOffsets knobs{};
 	voice.trigger(patch, knobs);
 	std::fill(out, out + length, 0);
 	for (int32_t pos = 0; pos < length; pos += 100) { // Deluge-style chunks that don't line up with XIA blocks
 		const int32_t n = std::min(100, length - pos);
-		voice.render(patch, knobs, out + pos, n, phaseIncrementFor(hz), 1 << 27, 0);
+		voice.render(patch, knobs, out + pos, n, phaseIncrementFor(hz), 1 << 27, 0, controls);
 		if (voice.finished()) {
 			return pos + n;
 		}
@@ -197,27 +198,57 @@ TEST(XiaTests, iiaMatchesTheOriginalSampleForSample) {
 	}
 }
 
+TEST(XiaTests, controlValuesMapLikeTheCyclesKnobs) {
+	CHECK_EQUAL(0, XiaControls::toKnob(INT32_MIN));
+	CHECK_EQUAL(0x4000, XiaControls::toKnob(0));
+	CHECK_EQUAL(0x7F00, XiaControls::toKnob(INT32_MAX));
+	for (int32_t v = 0; v <= 127; v++) {
+		CHECK_EQUAL(v << 8, XiaControls::toKnob(XiaControls::fromValue(v)));
+	}
+}
+
 TEST(XiaTests, tiaPlaysTheDelugesPitch) {
 	// TIA's defaults are a plain sine, so its pitch is easy to count
 	Patch patch;
 	patch.setXiaPreset(Engine::TIA, 0);
-	patch.set(Patch::XIA_DECAY, 127); // hold, so the level doesn't fall away while counting
+	const XiaControls controls = XiaControls::defaultsFor(Engine::TIA);
 	static std::array<int32_t, kSampleRate> out;
 	Voice voice;
 	for (double hz : {55.0, 261.63, 1000.0}) {
-		renderVoice(voice, patch, out.data(), kSampleRate, hz);
+		renderVoice(voice, patch, out.data(), kSampleRate, hz, controls);
 		DOUBLES_EQUAL(hz, zeroCrossingHz(out.data(), 0, kSampleRate), hz * 0.01 + 1);
 	}
 }
 
-TEST(XiaTests, voiceFinishesWhenTheEngineDecays) {
+TEST(XiaTests, theDelugeEnvelopeShapesTheSoundByDefault) {
+	// With their defaults the engines hold their level, and the voice lasts as long as the Deluge's envelope says
+	static std::array<int32_t, kSampleRate * 2> out;
+	for (Engine engine : {Engine::TIA, Engine::IIA}) {
+		Patch patch;
+		patch.setXiaPreset(engine, 0);
+		Voice voice;
+		const int32_t length =
+		    renderVoice(voice, patch, out.data(), out.size(), 130.8, XiaControls::defaultsFor(engine));
+		CHECK_EQUAL(static_cast<int32_t>(out.size()), length);
+		CHECK_FALSE(voice.finished());
+		int32_t lateLevel = 0;
+		for (size_t i = out.size() - 4410; i < out.size(); i++) {
+			lateLevel = std::max(lateLevel, std::abs(out[i]));
+		}
+		CHECK(lateLevel > (1 << 20));
+	}
+}
+
+TEST(XiaTests, engineDecayEndsTheVoice) {
 	static std::array<int32_t, kSampleRate * 4> out;
 	for (Engine engine : {Engine::TIA, Engine::IIA}) {
 		for (uint8_t variant = 0; variant < 3; variant++) {
 			Patch patch;
 			patch.setXiaPreset(engine, variant);
+			XiaControls controls = XiaControls::defaultsFor(engine);
+			controls.values[XiaControls::ENGINE_DECAY] = XiaControls::fromValue(60);
 			Voice voice;
-			const int32_t length = renderVoice(voice, patch, out.data(), out.size(), 130.8);
+			const int32_t length = renderVoice(voice, patch, out.data(), out.size(), 130.8, controls);
 			CHECK(voice.finished());
 			CHECK(length < static_cast<int32_t>(out.size()));
 			int32_t peak = 0;
@@ -234,28 +265,38 @@ TEST(XiaTests, lxrEnginesNeverReportFinished) {
 	patch.setPreset(Preset::KICK);
 	static std::array<int32_t, kSampleRate> out;
 	Voice voice;
-	renderVoice(voice, patch, out.data(), out.size(), 49.0);
+	renderVoice(voice, patch, out.data(), out.size(), 49.0, {});
 	CHECK_FALSE(voice.finished());
 }
 
-TEST(XiaTests, decayKnobLengthensTheSound) {
+TEST(XiaTests, controlsChangeTheSound) {
+	// Blendex 1 turns TIA's first operator from heard into modulating: the sine gets harmonics
 	Patch patch;
 	patch.setXiaPreset(Engine::TIA, 0);
-	patch.set(Patch::XIA_DECAY, 40);
-	static std::array<int32_t, kSampleRate * 4> out;
+	XiaControls plain = XiaControls::defaultsFor(Engine::TIA);
+	XiaControls bright = plain;
+	bright.values[XiaControls::TIA_BLENDEX1] = XiaControls::fromValue(127);
+	bright.values[XiaControls::TIA_FREQ1] = XiaControls::fromValue(100);
+	static std::array<int32_t, 4410> a;
+	static std::array<int32_t, 4410> b;
 	Voice voice;
-	const int32_t shortLength = renderVoice(voice, patch, out.data(), out.size(), 130.8);
-	KnobOffsets knobs;
-	knobs.values[KnobOffsets::TRANSIENT] = 1 << 28; // the decay knob's slot on XIA rows: +32
-	const int32_t longLength = renderVoice(voice, patch, out.data(), out.size(), 130.8, knobs);
-	CHECK(longLength > shortLength * 2);
+	renderVoice(voice, patch, a.data(), a.size(), 130.8, plain);
+	renderVoice(voice, patch, b.data(), b.size(), 130.8, bright);
+	auto roughness = [](const std::array<int32_t, 4410>& x) {
+		double d = 0;
+		for (size_t i = 1; i < x.size(); i++) {
+			d += std::abs(static_cast<double>(x[i]) - x[i - 1]);
+		}
+		return d;
+	};
+	CHECK(roughness(b) > roughness(a) * 1.5);
 }
 
 TEST(XiaTests, xiaSettingsAreHiddenFromLxrEngines) {
-	CHECK_FALSE(Patch::isUsedBy(Patch::TIA_FREQ1, Engine::DRUM));
-	CHECK_FALSE(Patch::isUsedBy(Patch::XIA_DECAY, Engine::METAL));
-	CHECK(Patch::isUsedBy(Patch::XIA_DECAY, Engine::IIA));
-	CHECK_FALSE(Patch::isUsedBy(Patch::IIA_WEIGHT, Engine::TIA));
+	CHECK_FALSE(Patch::isUsedBy(Patch::XIA_VARIANT, Engine::DRUM));
+	CHECK_FALSE(Patch::isUsedBy(Patch::XIA_PUNCH, Engine::METAL));
+	CHECK(Patch::isUsedBy(Patch::XIA_PUNCH, Engine::IIA));
+	CHECK(Patch::isUsedBy(Patch::XIA_VARIANT, Engine::TIA));
 	CHECK_FALSE(Patch::isUsedBy(Patch::OSC_WAVE, Engine::TIA));
 	CHECK_FALSE(Patch::isUsedBy(Patch::PITCH_AMOUNT, Engine::IIA));
 	CHECK_FALSE(Patch::isUsedBy(Patch::FM_AMOUNT, Engine::TIA));
@@ -270,7 +311,6 @@ TEST(XiaTests, olderSavesLoadWithXiaDefaults) {
 	std::memcpy(loaded.bytes().data(), saved.bytes().data(), Patch::XIA_VARIANT);
 	loaded.clampAll();
 	CHECK(loaded.engine() == Engine::SNARE);
-	CHECK_EQUAL(64, loaded.get(Patch::TIA_FREQ1));
-	CHECK_EQUAL(127, loaded.get(Patch::XIA_LOW_PASS));
+	CHECK_EQUAL(0, loaded.get(Patch::XIA_VARIANT));
 	CHECK_EQUAL(0, loaded.get(Patch::XIA_PUNCH));
 }

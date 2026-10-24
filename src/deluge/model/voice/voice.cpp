@@ -54,6 +54,7 @@
 #include <new>
 
 #include "processing/engines/cpu_meter.h"
+#include "processing/sound/drum_synth_params.h"
 
 extern "C" {
 #include "RZA1/mtu/mtu.h"
@@ -2457,9 +2458,13 @@ dontUseCache: {}
 				memset(renderBuffer, 0, SSI_TX_BUFFER_NUM_SAMPLES * sizeof(int32_t));
 			}
 
-			unisonParts[u].sources[s].drumVoice.render(sound.sources[s].drumPatch, getDrumSynthKnobOffsets(),
-			                                           renderBuffer, numSamples, phaseIncrement, sourceAmplitude,
-			                                           amplitudeIncrement);
+			const auto& drumPatch = sound.sources[s].drumPatch;
+			const auto xiaControls = deluge::dsp::drum_synth::isXia(drumPatch.engine())
+			                             ? deluge::dsp::drum_synth::readXiaControls(*paramManager->getPatchedParamSet())
+			                             : deluge::dsp::drum_synth::XiaControls{};
+			unisonParts[u].sources[s].drumVoice.render(drumPatch, getDrumSynthKnobOffsets(), renderBuffer, numSamples,
+			                                           phaseIncrement, sourceAmplitude, amplitudeIncrement,
+			                                           xiaControls);
 
 			if (stereoBuffer) {
 				for (int32_t i = 0; i < numSamples; i++) {

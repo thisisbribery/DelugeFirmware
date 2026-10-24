@@ -1507,19 +1507,21 @@ PLACE_SDRAM_BSS drum_synth::TransientMode drumTransientMenu{STRING_FOR_DRUM_TRAN
 PLACE_SDRAM_BSS drum_synth::Value drumTransientVolumeMenu{STRING_FOR_DRUM_TRANSIENT_VOLUME, DrumParam::TRANS_VOLUME};
 PLACE_SDRAM_BSS drum_synth::Value drumTransientPitchMenu{STRING_FOR_DRUM_TRANSIENT_PITCH, DrumParam::TRANS_PITCH};
 PLACE_SDRAM_BSS drum_synth::XiaVariant xiaVariantMenu{STRING_FOR_XIA_VARIANT};
-PLACE_SDRAM_BSS drum_synth::Value tiaFreq1Menu{STRING_FOR_TIA_FREQ1, DrumParam::TIA_FREQ1};
-PLACE_SDRAM_BSS drum_synth::Value tiaFreq2Menu{STRING_FOR_TIA_FREQ2, DrumParam::TIA_FREQ2};
-PLACE_SDRAM_BSS drum_synth::Value tiaFreq3Menu{STRING_FOR_TIA_FREQ3, DrumParam::TIA_FREQ3};
-PLACE_SDRAM_BSS drum_synth::Value tiaBlendex1Menu{STRING_FOR_TIA_BLENDEX1, DrumParam::TIA_BLENDEX1};
-PLACE_SDRAM_BSS drum_synth::Value tiaBlendex2Menu{STRING_FOR_TIA_BLENDEX2, DrumParam::TIA_BLENDEX2};
-PLACE_SDRAM_BSS drum_synth::Value tiaBlendex3Menu{STRING_FOR_TIA_BLENDEX3, DrumParam::TIA_BLENDEX3};
-PLACE_SDRAM_BSS drum_synth::Value iiaWeightMenu{STRING_FOR_IIA_WEIGHT, DrumParam::IIA_WEIGHT};
-PLACE_SDRAM_BSS drum_synth::Value iiaAlloyMenu{STRING_FOR_IIA_ALLOY, DrumParam::IIA_ALLOY};
-PLACE_SDRAM_BSS drum_synth::Value iiaShapeMenu{STRING_FOR_IIA_SHAPE, DrumParam::IIA_SHAPE};
-PLACE_SDRAM_BSS drum_synth::Value iiaAttackMenu{STRING_FOR_IIA_ATTACK, DrumParam::IIA_ATTACK};
-PLACE_SDRAM_BSS drum_synth::Value xiaLowPassMenu{STRING_FOR_XIA_LOW_PASS, DrumParam::XIA_LOW_PASS};
-PLACE_SDRAM_BSS drum_synth::Value xiaDriveMenu{STRING_FOR_XIA_DRIVE, DrumParam::XIA_DRIVE};
-PLACE_SDRAM_BSS drum_synth::Value xiaDecayMenu{STRING_FOR_XIA_DECAY, DrumParam::XIA_DECAY};
+using XiaSlot = deluge::dsp::drum_synth::XiaControls;
+using XiaEngine = deluge::dsp::drum_synth::Engine;
+PLACE_SDRAM_BSS drum_synth::XiaControl tiaBlendex1Menu{STRING_FOR_TIA_BLENDEX1, XiaEngine::TIA, XiaSlot::TIA_BLENDEX1};
+PLACE_SDRAM_BSS drum_synth::XiaControl tiaBlendex2Menu{STRING_FOR_TIA_BLENDEX2, XiaEngine::TIA, XiaSlot::TIA_BLENDEX2};
+PLACE_SDRAM_BSS drum_synth::XiaControl tiaBlendex3Menu{STRING_FOR_TIA_BLENDEX3, XiaEngine::TIA, XiaSlot::TIA_BLENDEX3};
+PLACE_SDRAM_BSS drum_synth::XiaControl tiaFreq1Menu{STRING_FOR_TIA_FREQ1, XiaEngine::TIA, XiaSlot::TIA_FREQ1};
+PLACE_SDRAM_BSS drum_synth::XiaControl tiaFreq2Menu{STRING_FOR_TIA_FREQ2, XiaEngine::TIA, XiaSlot::TIA_FREQ2};
+PLACE_SDRAM_BSS drum_synth::XiaControl tiaFreq3Menu{STRING_FOR_TIA_FREQ3, XiaEngine::TIA, XiaSlot::TIA_FREQ3};
+PLACE_SDRAM_BSS drum_synth::XiaControl iiaWeightMenu{STRING_FOR_IIA_WEIGHT, XiaEngine::IIA, XiaSlot::IIA_WEIGHT};
+PLACE_SDRAM_BSS drum_synth::XiaControl iiaAlloyMenu{STRING_FOR_IIA_ALLOY, XiaEngine::IIA, XiaSlot::IIA_ALLOY};
+PLACE_SDRAM_BSS drum_synth::XiaControl iiaShapeMenu{STRING_FOR_IIA_SHAPE, XiaEngine::IIA, XiaSlot::IIA_SHAPE};
+PLACE_SDRAM_BSS drum_synth::XiaControl iiaStrikeMenu{STRING_FOR_IIA_STRIKE, XiaEngine::IIA, XiaSlot::IIA_STRIKE};
+PLACE_SDRAM_BSS drum_synth::XiaControl xiaDriveMenu{STRING_FOR_XIA_DRIVE, XiaEngine::NUM_ENGINES, XiaSlot::DRIVE};
+PLACE_SDRAM_BSS drum_synth::XiaControl xiaDecayMenu{STRING_FOR_XIA_DECAY, XiaEngine::NUM_ENGINES,
+                                                    XiaSlot::ENGINE_DECAY};
 PLACE_SDRAM_BSS drum_synth::OffOn xiaPunchMenu{STRING_FOR_XIA_PUNCH, DrumParam::XIA_PUNCH};
 // Items the current engine doesn't use hide themselves
 PLACE_SDRAM_BSS menu_item::Submenu drumSynthMenu{
@@ -1537,13 +1539,13 @@ PLACE_SDRAM_BSS menu_item::Submenu drumSynthMenu{
         &drumNoiseCutoffMenu,    &drumNoiseResonanceMenu,
         &drumTransientMenu,      &drumTransientVolumeMenu,
         &drumTransientPitchMenu, &xiaVariantMenu,
-        &tiaFreq1Menu,           &tiaFreq2Menu,
-        &tiaFreq3Menu,           &tiaBlendex1Menu,
-        &tiaBlendex2Menu,        &tiaBlendex3Menu,
+        &tiaBlendex1Menu,        &tiaFreq1Menu,
+        &tiaBlendex2Menu,        &tiaFreq2Menu,
+        &tiaBlendex3Menu,        &tiaFreq3Menu,
         &iiaWeightMenu,          &iiaAlloyMenu,
-        &iiaShapeMenu,           &iiaAttackMenu,
-        &xiaLowPassMenu,         &xiaDriveMenu,
-        &xiaDecayMenu,           &xiaPunchMenu,
+        &iiaShapeMenu,           &iiaStrikeMenu,
+        &xiaDriveMenu,           &xiaDecayMenu,
+        &xiaPunchMenu,
     },
 };
 
@@ -1604,28 +1606,28 @@ PLACE_SDRAM_DATA std::array<DrumColumn, 16> drumEditorMetalLayout{{
     DRUM_TRANSIENT_COLUMNS,
     DRUM_SOUND_COLUMNS,
 }};
-// The XIA engines have their own decay, so their sound columns swap the Deluge's amp decay for its release
+// The XIA engines shape their sound with the Deluge's envelope, so their sound columns have its decay and release
 #define XIA_SOUND_COLUMNS                                                                                              \
 	DrumColumn{&source0TransposeMenu, DrumKind::NUMBER, DrumGroup::SOUND, -2400, 2400, 100, 100},                      \
+	    DrumColumn{&env1DecayMenu, DrumKind::NUMBER, DrumGroup::SOUND},                                                \
 	    DrumColumn{&env1ReleaseMenu, DrumKind::NUMBER, DrumGroup::SOUND},                                              \
 	    DrumColumn{&lpfFreqMenu, DrumKind::NUMBER, DrumGroup::SOUND}, DrumColumn {                                     \
 		&hpfFreqMenu, DrumKind::NUMBER, DrumGroup::SOUND                                                               \
 	}
-#define XIA_FILTER_COLUMNS                                                                                             \
-	DrumColumn{&xiaLowPassMenu, DrumKind::NUMBER, DrumGroup::TRANSIENT},                                               \
-	    DrumColumn{&xiaDriveMenu, DrumKind::NUMBER, DrumGroup::TRANSIENT},                                             \
+#define XIA_ENGINE_COLUMNS                                                                                             \
+	DrumColumn{&xiaDriveMenu, DrumKind::NUMBER, DrumGroup::TRANSIENT},                                                 \
 	    DrumColumn{&xiaDecayMenu, DrumKind::NUMBER, DrumGroup::XIA_ENVELOPE}, DrumColumn {                             \
 		&xiaPunchMenu, DrumKind::CHOICE, DrumGroup::XIA_ENVELOPE                                                       \
 	}
 PLACE_SDRAM_DATA std::array<DrumColumn, 15> drumEditorTiaLayout{{
     {&xiaVariantMenu, DrumKind::CHOICE, DrumGroup::OSC},
-    {&tiaFreq1Menu, DrumKind::NUMBER, DrumGroup::PITCH},
-    {&tiaFreq2Menu, DrumKind::NUMBER, DrumGroup::PITCH},
-    {&tiaFreq3Menu, DrumKind::NUMBER, DrumGroup::PITCH},
     {&tiaBlendex1Menu, DrumKind::NUMBER, DrumGroup::MOD},
+    {&tiaFreq1Menu, DrumKind::NUMBER, DrumGroup::PITCH},
     {&tiaBlendex2Menu, DrumKind::NUMBER, DrumGroup::MOD},
+    {&tiaFreq2Menu, DrumKind::NUMBER, DrumGroup::PITCH},
     {&tiaBlendex3Menu, DrumKind::NUMBER, DrumGroup::MOD},
-    XIA_FILTER_COLUMNS,
+    {&tiaFreq3Menu, DrumKind::NUMBER, DrumGroup::PITCH},
+    XIA_ENGINE_COLUMNS,
     XIA_SOUND_COLUMNS,
 }};
 PLACE_SDRAM_DATA std::array<DrumColumn, 13> drumEditorIiaLayout{{
@@ -1633,12 +1635,63 @@ PLACE_SDRAM_DATA std::array<DrumColumn, 13> drumEditorIiaLayout{{
     {&iiaWeightMenu, DrumKind::NUMBER, DrumGroup::MOD},
     {&iiaAlloyMenu, DrumKind::NUMBER, DrumGroup::MOD},
     {&iiaShapeMenu, DrumKind::NUMBER, DrumGroup::MOD2},
-    {&iiaAttackMenu, DrumKind::NUMBER, DrumGroup::NOISE},
-    XIA_FILTER_COLUMNS,
+    {&iiaStrikeMenu, DrumKind::NUMBER, DrumGroup::NOISE},
+    XIA_ENGINE_COLUMNS,
     XIA_SOUND_COLUMNS,
 }};
 #undef XIA_SOUND_COLUMNS
-#undef XIA_FILTER_COLUMNS
+
+// XIA shortcut pads, read as an FM synth: the OSC1 column is the engine as a whole, and the OSC2, MOD1 and MOD2 columns
+// are TIA's three operators, LEVEL being how far each modulates (Blendex) and TRANSPOSE its tuning (Freq). IIA puts its
+// partials there: LEVEL is Alloy, TRANSPOSE is Weight. OSC1 TYPE already picks the variant.
+MenuItem* xiaShortcutFor(const Sound* sound, int32_t x, int32_t y) {
+	using deluge::dsp::drum_synth::Engine;
+	if (sound == nullptr || sound->sources[0].oscType != OscType::DRUM_SYNTH
+	    || !deluge::dsp::drum_synth::isXia(sound->sources[0].drumPatch.engine())) {
+		return nullptr;
+	}
+	const bool tia = sound->sources[0].drumPatch.engine() == Engine::TIA;
+
+	constexpr int32_t kOsc1 = 2;
+	constexpr int32_t kLevel = 0;
+	constexpr int32_t kTranspose = 1;
+	if (x == kOsc1) {
+		switch (y) {
+		case 3: // Pulse width
+			return tia ? nullptr : static_cast<MenuItem*>(&iiaShapeMenu);
+		case 4: // Retrigger phase
+			return &xiaPunchMenu;
+		case 5: // Feedback
+			return &xiaDriveMenu;
+		case 6: // Wave index
+			return &xiaDecayMenu;
+		default:
+			return nullptr;
+		}
+	}
+	if (tia) {
+		static constexpr std::array<std::array<MenuItem*, 2>, 3> kOperators{{
+		    {&tiaBlendex1Menu, &tiaFreq1Menu},
+		    {&tiaBlendex2Menu, &tiaFreq2Menu},
+		    {&tiaBlendex3Menu, &tiaFreq3Menu},
+		}};
+		if (x >= kOsc1 + 1 && x <= kOsc1 + 3 && (y == kLevel || y == kTranspose)) {
+			return kOperators[x - kOsc1 - 1][y];
+		}
+		return nullptr;
+	}
+	if (x == kOsc1 + 1 && y == kLevel) {
+		return &iiaAlloyMenu;
+	}
+	if (x == kOsc1 + 1 && y == kTranspose) {
+		return &iiaWeightMenu;
+	}
+	if (x == kOsc1 + 2 && y == kLevel) {
+		return &iiaStrikeMenu;
+	}
+	return nullptr;
+}
+#undef XIA_ENGINE_COLUMNS
 #undef DRUM_SOUND_COLUMNS
 #undef DRUM_TRANSIENT_COLUMNS
 #undef DRUM_PITCH_COLUMNS

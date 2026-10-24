@@ -429,6 +429,33 @@ void SoundEditor::setCurrentSource(int32_t sourceIndex) {
 	}
 }
 
+Sound* SoundEditor::shortcutSound() {
+	if (getCurrentUI() == this && currentSound != nullptr) {
+		return currentSound;
+	}
+	Output* output = getCurrentOutput();
+	if (output == nullptr) {
+		return nullptr;
+	}
+	if (output->type == OutputType::SYNTH) {
+		return static_cast<SoundInstrument*>(output);
+	}
+	if (output->type == OutputType::KIT) {
+		Drum* drum = static_cast<Kit*>(output)->selectedDrum;
+		if (drum != nullptr && drum->type == DrumType::SOUND) {
+			return static_cast<SoundDrum*>(drum);
+		}
+	}
+	return nullptr;
+}
+
+MenuItem* SoundEditor::soundShortcut(int32_t x, int32_t y) {
+	if (MenuItem* item = xiaShortcutFor(shortcutSound(), x, y)) {
+		return item;
+	}
+	return paramShortcutsForSounds[x][y];
+}
+
 bool SoundEditor::isDrumSynthEditorOnGrid() {
 	return in_sound_editor() && getCurrentMenuItem() == &menu_item::drum_synth::drumSynthEditor
 	       && !Buttons::isShiftButtonPressed();
@@ -1115,7 +1142,7 @@ void SoundEditor::updatePadLightsFor(MenuItem* currentItem) {
 						goto stopThat;
 					}
 
-					if (paramShortcutsForSounds[x][y] == currentItem) {
+					if (soundShortcut(x, y) == currentItem) {
 						if (x == 10 && y < 6 && editingReverbSidechain()) {
 							goto stopThat;
 						}
@@ -1440,7 +1467,7 @@ std::tuple<MenuItem*, bool> SoundEditor::get_basic_shortcut_action(int32_t x, in
 	}
 	else if (not editingNothing())
 	{
-		item = paramShortcutsForSounds[x][y];
+		item = soundEditor.soundShortcut(x, y);
 		do_sound_checks = true;
 	}
 	return {item, do_sound_checks};
@@ -1604,7 +1631,7 @@ ActionResult SoundEditor::potentialShortcutPadAction(int32_t x, int32_t y, bool 
 				//< randomizer shortcuts
 
 
-					item = paramShortcutsForSounds[x][y];
+					item = soundShortcut(x, y);
 					if (getCurrentOutputType() == OutputType::KIT && item == &editNameMenu) {
 						item = &drumNameEditMenu;
 					}
@@ -2174,12 +2201,6 @@ doMIDIOrCV:
 	shouldGoUpOneLevelOnBegin = false;
 	menuItemNavigationRecord[navigationDepth] = newItem;
 
-	// Drum synth sounds open straight into the pad editor. BACK goes up to the normal sound menu.
-	if (item == nullptr && newSound != nullptr && newSound->sources[0].oscType == OscType::DRUM_SYNTH
-	    && (newItem == &soundEditorRootMenuDrum || newItem == &soundEditorRootMenu)) {
-		navigationDepth = 1;
-		menuItemNavigationRecord[navigationDepth] = &menu_item::drum_synth::drumSynthEditor;
-	}
 	display->setNextTransitionDirection(1);
 
 	return true;

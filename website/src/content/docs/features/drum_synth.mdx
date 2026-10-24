@@ -26,7 +26,7 @@ You can also turn any row of any kit, or any synth, into a drum synth: open the 
 
 ## Pad editor
 
-Select a drum synth row and press **SELECT**. Instead of the usual sound menu, the pad editor opens: every pad column is one setting, shown as a level meter from the bottom row (lowest) to the top row (highest).
+On a drum synth row, open the sound menu and choose **Drum synth** (its first item), or press **SELECT** on **OSC1 TYPE**. The pad editor opens: every pad column is one setting, shown as a level meter from the bottom row (lowest) to the top row (highest).
 
 - **Tap a pad** to set that column to that level. The screen shows the setting's name and value.
 - **Turn SELECT** to fine tune the column you last touched.
@@ -89,50 +89,52 @@ The pitch of a row is set with the usual oscillator transpose and the Deluge's p
 
 TIA and IIA are ported from the compiled Model:Cycles firmware they were written for. At the Cycles' own sample rate and block size they produce the original's output sample for sample, which the unit tests check.
 
-- **TIA**: three sine oscillators and a fourth carrier sine. **Blendex 1-3** move each oscillator from being heard (0) to phase modulating (127). The variant sets the routing:
-  - **L**: all three modulate the carrier.
-  - **B**: a chain, 1 into 2 into 3 into the carrier.
-  - **C**: a loop, 1 into 2 into 3 and back into 1, with no carrier.
-- **IIA**: inharmonic partials for bells, metal and struck sounds. **Weight** picks the partial ratios, **Alloy** their levels (or the modulation depth on H), and **Shape** morphs each partial from sine to triangle to square to saw. **Attack** below 64 sets the level of a noise strike at the start of each hit, and above 68 sets a fade-in. The variant:
-  - **G**: six partials added, with the noise strike.
-  - **I**: six partials, with a falling pitch at the start.
-  - **H**: eight sines in a phase modulation chain.
+They work like any other Deluge sound engine: the envelopes, filters, FX, mod matrix and automation all apply on top.
 
-Both engines have their own **XIA LPF** (a 4-pole low pass that follows the note, off at 127), **Drive** (a wavefolder, then a saturator above 95), **XIA decay** (127 holds) and **Punch** (a shorter decay and a soft clipper).
+### Putting one on a row
 
-**Envelope.** The XIA engines bring their own amp envelope. Switching a row to TIA or IIA, from the Engine setting or by loading one of their presets, opens the Deluge's envelope up (attack 0, sustain full, release 40), so a short note doesn't cut the XIA decay. Switching back to an LXR engine puts a short Deluge decay back. A voice ends as soon as the XIA envelope does.
+On any kit row (or synth), open the **SYNTH MODE** shortcut and choose **TIA** or **IIA**. On a kit row the first option reads **Sample**: choose it to go back to the row's sample. **Drum synth** gives the LXR engines.
 
-**Presets.** Load preset lists **TIA L**, **TIA B**, **TIA C**, **IIA G**, **IIA I** and **IIA H** after the kit presets. Each loads the Cycles' own defaults for that variant. The Cycles plays its engines an octave below middle C, so set the row's tuning to -12 for the same pitch.
+A row that wasn't a drum synth gets a percussive Deluge envelope (attack 0, decay 30, sustain 0, release 30), so each hit decays, and keeps decaying if you let go early. Shape it with the Deluge's envelope as usual.
 
-**Pad editor.**
+**OSC1 TYPE** on a drum synth row picks the variant: **L**, **B** or **C** for TIA, **G**, **I** or **H** for IIA, or the LXR voice.
 
-| Column | TIA | IIA |
+- **TIA**: three sine operators and a carrier. Each operator's **Blendex** moves it from being heard (0) to modulating (127). L: all three modulate the carrier. B: a chain, 1 into 2 into 3 into the carrier. C: a loop, 1 into 2 into 3 and back into 1, with no carrier.
+- **IIA**: inharmonic partials. G adds six, I adds six with a falling pitch at the start, H chains eight sines.
+
+### Controls and shortcuts
+
+The engines' settings are Deluge parameters, so they can be parameter locked, automated and put on gold knobs. They run 0-127 like the Cycles' knobs.
+
+Read the shortcut grid as an FM synth. The OSC1 column is the engine, and the OSC2, MOD1 and MOD2 columns are TIA's three operators:
+
+| Pad | TIA | IIA |
 |---|---|---|
-| 1 | Variant (L, B, C) | Variant (G, I, H) |
-| 2 | Freq 1 | Weight |
-| 3 | Freq 2 | Alloy |
-| 4 | Freq 3 | Shape |
-| 5 | Blendex 1 | Attack |
-| 6 | Blendex 2 | XIA LPF |
-| 7 | Blendex 3 | Drive |
-| 8 | XIA LPF | XIA decay |
-| 9 | Drive | Punch |
-| 10 | XIA decay | Tune |
-| 11 | Punch | Release (Deluge) |
-| 12 | Tune | LPF cutoff (Deluge) |
-| 13 | Release (Deluge) | HPF cutoff (Deluge) |
-| 14 | LPF cutoff (Deluge) | |
-| 15 | HPF cutoff (Deluge) | |
+| OSC1 TYPE | Variant | Variant |
+| OSC1 PULSE WIDTH | | Shape (sine > triangle > square > saw) |
+| OSC1 RETRIGGER | Punch (soft clipper) | Punch |
+| OSC1 FEEDBACK | Drive (wavefolder, saturator above 95) | Drive |
+| OSC1 WAVE INDEX | Engine decay | Engine decay |
+| OSC2 LEVEL / TRANSPOSE | Blendex 1 / Freq 1 | Alloy / Weight |
+| MOD1 LEVEL / TRANSPOSE | Blendex 2 / Freq 2 | Strike |
+| MOD2 LEVEL / TRANSPOSE | Blendex 3 / Freq 3 | |
 
-Freq 1-3 run from 24 semitones down at 0, through unison at 64, to 24 up at 127.
+The other shortcuts work as usual: OSC1 LEVEL, TRANSPOSE and NOISE, the envelopes, filters and FX.
 
-**Gold knobs on XIA rows.** Attack / release: XIA decay (upper) and XIA LPF (lower). Mod rate / depth: Blendex 1 and Freq 1 on TIA, Alloy and Weight on IIA.
+**Custom 2 / Custom 3** (the last gold knob pair) carry the two key settings: **Blendex 1 / Freq 1** on TIA, **Weight / Alloy** on IIA. Hold a step and turn them to parameter lock.
+
+- **Freq 1-3**: each operator's tuning, from 24 semitones down at 0, through unison at 64, to 24 up at 127.
+- **Weight** picks IIA's partial ratios, **Alloy** their levels (or the modulation depth on H), and **Strike** the level of a noise burst at the start of each hit.
+- **Engine decay** is the engine's own decay, on top of the Deluge's envelope. It starts at 127, which holds (about 9 seconds on IIA), so the Deluge envelope does the shaping. Turning it down brings back the Cycles' own decay, including IIA H's brightness fading with it.
+
+The full list of settings, and the pad editor's columns, are in the sound menu's **Drum synth** item, or press SELECT on OSC1 TYPE.
 
 **Differences from the Cycles.**
-- The envelopes and other once-per-block changes run about 9% slower, because the Deluge runs at 44.1 kHz rather than 48 kHz. Pitch is exact.
+- The Deluge's envelope shapes the level, and the engines' own low pass is left open: use the Deluge's filters.
+- Engine decay and other once-per-block changes run about 9% slower, because the Deluge runs at 44.1 kHz rather than 48 kHz. Pitch is exact.
 - Blendex 3 runs 0 to 127 like Blendex 1 and 2. On the Cycles it sits on the fine tune slot and mirrors around 64.
-- The Cycles' Gate setting, which holds the envelope while the note is held, isn't offered. The Deluge's own envelope covers held notes.
-- Drive is TIA's hidden fourth knob on the Cycles, the slot MIA uses for Fold.
+- IIA's attack setting is split: below the middle it set the strike level, which is **Strike** here, and above it a fade-in, which is the Deluge envelope's attack.
+- The settings can be parameter locked and automated, but not yet modulated from the mod matrix.
 
 ## Gold knobs
 

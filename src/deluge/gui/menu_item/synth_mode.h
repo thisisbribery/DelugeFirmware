@@ -16,6 +16,7 @@
  */
 #pragma once
 #include "definitions_cxx.hpp"
+#include "gui/menu_item/drum_synth/param.h"
 #include "gui/menu_item/selection.h"
 #include "gui/ui/sound_editor.h"
 #include "gui/views/view.h"
@@ -25,24 +26,98 @@
 #include "processing/sound/sound_drum.h"
 
 namespace deluge::gui::menu_item {
+/// The Deluge's synth modes, then the drum synth engines. Choosing an engine puts it on osc 1 of this sound, which
+/// keeps every envelope, filter and effect, so any kit row can go from a sample to TIA and back.
 class SynthModeSelection final : public Selection {
 public:
 	using Selection::Selection;
-	void readCurrentValue() override { this->setValue(soundEditor.currentSound->synthMode); }
+
+	enum Choice : uint8_t { SUBTRACTIVE, FM, RINGMOD, TIA, IIA, DRUM_SYNTH };
+
+	void readCurrentValue() override {
+		const Source& source = soundEditor.currentSound->sources[0];
+		if (source.oscType == OscType::DRUM_SYNTH) {
+			switch (source.drumPatch.engine()) {
+			case dsp::drum_synth::Engine::TIA:
+				this->setValue(TIA);
+				return;
+			case dsp::drum_synth::Engine::IIA:
+				this->setValue(IIA);
+				return;
+			default:
+				this->setValue(DRUM_SYNTH);
+				return;
+			}
+		}
+		this->setValue(soundEditor.currentSound->synthMode);
+	}
 	bool usesAffectEntire() override { return true; }
 	void writeCurrentValue() override {
-		auto current_value = this->getValue<::SynthMode>();
+		using dsp::drum_synth::Engine;
+		Sound& sound = *soundEditor.currentSound;
+		switch (this->getValue()) {
+		case TIA:
+			drum_synth::setDrumEngine(Engine::TIA);
+			break;
+		case IIA:
+			drum_synth::setDrumEngine(Engine::IIA);
+			break;
+		case DRUM_SYNTH:
+			if (sound.sources[0].oscType != OscType::DRUM_SYNTH
+			    || dsp::drum_synth::isXia(sound.sources[0].drumPatch.engine())) {
+				drum_synth::setDrumEngine(Engine::DRUM);
+			}
+			break;
+		default: {
+			auto current_value = this->getValue<::SynthMode>();
+			drum_synth::leaveDrumSynth();
+			// FM and ringmod are made of the Deluge's own oscillators
+			if (current_value != ::SynthMode::SUBTRACTIVE) {
+				for (Source& source : sound.sources) {
+					if (source.oscType > kLastRingmoddableOscType) {
+						sound.killAllVoices();
+						source.setOscType(OscType::SAW);
+					}
+				}
+			}
+			setSynthMode(current_value);
+			break;
+		}
+		}
+		view.setKnobIndicatorLevels();
+	}
 
+	deluge::vector<std::string_view> getOptions(OptType optType) override {
+		(void)optType;
+		using enum l10n::String;
+		// On a kit row, plain subtractive is a sample
+		return {
+		    l10n::getView(soundEditor.editingKitRow() ? STRING_FOR_SAMPLE : STRING_FOR_SUBTRACTIVE),
+		    l10n::getView(STRING_FOR_FM),
+		    l10n::getView(STRING_FOR_RINGMOD),
+		    l10n::getView(STRING_FOR_DRUM_ENGINE_TIA),
+		    l10n::getView(STRING_FOR_DRUM_ENGINE_IIA),
+		    l10n::getView(STRING_FOR_DRUM_SYNTH),
+		};
+	}
+
+	bool isRelevant(ModControllableAudio* modControllable, int32_t whichThing) const override {
+		// DX7 sounds have their own engine menu
+		Sound* sound = static_cast<Sound*>(modControllable);
+		return sound->sources[0].oscType != OscType::DX7;
+	}
+
+private:
+	void setSynthMode(::SynthMode current_value) {
 		// If affect-entire button held, do whole kit
 		if (currentUIMode == UI_MODE_HOLDING_AFFECT_ENTIRE_IN_SOUND_EDITOR && soundEditor.editingKitRow()) {
 
 			Kit* kit = getCurrentKit();
 
 			for (Drum* thisDrum = kit->firstDrum; thisDrum != nullptr; thisDrum = thisDrum->next) {
-				// Note: we need to apply the same filtering as stated in the isRelevant() function
 				if (thisDrum->type == DrumType::SOUND) {
 					auto* soundDrum = static_cast<SoundDrum*>(thisDrum);
-					// Note: we need to apply the same filtering as stated in the isRelevant() function
+					// Only rows made of the Deluge's own oscillators can change mode
 					if (soundDrum->sources[0].oscType <= kLastRingmoddableOscType
 					    && soundDrum->sources[1].oscType <= kLastRingmoddableOscType) {
 						soundDrum->setSynthMode(current_value, currentSong);
@@ -51,25 +126,9 @@ public:
 			}
 		}
 		// Or, the normal case of just one sound
-		else {
+		else if (soundEditor.currentSound->synthMode != current_value) {
 			soundEditor.currentSound->setSynthMode(current_value, currentSong);
 		}
-		view.setKnobIndicatorLevels();
-	}
-
-	deluge::vector<std::string_view> getOptions(OptType optType) override {
-		(void)optType;
-		return {
-		    l10n::getView(l10n::String::STRING_FOR_SUBTRACTIVE),
-		    l10n::getView(l10n::String::STRING_FOR_FM),
-		    l10n::getView(l10n::String::STRING_FOR_RINGMOD),
-		};
-	}
-
-	bool isRelevant(ModControllableAudio* modControllable, int32_t whichThing) const override {
-		Sound* sound = static_cast<Sound*>(modControllable);
-		return (sound->sources[0].oscType <= kLastRingmoddableOscType
-		        && sound->sources[1].oscType <= kLastRingmoddableOscType);
 	}
 };
 } // namespace deluge::gui::menu_item

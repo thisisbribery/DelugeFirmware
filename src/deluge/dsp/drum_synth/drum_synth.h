@@ -13,7 +13,9 @@
 #pragma once
 
 #include "dsp/drum_synth/xia.h"
+#include <algorithm>
 #include <array>
+#include <climits>
 #include <cstdint>
 
 namespace deluge::dsp::drum_synth {
@@ -23,15 +25,55 @@ enum class Engine : uint8_t {
 	DRUM,  ///< Kick and toms: main osc, FM or mixed mod osc, pitch envelope
 	SNARE, ///< Pitched osc with pitch envelope, plus filtered sample-and-hold noise
 	METAL, ///< Cymbal and hi-hat: main osc frequency modulated by two more oscs, one usually noise
-	TIA,   ///< XIA TIA: three sines phase modulating a carrier, with its own decay, filter and drive
-	IIA,   ///< XIA IIA: inharmonic partials with a noise strike, with its own envelope, filter and drive
+	TIA,   ///< XIA TIA: three sines phase modulating a carrier
+	IIA,   ///< XIA IIA: inharmonic partials with a noise strike
 	NUM_ENGINES,
 };
 
-/// Whether an engine is one of the XIA engines, which bring their own amp envelope
+/// Whether an engine is one of the XIA engines, whose settings live on Deluge params (see XiaControls)
 constexpr bool isXia(Engine engine) {
 	return engine == Engine::TIA || engine == Engine::IIA;
 }
+
+/// The XIA engines' continuous settings. They live on Deluge patched params that a non-FM sound doesn't use, so they
+/// can be automated, parameter locked and put on gold knobs. Each slot means something per engine.
+struct XiaControls {
+	enum Slot : uint8_t {
+		TIA_BLENDEX1 = 0, ///< Operator 1 from heard (0) to modulating (127)
+		TIA_BLENDEX2 = 1,
+		TIA_BLENDEX3 = 2,
+		DRIVE = 3,        ///< Both engines: wavefolder, then a saturator at the top of the range
+		ENGINE_DECAY = 4, ///< Both engines: their own decay on top of the Deluge envelope. 127 holds
+		TIA_FREQ1 = 5,    ///< Operator 1 tuning, 64 = unison, 0 / 127 = 24 semitones down / up
+		TIA_FREQ2 = 6,
+		TIA_FREQ3 = 7,
+		IIA_WEIGHT = 0, ///< Partial ratios
+		IIA_ALLOY = 1,  ///< Partial levels, or modulation depth on H
+		IIA_SHAPE = 2,  ///< Partial waveform, sine > triangle > square > saw
+		IIA_STRIKE = 5, ///< Level of the noise burst at the start of each hit
+		NUM_SLOTS = 8,
+	};
+	/// Raw Deluge param values: the whole int32 range, centre 0
+	std::array<int32_t, NUM_SLOTS> values{};
+
+	/// Raw param value to an 8.8 knob value as the Cycles uses: 0 to 0x7F00, with the centre at exactly 0x4000 (64)
+	static constexpr int32_t toKnob(int32_t raw) {
+		const int64_t scale = (raw < 0) ? 0x4000 : 0x3F00;
+		const int64_t offset = (static_cast<int64_t>(raw) * scale + (int64_t{1} << 30)) >> 31;
+		return static_cast<int32_t>(0x4000 + offset);
+	}
+	/// The inverse, for setting a param to a knob value
+	static constexpr int32_t fromKnob(int32_t knob) {
+		const int64_t d = knob - 0x4000;
+		const int64_t raw = (d << 31) / ((d < 0) ? 0x4000 : 0x3F00);
+		return static_cast<int32_t>(std::clamp<int64_t>(raw, INT32_MIN, INT32_MAX));
+	}
+	/// A whole number knob value, 0 to 127
+	static constexpr int32_t fromValue(int32_t value) { return fromKnob(value << 8); }
+
+	/// The Cycles' own defaults for an engine, as raw param values
+	static XiaControls defaultsFor(Engine engine);
+};
 
 enum class Wave : uint8_t { SINE, TRIANGLE, SAW, SQUARE, NOISE, NUM_WAVES };
 
@@ -75,29 +117,16 @@ public:
 		TRANS_MODE,        ///< kTransientSnap, kTransientOffset, or a transient sample
 		TRANS_VOLUME,      ///< Transient level
 		TRANS_PITCH,       ///< Transient speed
-		// XIA engines. Knobs run 0-127 as on the Model:Cycles.
-		XIA_VARIANT,  ///< The Cycles variant: TIA L, B, C or IIA G, I, H
-		TIA_FREQ1,    ///< Oscillator 1 tuning, 64 = unison, 0 / 127 = 24 semitones down / up
-		TIA_FREQ2,    ///< Oscillator 2 tuning
-		TIA_FREQ3,    ///< Oscillator 3 tuning
-		TIA_BLENDEX1, ///< Oscillator 1 from heard (0) to modulating (127)
-		TIA_BLENDEX2, ///< Oscillator 2 from heard to modulating
-		TIA_BLENDEX3, ///< Oscillator 3 from heard to modulating
-		IIA_WEIGHT,   ///< Partial ratios
-		IIA_ALLOY,    ///< Partial levels or modulation depth
-		IIA_SHAPE,    ///< Partial waveform, sine > triangle > square > saw
-		IIA_ATTACK,   ///< Below 64: noise strike level. Above 68: attack time
-		XIA_LOW_PASS, ///< The engine's own low pass, which follows the note. 127 = off
-		XIA_DRIVE,    ///< Wavefolder, then a saturator at the top of the range
-		XIA_DECAY,    ///< The engine's amp decay. 127 holds
-		XIA_PUNCH,    ///< 1 = shorter decay and a soft clipper
+		// XIA engines. Their continuous settings are on Deluge params: see XiaControls.
+		XIA_VARIANT, ///< The Cycles variant: TIA L, B, C or IIA G, I, H
+		XIA_PUNCH,   ///< 1 = a soft clipper on the output, and a shorter engine decay
 		NUM_PARAMS,
 	};
 
 	Patch() { setPreset(Preset::KICK); }
 
 	void setPreset(Preset preset);
-	/// Switch to an XIA engine with a Cycles variant's own default settings
+	/// Switch to an XIA engine and variant. Its continuous settings are on Deluge params: see XiaControls.
 	void setXiaPreset(Engine engine, uint8_t variant);
 
 	[[nodiscard]] uint8_t get(Param p) const { return params_[p]; }
@@ -136,8 +165,10 @@ public:
 
 	/// Adds numSamples of output into buffer. basePhaseIncrement is the Deluge's pitch for this note, before the
 	/// drum's pitch envelope. amplitude / amplitudeIncrement are the source's gain ramp, as for the other oscillators.
+	/// xiaControls are read by the XIA engines only.
 	void render(const Patch& patch, const KnobOffsets& knobs, int32_t* buffer, int32_t numSamples,
-	            uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement);
+	            uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement,
+	            const XiaControls& xiaControls = {});
 
 	/// True once an XIA engine's own envelope has finished, so the Deluge voice can be freed
 	[[nodiscard]] bool finished() const { return xiaFinished_; }
@@ -166,8 +197,8 @@ private:
 		int32_t held = 0; ///< Current sample-and-hold value, for noise
 	};
 
-	void renderXia(const std::array<uint8_t, Patch::NUM_PARAMS>& p, int32_t* buffer, int32_t numSamples,
-	               uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement);
+	void renderXia(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const XiaControls& controls, int32_t* buffer,
+	               int32_t numSamples, uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement);
 	void startXia(Engine engine);
 
 	void updateSettings(const Patch& patch, const KnobOffsets& knobs);

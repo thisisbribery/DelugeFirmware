@@ -61,6 +61,10 @@ public:
 	bool getGreyoutColsAndRows(uint32_t* cols, uint32_t* rows) override;
 	/// True while the drum synth pad editor is showing on the main grid
 	bool isDrumSynthEditorOnGrid();
+	/// The sound shortcut pad (x, y) opens, allowing for drum synth engines that repurpose some pads
+	MenuItem* soundShortcut(int32_t x, int32_t y);
+	/// The sound a shortcut pad would edit: the one open, or the current synth or kit row
+	Sound* shortcutSound();
 	Sound* currentSound;
 	bool allowsNoteTails;
 	ModControllableAudio* currentModControllable;

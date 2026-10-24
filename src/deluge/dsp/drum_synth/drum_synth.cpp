@@ -214,23 +214,33 @@ void Patch::setPreset(Preset preset) {
 }
 
 void Patch::setXiaPreset(Engine engine, uint8_t variant) {
-	// The Model:Cycles' own defaults for each variant
 	params_[ENGINE] = static_cast<uint8_t>(engine);
 	params_[XIA_VARIANT] = std::min<uint8_t>(variant, 2);
-	params_[TIA_FREQ1] = 64;
-	params_[TIA_FREQ2] = 64;
-	params_[TIA_FREQ3] = 64;
-	params_[TIA_BLENDEX1] = 0;
-	params_[TIA_BLENDEX2] = 0;
-	params_[TIA_BLENDEX3] = 0;
-	params_[IIA_WEIGHT] = (variant == 2) ? 40 : 30;
-	params_[IIA_ALLOY] = (variant == 1) ? 40 : 50;
-	params_[IIA_SHAPE] = 0;
-	params_[IIA_ATTACK] = 64;
-	params_[XIA_LOW_PASS] = 127;
-	params_[XIA_DRIVE] = 0;
-	params_[XIA_DECAY] = (engine == Engine::TIA) ? 70 : 60;
 	params_[XIA_PUNCH] = 0;
+}
+
+XiaControls XiaControls::defaultsFor(Engine engine) {
+	// The Model:Cycles' own defaults, except that the engine's decay holds: the Deluge envelope does the shaping
+	XiaControls c;
+	c.values[DRIVE] = fromValue(0);
+	c.values[ENGINE_DECAY] = fromValue(127);
+	if (engine == Engine::IIA) {
+		c.values[IIA_WEIGHT] = fromValue(30);
+		c.values[IIA_ALLOY] = fromValue(50);
+		c.values[IIA_SHAPE] = fromValue(0);
+		c.values[IIA_STRIKE] = fromValue(0);
+		c.values[6] = fromValue(64);
+		c.values[7] = fromValue(64);
+	}
+	else {
+		c.values[TIA_BLENDEX1] = fromValue(0);
+		c.values[TIA_BLENDEX2] = fromValue(0);
+		c.values[TIA_BLENDEX3] = fromValue(0);
+		c.values[TIA_FREQ1] = fromValue(64);
+		c.values[TIA_FREQ2] = fromValue(64);
+		c.values[TIA_FREQ3] = fromValue(64);
+	}
+	return c;
 }
 
 uint8_t Patch::maxValue(Param p) {
@@ -287,18 +297,6 @@ bool Patch::isUsedBy(Param p, Engine engine) {
 	case NOISE_CUTOFF:
 	case NOISE_RESONANCE:
 		return engine == Engine::SNARE;
-	case TIA_FREQ1:
-	case TIA_FREQ2:
-	case TIA_FREQ3:
-	case TIA_BLENDEX1:
-	case TIA_BLENDEX2:
-	case TIA_BLENDEX3:
-		return engine == Engine::TIA;
-	case IIA_WEIGHT:
-	case IIA_ALLOY:
-	case IIA_SHAPE:
-	case IIA_ATTACK:
-		return engine == Engine::IIA;
 	default:
 		return isXia(engine);
 	}
@@ -328,18 +326,6 @@ void Patch::readLegacyDrumBytes(const uint8_t* bytes, int32_t length) {
 }
 
 Patch::Param KnobOffsets::targetFor(Slot slot, Engine engine) {
-	if (isXia(engine)) {
-		switch (slot) {
-		case TONE:
-			return (engine == Engine::TIA) ? Patch::TIA_FREQ1 : Patch::IIA_WEIGHT;
-		case PITCH_AMOUNT:
-			return (engine == Engine::TIA) ? Patch::TIA_BLENDEX1 : Patch::IIA_ALLOY;
-		case PITCH_DECAY:
-			return Patch::XIA_LOW_PASS;
-		default:
-			return Patch::XIA_DECAY;
-		}
-	}
 	switch (slot) {
 	case TONE:
 		return (engine == Engine::SNARE) ? Patch::NOISE_MIX : Patch::FM_AMOUNT;
@@ -362,7 +348,8 @@ void Voice::updateSettings(const Patch& patch, const KnobOffsets& knobs) {
 	}
 
 	const Engine engine = static_cast<Engine>(effective[Patch::ENGINE]);
-	for (uint8_t s = 0; s < KnobOffsets::NUM_SLOTS; s++) {
+	// The knob offsets are for the LXR engines. The XIA engines' settings are Deluge params already.
+	for (uint8_t s = 0; s < (isXia(engine) ? 0 : KnobOffsets::NUM_SLOTS); s++) {
 		const Patch::Param target = KnobOffsets::targetFor(static_cast<KnobOffsets::Slot>(s), engine);
 		int32_t offset = knobs.values[s] >> kKnobShift;
 		if (target == Patch::MOD_COARSE) {
@@ -639,10 +626,11 @@ void Voice::renderMetal(int32_t* out, int32_t n, int32_t& amplitude, int32_t amp
 }
 
 void Voice::render(const Patch& patch, const KnobOffsets& knobs, int32_t* buffer, int32_t numSamples,
-                   uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement) {
+                   uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement,
+                   const XiaControls& xiaControls) {
 	updateSettings(patch, knobs);
 	if (isXia(settings_.engine)) {
-		renderXia(settingsFrom_, buffer, numSamples, basePhaseIncrement, amplitude, amplitudeIncrement);
+		renderXia(settingsFrom_, xiaControls, buffer, numSamples, basePhaseIncrement, amplitude, amplitudeIncrement);
 		return;
 	}
 	xiaFinished_ = false;
@@ -689,14 +677,18 @@ int32_t xiaPitch(uint32_t basePhaseIncrement) {
 	return static_cast<int32_t>(std::clamp(semitones * 65536.f, 0.f, static_cast<float>(xia::kMaxPitch)));
 }
 
-/// A 0-127 knob as the Cycles hands it to its machines: 8.8 fixed point
-int32_t knob(uint8_t value) {
-	return value << 8;
+/// The Cycles scales its extra knob slots to 0-0x7FFF
+int32_t fullKnob(int32_t knob) {
+	return (knob * 0x7FFF) / 0x7F00;
 }
 
-/// The Cycles scales its extra knob slots to 0-0x7FFF
-int32_t fullKnob(uint8_t value) {
-	return (knob(value) * 0x7FFF) / 0x7F00;
+/// The engines' own low pass stays open: the Deluge's filters do that job
+constexpr int32_t kLowPassOff = 0x7F00;
+
+/// IIA's attack setting below 64 sets its noise strike. Strike 0-127 runs that from none to full. (Its fade-in, the
+/// setting above 64, is left to the Deluge envelope.) The Cycles never sends less than 0x100.
+int32_t iiaAttackForStrike(int32_t strike) {
+	return 0x4000 - (strike * 0x3EA2) / 0x7F00;
 }
 
 } // namespace
@@ -714,8 +706,11 @@ void Voice::startXia(Engine engine) {
 	xiaFinished_ = false;
 }
 
-void Voice::renderXia(const std::array<uint8_t, Patch::NUM_PARAMS>& p, int32_t* buffer, int32_t numSamples,
-                      uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement) {
+void Voice::renderXia(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const XiaControls& controls, int32_t* buffer,
+                      int32_t numSamples, uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement) {
+	auto knob = [&](uint8_t slot) {
+		return std::clamp<int32_t>(XiaControls::toKnob(controls.values[slot]), 0, 0x7F00);
+	};
 	const auto engine = static_cast<Engine>(p[Patch::ENGINE]);
 	if (engine != xiaEngine_) {
 		// Switched engine while the note was sounding: start the new one fresh
@@ -730,12 +725,12 @@ void Voice::renderXia(const std::array<uint8_t, Patch::NUM_PARAMS>& p, int32_t* 
 			if (engine == Engine::TIA) {
 				const xia::TiaSettings t{
 				    .variant = p[Patch::XIA_VARIANT],
-				    .freq = {knob(p[Patch::TIA_FREQ1]), knob(p[Patch::TIA_FREQ2]), knob(p[Patch::TIA_FREQ3])},
-				    .blendex = {fullKnob(p[Patch::TIA_BLENDEX1]), fullKnob(p[Patch::TIA_BLENDEX2]),
-				                fullKnob(p[Patch::TIA_BLENDEX3])},
-				    .lowPass = knob(p[Patch::XIA_LOW_PASS]),
-				    .drive = knob(p[Patch::XIA_DRIVE]),
-				    .decay = knob(p[Patch::XIA_DECAY]),
+				    .freq = {knob(XiaControls::TIA_FREQ1), knob(XiaControls::TIA_FREQ2), knob(XiaControls::TIA_FREQ3)},
+				    .blendex = {fullKnob(knob(XiaControls::TIA_BLENDEX1)), fullKnob(knob(XiaControls::TIA_BLENDEX2)),
+				                fullKnob(knob(XiaControls::TIA_BLENDEX3))},
+				    .lowPass = kLowPassOff,
+				    .drive = knob(XiaControls::DRIVE),
+				    .decay = knob(XiaControls::ENGINE_DECAY),
 				    .pitch = pitch,
 				    .punch = p[Patch::XIA_PUNCH],
 				    .gate = 0,
@@ -747,14 +742,13 @@ void Voice::renderXia(const std::array<uint8_t, Patch::NUM_PARAMS>& p, int32_t* 
 			else {
 				const xia::IiaSettings t{
 				    .variant = p[Patch::XIA_VARIANT],
-				    .weight = knob(p[Patch::IIA_WEIGHT]),
-				    .alloy = knob(p[Patch::IIA_ALLOY]),
-				    .lowPass = knob(p[Patch::XIA_LOW_PASS]),
-				    .drive = knob(p[Patch::XIA_DRIVE]),
-				    .shape = knob(p[Patch::IIA_SHAPE]),
-				    .decay = knob(p[Patch::XIA_DECAY]),
-				    // The Cycles never sends 0 here: its attack knob starts at 1
-				    .attack = knob(std::max<uint8_t>(p[Patch::IIA_ATTACK], 1)),
+				    .weight = knob(XiaControls::IIA_WEIGHT),
+				    .alloy = knob(XiaControls::IIA_ALLOY),
+				    .lowPass = kLowPassOff,
+				    .drive = knob(XiaControls::DRIVE),
+				    .shape = knob(XiaControls::IIA_SHAPE),
+				    .decay = knob(XiaControls::ENGINE_DECAY),
+				    .attack = iiaAttackForStrike(knob(XiaControls::IIA_STRIKE)),
 				    .pitch = pitch,
 				    .punch = p[Patch::XIA_PUNCH],
 				    .gate = 0,
