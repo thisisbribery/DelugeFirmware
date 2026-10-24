@@ -1512,7 +1512,6 @@ PLACE_SDRAM_BSS menu_item::Submenu dxMenu{STRING_FOR_DX_1, dxMenuItems};
 
 // Drum synth (osc 1 only)
 using DrumParam = deluge::dsp::drum_synth::Patch;
-PLACE_SDRAM_BSS drum_synth::EngineSelect drumEngineMenu{STRING_FOR_DRUM_ENGINE};
 PLACE_SDRAM_BSS drum_synth::PresetSelect drumPresetMenu{STRING_FOR_DRUM_PRESET};
 PLACE_SDRAM_BSS drum_synth::Wave drumOscWaveMenu{STRING_FOR_DRUM_OSC_WAVE, DrumParam::OSC_WAVE};
 PLACE_SDRAM_BSS drum_synth::LxrControl drumPitchAmountMenu{STRING_FOR_DRUM_PITCH_AMOUNT, DrumParam::PITCH_AMOUNT};
@@ -1537,7 +1536,6 @@ PLACE_SDRAM_BSS drum_synth::TransientMode drumTransientMenu{STRING_FOR_DRUM_TRAN
 PLACE_SDRAM_BSS drum_synth::LxrControl drumTransientVolumeMenu{STRING_FOR_DRUM_TRANSIENT_VOLUME,
                                                                DrumParam::TRANS_VOLUME};
 PLACE_SDRAM_BSS drum_synth::LxrControl drumTransientPitchMenu{STRING_FOR_DRUM_TRANSIENT_PITCH, DrumParam::TRANS_PITCH};
-PLACE_SDRAM_BSS drum_synth::XiaVariant xiaVariantMenu{STRING_FOR_XIA_VARIANT};
 using XiaSlot = deluge::dsp::drum_synth::DrumControls;
 using XiaEngine = deluge::dsp::drum_synth::Engine;
 PLACE_SDRAM_BSS drum_synth::XiaControl tiaBlendex1Menu{STRING_FOR_TIA_BLENDEX1, XiaEngine::TIA, XiaSlot::TIA_BLENDEX1};
@@ -1554,29 +1552,33 @@ PLACE_SDRAM_BSS drum_synth::XiaControl xiaDriveMenu{STRING_FOR_XIA_DRIVE, XiaEng
 PLACE_SDRAM_BSS drum_synth::XiaControl xiaDecayMenu{STRING_FOR_XIA_DECAY, XiaEngine::NUM_ENGINES,
                                                     XiaSlot::ENGINE_DECAY};
 PLACE_SDRAM_BSS drum_synth::OffOn xiaPunchMenu{STRING_FOR_XIA_PUNCH, DrumParam::XIA_PUNCH};
+PLACE_SDRAM_BSS drum_synth::CycControl cycMacro1Menu{STRING_FOR_CYC_COLOR, XiaSlot::CYC_MACRO1};
+PLACE_SDRAM_BSS drum_synth::CycControl cycMacro2Menu{STRING_FOR_CYC_SHAPE, XiaSlot::CYC_MACRO2};
+PLACE_SDRAM_BSS drum_synth::CycControl cycMacro3Menu{STRING_FOR_CYC_SWEEP, XiaSlot::CYC_MACRO3};
+PLACE_SDRAM_BSS drum_synth::CycControl cycMacro4Menu{STRING_FOR_CYC_CONTOUR, XiaSlot::CYC_MACRO4};
+PLACE_SDRAM_BSS drum_synth::CycControl cycDecayMenu{STRING_FOR_CYC_AMP_DECAY, XiaSlot::COMMON_DECAY};
+PLACE_SDRAM_BSS drum_synth::CycControl cycDriveMenu{STRING_FOR_XIA_DRIVE, XiaSlot::CYC_DRIVE};
+PLACE_SDRAM_BSS drum_synth::LxrCommonControl lxrDriveMenu{STRING_FOR_XIA_DRIVE, XiaSlot::LXR_DRIVE};
+PLACE_SDRAM_BSS drum_synth::LxrCommonControl lxrDecayMenu{STRING_FOR_XIA_DECAY, XiaSlot::COMMON_DECAY};
 PLACE_SDRAM_BSS drum_synth::SnappyDecay drumSnappyDecayMenu{STRING_FOR_DRUM_SNAPPY_DECAY};
 // Items the current engine doesn't use hide themselves
 PLACE_SDRAM_BSS menu_item::Submenu drumSynthMenu{
     STRING_FOR_DRUM_SYNTH,
     {
-        &drumEngineMenu,         &drumPresetMenu,
-        &drumOscWaveMenu,        &drumPitchAmountMenu,
-        &drumPitchDecayMenu,     &drumPitchSlopeMenu,
-        &drumMixModeMenu,        &drumFmAmountMenu,
-        &drumModWaveMenu,        &drumModCoarseMenu,
-        &drumModFineMenu,        &drumFm2AmountMenu,
-        &drumMod2WaveMenu,       &drumMod2CoarseMenu,
-        &drumMod2FineMenu,       &drumNoiseMixMenu,
-        &drumNoisePitchMenu,     &drumNoiseFilterMenu,
-        &drumNoiseCutoffMenu,    &drumNoiseResonanceMenu,
-        &drumTransientMenu,      &drumTransientVolumeMenu,
-        &drumTransientPitchMenu, &xiaVariantMenu,
-        &tiaBlendex1Menu,        &tiaFreq1Menu,
-        &tiaBlendex2Menu,        &tiaFreq2Menu,
-        &tiaBlendex3Menu,        &tiaFreq3Menu,
-        &iiaWeightMenu,          &iiaAlloyMenu,
-        &iiaShapeMenu,           &iiaStrikeMenu,
-        &xiaDriveMenu,           &xiaDecayMenu,
+        &drumPresetMenu,         &drumOscWaveMenu,     &drumPitchAmountMenu,
+        &drumPitchDecayMenu,     &drumPitchSlopeMenu,  &drumMixModeMenu,
+        &drumFmAmountMenu,       &drumModWaveMenu,     &drumModCoarseMenu,
+        &drumModFineMenu,        &drumFm2AmountMenu,   &drumMod2WaveMenu,
+        &drumMod2CoarseMenu,     &drumMod2FineMenu,    &drumNoiseMixMenu,
+        &drumNoisePitchMenu,     &drumNoiseFilterMenu, &drumNoiseCutoffMenu,
+        &drumNoiseResonanceMenu, &drumTransientMenu,   &drumTransientVolumeMenu,
+        &drumTransientPitchMenu, &tiaBlendex1Menu,     &tiaFreq1Menu,
+        &tiaBlendex2Menu,        &tiaFreq2Menu,        &tiaBlendex3Menu,
+        &tiaFreq3Menu,           &iiaWeightMenu,       &iiaAlloyMenu,
+        &iiaShapeMenu,           &iiaStrikeMenu,       &cycMacro1Menu,
+        &cycMacro2Menu,          &cycMacro3Menu,       &cycMacro4Menu,
+        &cycDecayMenu,           &cycDriveMenu,        &lxrDriveMenu,
+        &lxrDecayMenu,           &xiaDriveMenu,        &xiaDecayMenu,
         &xiaPunchMenu,           &drumSnappyDecayMenu,
     },
 };
@@ -1651,8 +1653,7 @@ PLACE_SDRAM_DATA std::array<DrumColumn, 16> drumEditorMetalLayout{{
 	    DrumColumn{&xiaDecayMenu, DrumKind::NUMBER, DrumGroup::XIA_ENVELOPE}, DrumColumn {                             \
 		&xiaPunchMenu, DrumKind::CHOICE, DrumGroup::XIA_ENVELOPE                                                       \
 	}
-PLACE_SDRAM_DATA std::array<DrumColumn, 15> drumEditorTiaLayout{{
-    {&xiaVariantMenu, DrumKind::CHOICE, DrumGroup::OSC},
+PLACE_SDRAM_DATA std::array<DrumColumn, 14> drumEditorTiaLayout{{
     {&tiaBlendex1Menu, DrumKind::NUMBER, DrumGroup::MOD},
     {&tiaFreq1Menu, DrumKind::NUMBER, DrumGroup::PITCH},
     {&tiaBlendex2Menu, DrumKind::NUMBER, DrumGroup::MOD},
@@ -1662,8 +1663,7 @@ PLACE_SDRAM_DATA std::array<DrumColumn, 15> drumEditorTiaLayout{{
     XIA_ENGINE_COLUMNS,
     XIA_SOUND_COLUMNS,
 }};
-PLACE_SDRAM_DATA std::array<DrumColumn, 13> drumEditorIiaLayout{{
-    {&xiaVariantMenu, DrumKind::CHOICE, DrumGroup::OSC},
+PLACE_SDRAM_DATA std::array<DrumColumn, 12> drumEditorIiaLayout{{
     {&iiaWeightMenu, DrumKind::NUMBER, DrumGroup::MOD},
     {&iiaAlloyMenu, DrumKind::NUMBER, DrumGroup::MOD},
     {&iiaShapeMenu, DrumKind::NUMBER, DrumGroup::MOD2},
@@ -1672,136 +1672,171 @@ PLACE_SDRAM_DATA std::array<DrumColumn, 13> drumEditorIiaLayout{{
     XIA_SOUND_COLUMNS,
 }};
 #undef XIA_SOUND_COLUMNS
+// The Cyc engines: their four knobs, amp decay and punch, then the Deluge's tuning and filters
+PLACE_SDRAM_DATA std::array<DrumColumn, 10> drumEditorCycLayout{{
+    {&cycMacro1Menu, DrumKind::NUMBER, DrumGroup::MOD},
+    {&cycMacro2Menu, DrumKind::NUMBER, DrumGroup::MOD},
+    {&cycMacro3Menu, DrumKind::NUMBER, DrumGroup::MOD2},
+    {&cycMacro4Menu, DrumKind::NUMBER, DrumGroup::MOD2},
+    {&cycDriveMenu, DrumKind::NUMBER, DrumGroup::TRANSIENT},
+    {&cycDecayMenu, DrumKind::NUMBER, DrumGroup::XIA_ENVELOPE},
+    {&xiaPunchMenu, DrumKind::CHOICE, DrumGroup::XIA_ENVELOPE},
+    {&source0TransposeMenu, DrumKind::NUMBER, DrumGroup::SOUND, -2400, 2400, 100, 100},
+    {&lpfFreqMenu, DrumKind::NUMBER, DrumGroup::SOUND},
+    {&hpfFreqMenu, DrumKind::NUMBER, DrumGroup::SOUND},
+}};
 
-// Drum synth shortcut pads, read as an FM synth. The OSC1 column is the drum voice itself, OSC1 TYPE picking the
-// variant or LXR voice. The other columns:
-// - TIA: OSC2, MOD1 and MOD2 are its three operators, LEVEL being how far each modulates (Blendex) and TRANSPOSE its
-//   tuning (Freq).
-// - IIA: OSC2 holds its partials, LEVEL being Alloy and TRANSPOSE Weight. MOD1 LEVEL is the noise strike.
-// - LXR: OSC2 is the second sound source, the mod osc (kick, metal) or the noise (snare): LEVEL its amount, TRANSPOSE
-//   its pitch, TYPE its wave or filter, PULSE WIDTH its fine tune or cutoff. MOD1 is the pitch envelope on kick and
-//   snare (LEVEL decay, TRANSPOSE amount, FEEDBACK curve), and metal's second mod osc.
+// Drum synth shortcut pads. One layout for every drum engine, read the way the grid is printed. Only the four
+// oscillator and FM columns change meaning; the envelope, filter, FX and master pads stay the Deluge's own.
+//
+// Columns: OSC1 = the main voice. OSC2 = the second layer (noise, rattle, snares, overtone, clap tail, or the first
+// operator). MOD1 = the modulator (FM depth and ratio). MOD2 = the pitch sweep, or a second modulator / third operator
+// on the engines without one.
+// Rows: LEVEL = amount. TRANSPOSE = tuning or ratio. TYPE = a choice. PULSE WIDTH = shape or fine tune. RETRIGGER = the
+// attack (punch, transients). FEEDBACK = drive, resonance, feedback or curve. WAVE INDEX = decay. OSC1 NOISE = noise.
+// Every engine has its drive on OSC1 FEEDBACK and its decay on OSC1 WAVE INDEX (also the attack / release gold knobs).
+// The Cyc engines also have Sweep and Contour on the mod FX rate and depth pads (also the mod rate / depth gold knobs).
+// OSC1 TYPE opens SYNTH MODE, where the engine is chosen. Pads an engine doesn't use keep their usual job.
+extern SynthModeSelection synthModeMenu;
+namespace {
+using DrumEngine = deluge::dsp::drum_synth::Engine;
+struct DrumPad {
+	DrumEngine engine;
+	uint8_t x;
+	uint8_t y;
+	MenuItem* item;
+};
+constexpr uint8_t kPadOsc1 = 2;
+constexpr uint8_t kPadOsc2 = 3;
+constexpr uint8_t kPadMod1 = 4;
+constexpr uint8_t kPadMod2 = 5;
+enum PadRow : uint8_t { LEVEL, TRANSPOSE, TYPE, PULSE_WIDTH, RETRIGGER, FEEDBACK, WAVE_INDEX, NOISE };
+
+// Pads shared by all three LXR voices: the main wave, the transient, drive and decay
+#define LXR_COMMON_PADS(e)                                                                                             \
+	{e, kPadOsc1, FEEDBACK, &lxrDriveMenu}, {e, kPadOsc1, WAVE_INDEX, &lxrDecayMenu},                                  \
+	    {e, kPadOsc1, PULSE_WIDTH, &drumOscWaveMenu}, {e, kPadOsc1, RETRIGGER, &drumTransientMenu},                    \
+	    {e, kPadOsc2, RETRIGGER, &drumTransientVolumeMenu}, {                                                          \
+		e, kPadMod1, RETRIGGER, &drumTransientPitchMenu                                                                \
+	}
+#define LXR_PITCH_PADS(e)                                                                                              \
+	{e, kPadMod2, LEVEL, &drumPitchAmountMenu}, {e, kPadMod2, WAVE_INDEX, &drumPitchDecayMenu}, {                      \
+		e, kPadMod2, FEEDBACK, &drumPitchSlopeMenu                                                                     \
+	}
+#define LXR_MOD_PADS(e)                                                                                                \
+	{e, kPadMod1, LEVEL, &drumFmAmountMenu}, {e, kPadMod1, TRANSPOSE, &drumModCoarseMenu},                             \
+	    {e, kPadMod1, TYPE, &drumModWaveMenu}, {                                                                       \
+		e, kPadMod1, PULSE_WIDTH, &drumModFineMenu                                                                     \
+	}
+// Drom1 / Drom2 share punch, drive and their own decay
+#define XIA_PADS(e)                                                                                                    \
+	{e, kPadOsc1, RETRIGGER, &xiaPunchMenu}, {e, kPadOsc1, FEEDBACK, &xiaDriveMenu}, {                                 \
+		e, kPadOsc1, WAVE_INDEX, &xiaDecayMenu                                                                         \
+	}
+// So do the Cyc engines, which also have Sweep and Contour on the mod FX rate and depth pads
+constexpr uint8_t kPadModFx = 12;
+#define CYC_PADS(e)                                                                                                    \
+	{e, kPadOsc1, RETRIGGER, &xiaPunchMenu}, {e, kPadOsc1, FEEDBACK, &cycDriveMenu},                                   \
+	    {e, kPadOsc1, WAVE_INDEX, &cycDecayMenu}, {e, kPadModFx, NOISE, &cycMacro3Menu}, {                             \
+		e, kPadModFx, WAVE_INDEX, &cycMacro4Menu                                                                       \
+	}
+
+PLACE_SDRAM_DATA DrumPad drumPads[] = {
+    // LXR kick / tom
+    LXR_COMMON_PADS(DrumEngine::DRUM),
+    LXR_MOD_PADS(DrumEngine::DRUM),
+    LXR_PITCH_PADS(DrumEngine::DRUM),
+    {DrumEngine::DRUM, kPadOsc2, TYPE, &drumMixModeMenu}, // the mod osc modulating (FM) or heard as a layer (mix)
+    // LXR snare: the noise is its second layer
+    LXR_COMMON_PADS(DrumEngine::SNARE),
+    LXR_PITCH_PADS(DrumEngine::SNARE),
+    {DrumEngine::SNARE, kPadOsc2, LEVEL, &drumNoiseMixMenu},
+    {DrumEngine::SNARE, kPadOsc2, TRANSPOSE, &drumNoisePitchMenu},
+    {DrumEngine::SNARE, kPadOsc2, TYPE, &drumNoiseFilterMenu},
+    {DrumEngine::SNARE, kPadOsc2, PULSE_WIDTH, &drumNoiseCutoffMenu},
+    {DrumEngine::SNARE, kPadOsc2, FEEDBACK, &drumNoiseResonanceMenu},
+    // LXR cymbal / hat: two modulators
+    LXR_COMMON_PADS(DrumEngine::METAL),
+    LXR_MOD_PADS(DrumEngine::METAL),
+    {DrumEngine::METAL, kPadMod2, LEVEL, &drumFm2AmountMenu},
+    {DrumEngine::METAL, kPadMod2, TRANSPOSE, &drumMod2CoarseMenu},
+    {DrumEngine::METAL, kPadMod2, TYPE, &drumMod2WaveMenu},
+    {DrumEngine::METAL, kPadMod2, PULSE_WIDTH, &drumMod2FineMenu},
+    // Drom1: three operators on OSC2, MOD1 and MOD2, LEVEL how far each modulates (Blendex), TRANSPOSE its tuning
+    XIA_PADS(DrumEngine::TIA),
+    {DrumEngine::TIA, kPadOsc2, LEVEL, &tiaBlendex1Menu},
+    {DrumEngine::TIA, kPadOsc2, TRANSPOSE, &tiaFreq1Menu},
+    {DrumEngine::TIA, kPadMod1, LEVEL, &tiaBlendex2Menu},
+    {DrumEngine::TIA, kPadMod1, TRANSPOSE, &tiaFreq2Menu},
+    {DrumEngine::TIA, kPadMod2, LEVEL, &tiaBlendex3Menu},
+    {DrumEngine::TIA, kPadMod2, TRANSPOSE, &tiaFreq3Menu},
+    // Drom2: partials as a modulator (Alloy their level, Weight their ratios), wave shape, noise strike
+    XIA_PADS(DrumEngine::IIA),
+    {DrumEngine::IIA, kPadOsc1, PULSE_WIDTH, &iiaShapeMenu},
+    {DrumEngine::IIA, kPadOsc1, NOISE, &iiaStrikeMenu},
+    {DrumEngine::IIA, kPadMod1, LEVEL, &iiaAlloyMenu},
+    {DrumEngine::IIA, kPadMod1, TRANSPOSE, &iiaWeightMenu},
+    // Cyc engines. Knob 1-4 are Color, Shape, Sweep, Contour (or the engine's own names).
+    CYC_PADS(DrumEngine::CYC_KIK),
+    {DrumEngine::CYC_KIK, kPadMod1, FEEDBACK, &cycMacro1Menu},    // Color: drive
+    {DrumEngine::CYC_KIK, kPadOsc1, PULSE_WIDTH, &cycMacro2Menu}, // Shape: wave shape
+    {DrumEngine::CYC_KIK, kPadMod2, LEVEL, &cycMacro3Menu},       // Sweep: pitch sweep
+    {DrumEngine::CYC_KIK, kPadOsc2, RETRIGGER, &cycMacro4Menu},   // Contour: the knock
+    CYC_PADS(DrumEngine::CYC_SNR),
+    {DrumEngine::CYC_SNR, kPadOsc2, TRANSPOSE, &cycMacro1Menu},   // Color: rattle tuning
+    {DrumEngine::CYC_SNR, kPadOsc2, PULSE_WIDTH, &cycMacro2Menu}, // Shape: rattle, tonal to noise
+    {DrumEngine::CYC_SNR, kPadMod2, LEVEL, &cycMacro3Menu},       // Sweep: pitch sweep
+    {DrumEngine::CYC_SNR, kPadOsc2, WAVE_INDEX, &cycMacro4Menu},  // Contour: rattle noise decay
+    CYC_PADS(DrumEngine::CYC_METAL),
+    {DrumEngine::CYC_METAL, kPadMod1, TRANSPOSE, &cycMacro1Menu},  // Color: ratio spread
+    {DrumEngine::CYC_METAL, kPadMod1, LEVEL, &cycMacro2Menu},      // Shape: modulation depth
+    {DrumEngine::CYC_METAL, kPadMod2, LEVEL, &cycMacro3Menu},      // Sweep: pitch sweep
+    {DrumEngine::CYC_METAL, kPadMod1, WAVE_INDEX, &cycMacro4Menu}, // Contour: top end decay
+    CYC_PADS(DrumEngine::CYC_PERC),
+    {DrumEngine::CYC_PERC, kPadOsc2, LEVEL, &cycMacro1Menu},      // Color: overtone
+    {DrumEngine::CYC_PERC, kPadMod1, LEVEL, &cycMacro2Menu},      // Shape: modulation
+    {DrumEngine::CYC_PERC, kPadMod2, LEVEL, &cycMacro3Menu},      // Sweep: pitch sweep
+    {DrumEngine::CYC_PERC, kPadOsc2, WAVE_INDEX, &cycMacro4Menu}, // Contour: overtone decay
+    CYC_PADS(DrumEngine::CYC_TONE),
+    {DrumEngine::CYC_TONE, kPadMod1, TRANSPOSE, &cycMacro1Menu},  // Color: FM ratio
+    {DrumEngine::CYC_TONE, kPadMod1, LEVEL, &cycMacro2Menu},      // Shape: FM index
+    {DrumEngine::CYC_TONE, kPadMod1, RETRIGGER, &cycMacro3Menu},  // Sweep: index burst at the attack
+    {DrumEngine::CYC_TONE, kPadMod1, WAVE_INDEX, &cycMacro4Menu}, // Contour: index decay
+    CYC_PADS(DrumEngine::CYC_CHORD),
+    {DrumEngine::CYC_CHORD, kPadOsc2, TRANSPOSE, &cycMacro1Menu},   // Color: voicing
+    {DrumEngine::CYC_CHORD, kPadOsc2, TYPE, &cycMacro2Menu},        // Shape: the chord
+    {DrumEngine::CYC_CHORD, kPadOsc1, PULSE_WIDTH, &cycMacro3Menu}, // Sweep: wave shape
+    {DrumEngine::CYC_CHORD, kPadMod1, WAVE_INDEX, &cycMacro4Menu},  // Contour: wave decay
+    CYC_PADS(DrumEngine::VTG_SNR),
+    {DrumEngine::VTG_SNR, kPadMod1, TRANSPOSE, &cycMacro1Menu}, // Inharm: body ratio
+    {DrumEngine::VTG_SNR, kPadOsc2, LEVEL, &cycMacro2Menu},     // Freq complex: snares
+    {DrumEngine::VTG_SNR, kPadMod2, LEVEL, &cycMacro3Menu},     // Pitch sweep
+    {DrumEngine::VTG_SNR, kPadMod1, LEVEL, &cycMacro4Menu},     // Mod envelope: body FM depth
+    CYC_PADS(DrumEngine::CLAP_ENG),
+    {DrumEngine::CLAP_ENG, kPadOsc2, FEEDBACK, &cycMacro1Menu},   // Body char: colour
+    {DrumEngine::CLAP_ENG, kPadOsc2, LEVEL, &cycMacro2Menu},      // Balance: tail against claps
+    {DrumEngine::CLAP_ENG, kPadOsc2, TRANSPOSE, &cycMacro3Menu},  // Spacing crunch: gap between claps
+    {DrumEngine::CLAP_ENG, kPadOsc2, WAVE_INDEX, &cycMacro4Menu}, // Body envelope: tail decay
+};
+#undef LXR_COMMON_PADS
+#undef LXR_PITCH_PADS
+#undef LXR_MOD_PADS
+#undef XIA_PADS
+#undef CYC_PADS
+} // namespace
+
 MenuItem* drumShortcutFor(const Sound* sound, int32_t x, int32_t y) {
-	using deluge::dsp::drum_synth::Engine;
 	if (sound == nullptr || sound->sources[0].oscType != OscType::DRUM_SYNTH) {
 		return nullptr;
 	}
-	const Engine engine = sound->sources[0].drumPatch.engine();
-
-	constexpr int32_t kOsc1 = 2;
-	constexpr int32_t kOsc2 = 3;
-	constexpr int32_t kMod1 = 4;
-	constexpr int32_t kMod2 = 5;
-	enum Row : int32_t { LEVEL, TRANSPOSE, TYPE, PULSE_WIDTH, RETRIGGER, FEEDBACK, WAVE_INDEX };
-	auto at = [&](int32_t column, Row row) { return x == column && y == row; };
-
-	if (!deluge::dsp::drum_synth::isXia(engine)) {
-		if (at(kOsc1, PULSE_WIDTH)) {
-			return &drumOscWaveMenu;
-		}
-		if (at(kOsc1, RETRIGGER)) {
-			return &drumTransientMenu;
-		}
-		if (at(kOsc1, FEEDBACK)) {
-			return &drumTransientVolumeMenu;
-		}
-		if (at(kOsc1, WAVE_INDEX)) {
-			return &drumTransientPitchMenu;
-		}
-		if (engine == Engine::SNARE) {
-			if (at(kOsc2, LEVEL)) {
-				return &drumNoiseMixMenu;
-			}
-			if (at(kOsc2, TRANSPOSE)) {
-				return &drumNoisePitchMenu;
-			}
-			if (at(kOsc2, TYPE)) {
-				return &drumNoiseFilterMenu;
-			}
-			if (at(kOsc2, PULSE_WIDTH)) {
-				return &drumNoiseCutoffMenu;
-			}
-			if (at(kOsc2, FEEDBACK)) {
-				return &drumNoiseResonanceMenu;
-			}
-		}
-		else {
-			if (at(kOsc2, LEVEL)) {
-				return &drumFmAmountMenu;
-			}
-			if (at(kOsc2, TRANSPOSE)) {
-				return &drumModCoarseMenu;
-			}
-			if (at(kOsc2, TYPE)) {
-				return &drumModWaveMenu;
-			}
-			if (at(kOsc2, PULSE_WIDTH)) {
-				return &drumModFineMenu;
-			}
-			if (engine == Engine::DRUM && at(kOsc2, RETRIGGER)) {
-				return &drumMixModeMenu;
-			}
-		}
-		if (engine == Engine::METAL) {
-			if (at(kMod1, LEVEL)) {
-				return &drumFm2AmountMenu;
-			}
-			if (at(kMod1, TRANSPOSE)) {
-				return &drumMod2CoarseMenu;
-			}
-			if (at(kMod1, TYPE)) {
-				return &drumMod2WaveMenu;
-			}
-			if (at(kMod1, PULSE_WIDTH)) {
-				return &drumMod2FineMenu;
-			}
-		}
-		else {
-			if (at(kMod1, LEVEL)) {
-				return &drumPitchDecayMenu;
-			}
-			if (at(kMod1, TRANSPOSE)) {
-				return &drumPitchAmountMenu;
-			}
-			if (at(kMod1, FEEDBACK)) {
-				return &drumPitchSlopeMenu;
-			}
-		}
-		return nullptr;
+	if (x == kPadOsc1 && y == TYPE) {
+		return &synthModeMenu;
 	}
-
-	const bool tia = engine == Engine::TIA;
-	if (at(kOsc1, PULSE_WIDTH)) {
-		return tia ? nullptr : static_cast<MenuItem*>(&iiaShapeMenu);
-	}
-	if (at(kOsc1, RETRIGGER)) {
-		return &xiaPunchMenu;
-	}
-	if (at(kOsc1, FEEDBACK)) {
-		return &xiaDriveMenu;
-	}
-	if (at(kOsc1, WAVE_INDEX)) {
-		return &xiaDecayMenu;
-	}
-	if (tia) {
-		static constexpr std::array<std::array<MenuItem*, 2>, 3> kOperators{{
-		    {&tiaBlendex1Menu, &tiaFreq1Menu},
-		    {&tiaBlendex2Menu, &tiaFreq2Menu},
-		    {&tiaBlendex3Menu, &tiaFreq3Menu},
-		}};
-		if (x >= kOsc2 && x <= kMod2 && (y == LEVEL || y == TRANSPOSE)) {
-			return kOperators[x - kOsc2][y];
+	const DrumEngine engine = sound->sources[0].drumPatch.engine();
+	for (const DrumPad& pad : drumPads) {
+		if (pad.engine == engine && pad.x == x && pad.y == y) {
+			return pad.item;
 		}
-		return nullptr;
-	}
-	if (at(kOsc2, LEVEL)) {
-		return &iiaAlloyMenu;
-	}
-	if (at(kOsc2, TRANSPOSE)) {
-		return &iiaWeightMenu;
-	}
-	if (at(kMod1, LEVEL)) {
-		return &iiaStrikeMenu;
 	}
 	return nullptr;
 }
@@ -1813,7 +1848,7 @@ MenuItem* drumShortcutFor(const Sound* sound, int32_t x, int32_t y) {
 namespace deluge::gui::menu_item::drum_synth {
 PLACE_SDRAM_BSS Editor drumSynthEditor{STRING_FOR_DRUM_SYNTH, drumEditorDrumLayout, drumEditorSnareLayout,
                                        drumEditorMetalLayout, drumEditorTiaLayout,  drumEditorIiaLayout,
-                                       &drumSynthMenu};
+                                       drumEditorCycLayout,   &drumSynthMenu};
 } // namespace deluge::gui::menu_item::drum_synth
 
 // Not FM

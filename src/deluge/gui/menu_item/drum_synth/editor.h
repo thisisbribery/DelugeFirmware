@@ -54,8 +54,9 @@ public:
 	using Layout = std::span<const Column>;
 
 	Editor(l10n::String name, Layout drumLayout, Layout snareLayout, Layout metalLayout, Layout tiaLayout,
-	       Layout iiaLayout, MenuItem* fullMenu)
-	    : MenuItem(name), layouts_{drumLayout, snareLayout, metalLayout, tiaLayout, iiaLayout}, fullMenu_(fullMenu) {}
+	       Layout iiaLayout, Layout cycLayout, MenuItem* fullMenu)
+	    : MenuItem(name), layouts_{drumLayout, snareLayout, metalLayout, tiaLayout, iiaLayout, cycLayout},
+	      fullMenu_(fullMenu) {}
 
 	void beginSession(MenuItem* navigatedBackwardFrom) override;
 	void endSession() override;
@@ -86,7 +87,8 @@ private:
 	static int32_t padHigh(const Column& column);
 	void changed();
 
-	std::array<Layout, util::to_underlying(deluge::dsp::drum_synth::Engine::NUM_ENGINES)> layouts_;
+	/// LXR drum, snare and metal, TIA, IIA, then one shared by all the Cyc engines
+	std::array<Layout, 6> layouts_;
 	MenuItem* fullMenu_;
 	int32_t selectedColumn_ = 0;
 };

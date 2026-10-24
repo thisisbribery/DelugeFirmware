@@ -79,6 +79,7 @@ file(GLOB_RECURSE deluge_SOURCES
         ../../src/deluge/dsp/drum_synth/drum_synth_transients.c
         ../../src/deluge/dsp/drum_synth/xia.cpp
         ../../src/deluge/dsp/drum_synth/xia_tables.c
+        ../../src/deluge/dsp/drum_synth/cyc.cpp
 )
 
 add_executable(UnitTests
@@ -106,6 +107,7 @@ add_executable(UnitTests
         midi_queue_tests.cpp
         drum_synth_tests.cpp
         xia_tests.cpp
+        cyc_tests.cpp
 )
 add_test(NAME UnitTests
         COMMAND UnitTests)

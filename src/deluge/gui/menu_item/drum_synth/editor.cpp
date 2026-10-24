@@ -26,6 +26,7 @@
 #include "hid/display/display.h"
 #include "hid/display/oled.h"
 #include "hid/led/pad_leds.h"
+#include "processing/sound/drum_synth_params.h"
 #include "processing/sound/sound.h"
 #include "util/cfunctions.h"
 #include <algorithm>
@@ -115,7 +116,11 @@ Editor::Layout Editor::layout() const {
 	if (sound == nullptr) {
 		return {};
 	}
-	return layouts_[util::to_underlying(sound->sources[0].drumPatch.engine())];
+	const Engine engine = sound->sources[0].drumPatch.engine();
+	if (deluge::dsp::drum_synth::isCyc(engine)) {
+		return layouts_.back();
+	}
+	return layouts_[util::to_underlying(engine)];
 }
 
 void Editor::clampSelectedColumn() {
@@ -135,7 +140,11 @@ std::string_view Editor::getTitle() const {
 	if (sound == nullptr) {
 		return l10n::getView(STRING_FOR_DRUM_SYNTH);
 	}
-	switch (sound->sources[0].drumPatch.engine()) {
+	const Engine engine = sound->sources[0].drumPatch.engine();
+	if (deluge::dsp::drum_synth::isCyc(engine)) {
+		return l10n::getView(deluge::dsp::drum_synth::cycEngineName(engine));
+	}
+	switch (engine) {
 	case Engine::SNARE:
 		return l10n::getView(STRING_FOR_DRUM_ENGINE_SNARE);
 	case Engine::METAL:

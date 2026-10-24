@@ -42,12 +42,6 @@ public:
 	bool mayUseDx() const { return !soundEditor.editingKit() && sourceId_ == 0; }
 	bool mayUseDrumSynth() const { return sourceId_ == 0; }
 
-	/// On a drum synth row, OSC1 TYPE picks the engine's variant instead: TIA L / B / C, IIA G / I / H, or the LXR
-	/// voice. SYNTH MODE switches between drum synth engines and back to samples and oscillators.
-	bool pickingDrumVariant() const {
-		return sourceId_ == 0 && soundEditor.currentSound->sources[0].oscType == OscType::DRUM_SYNTH;
-	}
-
 	/// Option index -> OscType for the menu value. The optional types sit between SAMPLE and the inputs, so values
 	/// after a missing one shift down.
 	OscType typeForValue(int32_t value) const {
@@ -62,12 +56,6 @@ public:
 	}
 
 	void readCurrentValue() override {
-		if (pickingDrumVariant()) {
-			const auto& patch = soundEditor.currentSound->sources[0].drumPatch;
-			setValue(dsp::drum_synth::isXia(patch.engine()) ? patch.get(dsp::drum_synth::Patch::XIA_VARIANT)
-			                                                : static_cast<int32_t>(patch.engine()));
-			return;
-		}
 		OscType type = soundEditor.currentSound->sources[sourceId_].oscType;
 		int32_t value = static_cast<int32_t>(type);
 		if (!mayUseDrumSynth() && type > OscType::DRUM_SYNTH) {
@@ -79,17 +67,6 @@ public:
 		setValue(value);
 	}
 	void writeCurrentValue() override {
-		if (pickingDrumVariant()) {
-			auto& patch = soundEditor.currentSound->sources[0].drumPatch;
-			const auto value = static_cast<uint8_t>(getValue());
-			if (dsp::drum_synth::isXia(patch.engine())) {
-				patch.set(dsp::drum_synth::Patch::XIA_VARIANT, value);
-			}
-			else {
-				drum_synth::setDrumEngine(static_cast<dsp::drum_synth::Engine>(value));
-			}
-			return;
-		}
 		OscType oldValue = soundEditor.currentSound->sources[sourceId_].oscType;
 		OscType newValue = typeForValue(getValue());
 
@@ -127,19 +104,6 @@ public:
 	deluge::vector<std::string_view> getOptions(OptType optType) override {
 		(void)optType;
 		using enum l10n::String;
-		if (pickingDrumVariant()) {
-			switch (soundEditor.currentSound->sources[0].drumPatch.engine()) {
-			case dsp::drum_synth::Engine::TIA:
-				return {l10n::getView(STRING_FOR_DRUM_PRESET_TIA_L), l10n::getView(STRING_FOR_DRUM_PRESET_TIA_B),
-				        l10n::getView(STRING_FOR_DRUM_PRESET_TIA_C)};
-			case dsp::drum_synth::Engine::IIA:
-				return {l10n::getView(STRING_FOR_DRUM_PRESET_IIA_G), l10n::getView(STRING_FOR_DRUM_PRESET_IIA_I),
-				        l10n::getView(STRING_FOR_DRUM_PRESET_IIA_H)};
-			default:
-				return {l10n::getView(STRING_FOR_DRUM_ENGINE_DRUM), l10n::getView(STRING_FOR_DRUM_ENGINE_SNARE),
-				        l10n::getView(STRING_FOR_DRUM_ENGINE_METAL)};
-			}
-		}
 		deluge::vector options = {
 		    l10n::getView(STRING_FOR_SINE),          //<
 		    l10n::getView(STRING_FOR_TRIANGLE),      //<

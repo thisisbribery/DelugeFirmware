@@ -352,7 +352,23 @@ void Sound::setupAsDefaultSynth(ParamManager* paramManager) {
 	doneReadingFromFile();
 }
 
+void Sound::resetOldDrumSynthControls(ParamManager* paramManager) {
+	using deluge::dsp::drum_synth::DrumControls;
+	using deluge::dsp::drum_synth::kDrumControlParams;
+	if (sources[0].oscType != OscType::DRUM_SYNTH || !sources[0].drumPatch.needsControlDefaults()
+	    || !paramManager->containsAnyMainParamCollections()) {
+		return;
+	}
+	// Saved before the drive and decay controls existed: their params hold whatever they held, so start them neutral
+	PatchedParamSet* patchedParams = paramManager->getPatchedParamSet();
+	patchedParams->params[kDrumControlParams[DrumControls::COMMON_DECAY]].setCurrentValueBasicForSetup(
+	    DrumControls::fromValue(127));
+	patchedParams->params[kDrumControlParams[DrumControls::LXR_DRIVE]].setCurrentValueBasicForSetup(
+	    DrumControls::fromValue(0));
+}
+
 void Sound::possiblySetupDefaultExpressionPatching(ParamManager* paramManager) {
+	resetOldDrumSynthControls(paramManager);
 
 	if (song_firmware_version < FirmwareVersion::official({4, 0, 0, "beta"})) {
 
@@ -429,6 +445,28 @@ void Sound::setDrumSynthKnobs(deluge::dsp::drum_synth::Engine engine) {
 		modKnobs[7][1].paramDescriptor.setToHaveParamOnly(kDrumControlParams[upperSlot]);
 		modKnobs[7][0].paramDescriptor.setToHaveParamOnly(kDrumControlParams[lowerSlot]);
 	};
+
+	const bool drumSynth = engine != Engine::NUM_ENGINES;
+	if (drumSynth) {
+		// Attack / release: every drum engine's drive and decay
+		modKnobs[2][1].paramDescriptor.setToHaveParamOnly(
+		    kDrumControlParams[deluge::dsp::drum_synth::driveSlot(engine)]);
+		modKnobs[2][0].paramDescriptor.setToHaveParamOnly(
+		    kDrumControlParams[deluge::dsp::drum_synth::decaySlot(engine)]);
+	}
+	else {
+		modKnobs[2][1].paramDescriptor.setToHaveParamOnly(params::LOCAL_ENV_0_ATTACK);
+		modKnobs[2][0].paramDescriptor.setToHaveParamOnly(params::LOCAL_ENV_0_RELEASE);
+	}
+	if (deluge::dsp::drum_synth::isCyc(engine)) {
+		// Mod rate / mod depth: the Cyc engines' Sweep and Contour
+		modKnobs[5][1].paramDescriptor.setToHaveParamOnly(kDrumControlParams[DrumControls::CYC_MACRO3]);
+		modKnobs[5][0].paramDescriptor.setToHaveParamOnly(kDrumControlParams[DrumControls::CYC_MACRO4]);
+	}
+	else {
+		modKnobs[5][1].paramDescriptor.setToHaveParamOnly(params::GLOBAL_LFO_FREQ_1);
+		modKnobs[5][0].paramDescriptor.setToHaveParamAndSource(params::LOCAL_PITCH_ADJUST, PatchSource::LFO_GLOBAL_1);
+	}
 	switch (engine) {
 	case Engine::DRUM:
 		setPair(lxrControlSlot(Patch::PITCH_AMOUNT), lxrControlSlot(Patch::FM_AMOUNT));
@@ -446,6 +484,11 @@ void Sound::setDrumSynthKnobs(deluge::dsp::drum_synth::Engine engine) {
 		setPair(DrumControls::IIA_WEIGHT, DrumControls::IIA_ALLOY);
 		break;
 	default:
+		if (deluge::dsp::drum_synth::isCyc(engine)) {
+			// Custom 2 / Custom 3: the Cyc engines' Color and Shape
+			setPair(DrumControls::CYC_MACRO1, DrumControls::CYC_MACRO2);
+			break;
+		}
 		// Not a drum synth: the Deluge's defaults for that pair
 		modKnobs[7][1].paramDescriptor.setToHaveParamOnly(params::UNPATCHED_START
 		                                                  + params::UNPATCHED_SAMPLE_RATE_REDUCTION);
@@ -468,6 +511,19 @@ char const* Sound::getPatchedParamDisplayNameOverride(int32_t p) {
 	}
 
 	const auto engine = sources[0].drumPatch.engine();
+	if (deluge::dsp::drum_synth::isCyc(engine)) {
+		return (slot <= DrumControls::CYC_DRIVE || slot == DrumControls::COMMON_DECAY)
+		           ? deluge::l10n::get(deluge::dsp::drum_synth::cycKnobName(engine, slot))
+		           : nullptr;
+	}
+	if (deluge::dsp::drum_synth::isLxr(engine)) {
+		if (slot == DrumControls::LXR_DRIVE) {
+			return deluge::l10n::get(STRING_FOR_XIA_DRIVE);
+		}
+		if (slot == DrumControls::COMMON_DECAY) {
+			return deluge::l10n::get(STRING_FOR_XIA_DECAY);
+		}
+	}
 	if (deluge::dsp::drum_synth::isXia(engine)) {
 		const bool tia = engine == deluge::dsp::drum_synth::Engine::TIA;
 		switch (slot) {
@@ -2630,6 +2686,12 @@ void Sound::render(ModelStackWithThreeMainThings* modelStack, std::span<StereoSa
                    int32_t sideChainHitPending, int32_t reverbAmountAdjust, bool shouldLimitDelayFeedback,
                    int32_t pitchAdjust, SampleRecorder* recorder) {
 
+	// By the time a sound plays, everything loaded with it has been through resetOldDrumSynthControls()
+	if (sources[0].drumPatch.needsControlDefaults()) {
+		resetOldDrumSynthControls(modelStack->paramManager);
+		sources[0].drumPatch.clearNeedsControlDefaults();
+	}
+
 	if (skippingRendering) {
 		compressor.gainReduction = 0;
 		return;
@@ -3147,21 +3209,35 @@ const uint8_t patchedParamsWhichShouldBeZeroIfNoKnobAssigned[] = {
     params::LOCAL_PITCH_ADJUST, params::LOCAL_OSC_A_PITCH_ADJUST, params::LOCAL_OSC_B_PITCH_ADJUST,
     params::LOCAL_MODULATOR_0_PITCH_ADJUST, params::LOCAL_MODULATOR_1_PITCH_ADJUST};
 
+/// A drum synth keeps its own settings on the FM modulators' pitch params, which mustn't be reset
+static bool drumSynthKeepsParam(const Sound& sound, int32_t p) {
+	return sound.sources[0].oscType == OscType::DRUM_SYNTH
+	       && (p == params::LOCAL_MODULATOR_0_PITCH_ADJUST || p == params::LOCAL_MODULATOR_1_PITCH_ADJUST);
+}
+
 void Sound::ensureInaccessibleParamPresetValuesWithoutKnobsAreZeroWithMinimalDetails(ParamManager* paramManager) {
+	resetOldDrumSynthControls(paramManager);
 
 	for (int32_t i = 0; i < sizeof(patchedParamsWhichShouldBeZeroIfNoKnobAssigned); i++) {
 		int32_t p = patchedParamsWhichShouldBeZeroIfNoKnobAssigned[i];
+		if (drumSynthKeepsParam(*this, p)) {
+			continue;
+		}
 		ensureParamPresetValueWithoutKnobIsZeroWithMinimalDetails(paramManager, p);
 	}
 }
 
 // Song may be NULL
 void Sound::ensureInaccessibleParamPresetValuesWithoutKnobsAreZero(ModelStackWithThreeMainThings* modelStack) {
+	resetOldDrumSynthControls(modelStack->paramManager);
 
 	ModelStackWithParamCollection* modelStackWithParamCollection =
 	    modelStack->paramManager->getPatchCableSet(modelStack);
 
 	for (int32_t i = 0; i < sizeof(patchedParamsWhichShouldBeZeroIfNoKnobAssigned); i++) {
+		if (drumSynthKeepsParam(*this, patchedParamsWhichShouldBeZeroIfNoKnobAssigned[i])) {
+			continue;
+		}
 		ModelStackWithParamId* modelStackWithParamId =
 		    modelStackWithParamCollection->addParamId(patchedParamsWhichShouldBeZeroIfNoKnobAssigned[i]);
 		ModelStackWithAutoParam* modelStackWithAutoParam = modelStackWithParamId->paramCollection->getAutoParamFromId(
@@ -3238,6 +3314,11 @@ void Sound::doneReadingFromFile() {
 
 	for (int32_t m = 0; m < kNumModulators; m++) {
 		recalculateModulatorTransposer(m, nullptr);
+	}
+
+	// Drum synth sounds all use the same gold knob layout, whenever they were saved
+	if (sources[0].oscType == OscType::DRUM_SYNTH) {
+		setDrumSynthKnobs(sources[0].drumPatch.engine());
 	}
 }
 
@@ -3767,8 +3848,9 @@ Error Sound::readSourceFromFile(Deserializer& reader, int32_t s, ParamManagerFor
 		}
 		else if (!strcmp(tagName, "drumSynth")) {
 			auto& bytes = source->drumPatch.bytes();
-			reader.readTagOrAttributeValueHexBytes(bytes.data(), bytes.size());
+			const int32_t length = reader.readTagOrAttributeValueHexBytes(bytes.data(), bytes.size());
 			source->drumPatch.clampAll();
+			source->drumPatch.loadedBytes(length);
 			reader.exitTag("drumSynth");
 		}
 		else if (!strcmp(tagName, "drumSynthPatch")) {
@@ -3776,6 +3858,7 @@ Error Sound::readSourceFromFile(Deserializer& reader, int32_t s, ParamManagerFor
 			uint8_t legacy[12];
 			int32_t length = reader.readTagOrAttributeValueHexBytes(legacy, sizeof(legacy));
 			source->drumPatch.readLegacyDrumBytes(legacy, length);
+			source->drumPatch.loadedBytes(0);
 			reader.exitTag("drumSynthPatch");
 		}
 		else if (!strcmp(tagName, "dx7enginemode")) {

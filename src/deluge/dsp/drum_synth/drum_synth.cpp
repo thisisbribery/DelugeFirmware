@@ -20,7 +20,8 @@
  * - Saw and square are naive rather than band-limited.
  * - The snare noise filter is a plain TPT state variable filter with low, high and band pass outputs.
  *
- * The TIA and IIA engines are not LXR code: they are in xia.cpp, and only hooked in here.
+ * The TIA and IIA engines are not LXR code: they are in xia.cpp, and only hooked in here. Nor are the Cyc engines,
+ * which are in cyc.cpp.
  */
 
 #include "dsp/drum_synth/drum_synth.h"
@@ -124,6 +125,7 @@ void Patch::setPreset(Preset preset) {
 	params_[TRANS_PITCH] = 64;
 	setXiaPreset(Engine::TIA, 0);
 	params_[ENGINE] = static_cast<uint8_t>(Engine::DRUM);
+	params_[CONTROLS_VERSION] = 1;
 
 	switch (preset) {
 	case Preset::KICK:
@@ -214,11 +216,54 @@ void Patch::setXiaPreset(Engine engine, uint8_t variant) {
 	params_[XIA_PUNCH] = 0;
 }
 
+void Patch::setCycPreset(Engine engine) {
+	params_[ENGINE] = static_cast<uint8_t>(engine);
+	params_[XIA_PUNCH] = 0;
+}
+
+namespace {
+/// Knob value that puts Cyc Chord's Shape on a chord shape
+constexpr int32_t chordShapeKnob(int32_t shape) {
+	return (shape * 128 + cyc::kNumChordShapes - 1) / cyc::kNumChordShapes;
+}
+
+/// The Cyc engines' starting knobs: Color, Shape, Sweep and Contour as the original machines start, then a longer amp
+/// decay than theirs
+constexpr std::array<std::array<uint8_t, 5>, static_cast<size_t>(cyc::Kind::NUM_KINDS)> kCycDefaults{{
+    {10, 16, 16, 24, 50},                // Cyc Kik
+    {0, 127, 8, 0, 60},                  // Cyc Snr
+    {16, 46, 48, 0, 50},                 // Cyc Metal
+    {15, 38, 100, 64, 52},               // Cyc Perc
+    {24, 40, 38, 52, 64},                // Cyc Tone
+    {32, chordShapeKnob(3), 43, 24, 80}, // Cyc Chord
+    {0, 110, 74, 80, 60},                // Vtg Snr
+    {24, 25, 46, 37, 56},                // clap eng
+}};
+constexpr int32_t kCycDefaultDrive = 100;
+} // namespace
+
 DrumControls DrumControls::defaultsFor(Engine engine) {
 	// The Model:Cycles' own defaults, except that the engine's decay holds: the Deluge envelope does the shaping
 	DrumControls c;
+	if (isCyc(engine)) {
+		// The Cyc engines start where the originals do, their own amp decay included
+		const auto& d = kCycDefaults[static_cast<size_t>(cycKind(engine))];
+		for (int32_t i = 0; i < cyc::kNumMacros; i++) {
+			c.values[CYC_MACRO1 + i] = fromValue(d[i]);
+		}
+		for (int32_t i = CYC_DRIVE + 1; i < NUM_SLOTS; i++) {
+			c.values[i] = fromValue(64);
+		}
+		c.values[CYC_DRIVE] = fromValue(kCycDefaultDrive);
+		c.values[COMMON_DECAY] = fromValue(d[4]);
+		c.values[LXR_DRIVE] = fromValue(0);
+		return c;
+	}
 	c.values[DRIVE] = fromValue(0);
 	c.values[ENGINE_DECAY] = fromValue(127);
+	// The LXR voices' drive and decay start neutral: no drive, decay holding
+	c.values[COMMON_DECAY] = fromValue(127);
+	c.values[LXR_DRIVE] = fromValue(0);
 	if (engine == Engine::IIA) {
 		c.values[IIA_WEIGHT] = fromValue(30);
 		c.values[IIA_ALLOY] = fromValue(50);
@@ -256,6 +301,7 @@ uint8_t Patch::maxValue(Param p) {
 		return 2;
 	case XIA_PUNCH:
 	case SNAPPY_DECAY:
+	case CONTROLS_VERSION:
 		return 1;
 	default:
 		return 127;
@@ -267,11 +313,15 @@ bool Patch::isUsedBy(Param p, Engine engine) {
 	case ENGINE:
 	case SNAPPY_DECAY:
 		return true;
+	case CONTROLS_VERSION:
+		return false;
 	case OSC_WAVE:
 	case TRANS_MODE:
 	case TRANS_VOLUME:
 	case TRANS_PITCH:
-		return !isXia(engine);
+		return isLxr(engine);
+	case XIA_PUNCH:
+		return isXia(engine) || isCyc(engine);
 	case PITCH_AMOUNT:
 	case PITCH_DECAY:
 	case PITCH_SLOPE:
@@ -356,7 +406,7 @@ int32_t lxrControlSlot(Patch::Param param) {
 
 DrumControls controlsFromPatch(const Patch& patch) {
 	const Engine engine = patch.engine();
-	if (isXia(engine)) {
+	if (!isLxr(engine)) {
 		return DrumControls::defaultsFor(engine);
 	}
 	DrumControls controls = DrumControls::defaultsFor(Engine::TIA); // neutral values for the unused slots
@@ -372,7 +422,7 @@ DrumControls controlsFromPatch(const Patch& patch) {
 
 void storeControlsInPatch(const DrumControls& controls, Patch& patch) {
 	const Engine engine = patch.engine();
-	if (isXia(engine)) {
+	if (!isLxr(engine)) {
 		return;
 	}
 	for (uint8_t p = 0; p < Patch::NUM_PARAMS; p++) {
@@ -395,7 +445,7 @@ void Voice::updateSettings(const Patch& patch, const DrumControls& controls) {
 
 	const Engine engine = static_cast<Engine>(effective[Patch::ENGINE]);
 	// The LXR engines' continuous settings come from the controls; the patch keeps the choices
-	if (!isXia(engine)) {
+	if (isLxr(engine)) {
 		for (uint8_t p = 0; p < Patch::NUM_PARAMS; p++) {
 			const auto param = static_cast<Patch::Param>(p);
 			const int32_t slot = lxrControlSlot(param);
@@ -675,6 +725,20 @@ void Voice::renderMetal(int32_t* out, int32_t n, int32_t& amplitude, int32_t amp
 void Voice::render(const Patch& patch, const DrumControls& controls, int32_t* buffer, int32_t numSamples,
                    uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement) {
 	updateSettings(patch, controls);
+	if (isCyc(settings_.engine)) {
+		if (!cycReady_) {
+			xia_.cyc.reset();
+			cycReady_ = true;
+			xiaEngine_ = Engine::DRUM;
+		}
+		if (pendingTrigger_) {
+			pendingTrigger_ = false;
+			xia_.cyc.trigger();
+		}
+		renderCyc(settings_.engine, settingsFrom_, controls, buffer, numSamples, basePhaseIncrement, amplitude,
+		          amplitudeIncrement);
+		return;
+	}
 	if (isXia(settings_.engine)) {
 		if (pendingTrigger_) {
 			pendingTrigger_ = false;
@@ -686,8 +750,17 @@ void Voice::render(const Patch& patch, const DrumControls& controls, int32_t* bu
 	if (pendingTrigger_) {
 		pendingTrigger_ = false;
 		startLxr();
+		lxrLevel_ = 1.f;
 	}
 	xiaFinished_ = false;
+
+	// The LXR voices' drive and decay. Left at neutral (no drive, decay holding) they're skipped entirely.
+	const float driveKnob = static_cast<float>(controls.value(DrumControls::LXR_DRIVE)) / 127.f;
+	const int32_t decayKnob = controls.value(DrumControls::COMMON_DECAY);
+	if (driveKnob > 0.f || decayKnob < 127) {
+		renderLxrDriven(buffer, numSamples, basePhaseIncrement, amplitude, amplitudeIncrement, driveKnob, decayKnob);
+		return;
+	}
 
 	int32_t* out = buffer;
 	int32_t remaining = numSamples;
@@ -713,6 +786,56 @@ void Voice::render(const Patch& patch, const DrumControls& controls, int32_t* bu
 		}
 		out += n;
 	}
+}
+
+void Voice::renderLxrDriven(int32_t* buffer, int32_t numSamples, uint32_t basePhaseIncrement, int32_t amplitude,
+                            int32_t amplitudeIncrement, float driveKnob, int32_t decayKnob) {
+	// The voice renders at unity into a scratch buffer, then gets the decay and drive, then the Deluge's gain ramp.
+	// At unity amplitude the engines write their q30 samples unchanged.
+	constexpr int32_t kUnity = 1 << 30;
+	constexpr float kQ30 = 1073741824.f;
+	const float gain = cyc::driveGainFor(driveKnob);
+	// Decay: 30 ms to 12 s to fall 60 dB across the knob, 127 holds
+	const float coef =
+	    (decayKnob >= 127) ? 1.f : expf(-6.907755f / (0.03f * powf(400.f, decayKnob / 126.f) * kSampleRate));
+	std::array<int32_t, 64> scratch;
+	int32_t* out = buffer;
+	int32_t remaining = numSamples;
+	while (remaining > 0) {
+		if (samplesUntilTick_ <= 0) {
+			controlTick(basePhaseIncrement);
+			samplesUntilTick_ = kTickSamples;
+		}
+		const int32_t n = std::min({remaining, samplesUntilTick_, static_cast<int32_t>(scratch.size())});
+		samplesUntilTick_ -= n;
+		remaining -= n;
+		std::fill(scratch.begin(), scratch.begin() + n, 0);
+		int32_t unity = kUnity;
+		switch (settings_.engine) {
+		case Engine::DRUM:
+			renderDrum(scratch.data(), n, unity, 0);
+			break;
+		case Engine::SNARE:
+			renderSnare(scratch.data(), n, unity, 0);
+			break;
+		default:
+			renderMetal(scratch.data(), n, unity, 0);
+			break;
+		}
+		for (int32_t i = 0; i < n; i++) {
+			float x = static_cast<float>(scratch[i]) * (1.f / kQ30) * lxrLevel_;
+			lxrLevel_ *= coef;
+			if (driveKnob > 0.f) {
+				x = cyc::driveCurve(x * gain);
+			}
+			amplitude += amplitudeIncrement;
+			const int32_t sample = static_cast<int32_t>(std::clamp(x, -1.99f, 1.99f) * kQ30);
+			out[i] += multiply_32x32_rshift32(sample, amplitude) << 2;
+		}
+		out += n;
+	}
+	// Once the decay has died away, so has the voice
+	xiaFinished_ = lxrLevel_ < 1e-5f;
 }
 
 // XIA engines ---------------------------------------------------------------------------------------------------------
@@ -749,6 +872,7 @@ int32_t iiaAttackForStrike(int32_t strike) {
 
 void Voice::startXia(Engine engine) {
 	xiaEngine_ = engine;
+	cycReady_ = false;
 	if (engine == Engine::TIA) {
 		xia::reset(xia_.tia);
 	}
@@ -827,6 +951,41 @@ void Voice::renderXia(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const Dru
 		xiaBlockPos_ += n;
 		remaining -= n;
 	}
+}
+
+// Cyc engines ---------------------------------------------------------------------------------------------------------
+
+void Voice::renderCyc(Engine engine, const std::array<uint8_t, Patch::NUM_PARAMS>& p, const DrumControls& controls,
+                      int32_t* buffer, int32_t numSamples, uint32_t basePhaseIncrement, int32_t amplitude,
+                      int32_t amplitudeIncrement) {
+	cyc::Settings settings;
+	auto knob = [&](int32_t slot) {
+		return static_cast<float>(std::clamp<int32_t>(DrumControls::toKnob(controls.values[slot]), 0, 0x7F00)) / 0x7F00;
+	};
+	for (int32_t i = 0; i < cyc::kNumMacros; i++) {
+		settings.macro[i] = knob(DrumControls::CYC_MACRO1 + i);
+	}
+	settings.decay = knob(DrumControls::COMMON_DECAY);
+	settings.drive = knob(DrumControls::CYC_DRIVE);
+	settings.punch = p[Patch::XIA_PUNCH] != 0;
+
+	constexpr int32_t kChunk = 64;
+	std::array<int32_t, kChunk> chunk;
+	int32_t* out = buffer;
+	int32_t remaining = numSamples;
+	while (remaining > 0) {
+		const int32_t n = std::min(remaining, kChunk);
+		xia_.cyc.render(cycKind(engine), settings, basePhaseIncrement, static_cast<float>(kSampleRate), chunk.data(),
+		                n);
+		for (int32_t i = 0; i < n; i++) {
+			amplitude += amplitudeIncrement;
+			// Like the XIA engines: the Cycles' level halved, which leaves it q30 like the LXR engines'
+			out[i] += multiply_32x32_rshift32(chunk[i] >> 1, amplitude) << 2;
+		}
+		out += n;
+		remaining -= n;
+	}
+	xiaFinished_ = xia_.cyc.finished();
 }
 
 } // namespace deluge::dsp::drum_synth

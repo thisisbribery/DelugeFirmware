@@ -311,6 +311,8 @@ public:
 	ModelStackWithAutoParam* getParamFromMIDIKnob(MIDIKnob& knob, ModelStackWithThreeMainThings* modelStack) final;
 	virtual ArpeggiatorBase* getArp() = 0;
 	void possiblySetupDefaultExpressionPatching(ParamManager* paramManager);
+	/// A drum synth sound saved before its drive and decay controls existed gets them at neutral
+	void resetOldDrumSynthControls(ParamManager* paramManager);
 
 	int32_t getShiftAmountForSaturation() const {
 		int32_t legacy = getLegacyClippingAmount();

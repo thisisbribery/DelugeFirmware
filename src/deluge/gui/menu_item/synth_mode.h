@@ -26,62 +26,63 @@
 #include "processing/sound/sound_drum.h"
 
 namespace deluge::gui::menu_item {
-/// The Deluge's synth modes, then the drum synth engines, then (on synths) the 303. Choosing a drum engine puts it on
-/// osc 1 of this sound, which keeps every envelope, filter and effect, so any kit row can go from a sample to TIA and
-/// back.
+/// Every sound engine in one list: the Deluge's synth modes, the 303 (on synths), then each drum synth engine and
+/// variant. Choosing a drum engine puts it on osc 1 of this sound, which keeps every envelope, filter and effect, so
+/// any kit row can go from a sample to a Cyc Kik and back. This is the only place engines are chosen.
 class SynthModeSelection final : public Selection {
 public:
 	using Selection::Selection;
 
-	enum Choice : uint8_t { SUBTRACTIVE, FM, RINGMOD, TIA, IIA, DRUM_SYNTH, TB303 };
+	struct Entry {
+		enum class Kind : uint8_t { MODE, TB303, DRUM };
+		Kind kind;
+		::SynthMode mode;
+		dsp::drum_synth::Engine engine;
+		uint8_t variant; ///< Drom1 / Drom2 variant
+		l10n::String name;
+	};
 
 	void readCurrentValue() override {
-		const Source& source = soundEditor.currentSound->sources[0];
-		if (source.oscType == OscType::DRUM_SYNTH) {
-			switch (source.drumPatch.engine()) {
-			case dsp::drum_synth::Engine::TIA:
-				this->setValue(TIA);
-				return;
-			case dsp::drum_synth::Engine::IIA:
-				this->setValue(IIA);
-				return;
-			default:
-				this->setValue(DRUM_SYNTH);
+		const Sound& sound = *soundEditor.currentSound;
+		const Source& source = sound.sources[0];
+		const auto list = entries();
+		for (size_t i = 0; i < list.size(); i++) {
+			const Entry& e = list[i];
+			const bool match = (source.oscType == OscType::DRUM_SYNTH)
+			                       ? (e.kind == Entry::Kind::DRUM && e.engine == source.drumPatch.engine()
+			                          && (!dsp::drum_synth::isXia(e.engine)
+			                              || e.variant == source.drumPatch.get(dsp::drum_synth::Patch::XIA_VARIANT)))
+			                   : (sound.synthMode == ::SynthMode::TB303)
+			                       ? e.kind == Entry::Kind::TB303
+			                       : (e.kind == Entry::Kind::MODE && e.mode == sound.synthMode);
+			if (match) {
+				this->setValue(static_cast<int32_t>(i));
 				return;
 			}
 		}
-		if (soundEditor.currentSound->synthMode == ::SynthMode::TB303) {
-			this->setValue(TB303);
-			return;
-		}
-		this->setValue(soundEditor.currentSound->synthMode);
+		this->setValue(0);
 	}
 	bool usesAffectEntire() override { return true; }
 	void writeCurrentValue() override {
-		using dsp::drum_synth::Engine;
 		Sound& sound = *soundEditor.currentSound;
-		switch (this->getValue()) {
-		case TIA:
-			drum_synth::setDrumEngine(Engine::TIA);
-			break;
-		case IIA:
-			drum_synth::setDrumEngine(Engine::IIA);
-			break;
-		case DRUM_SYNTH:
-			if (sound.sources[0].oscType != OscType::DRUM_SYNTH
-			    || dsp::drum_synth::isXia(sound.sources[0].drumPatch.engine())) {
-				drum_synth::setDrumEngine(Engine::DRUM);
+		const auto list = entries();
+		const Entry& e = list[std::clamp<int32_t>(this->getValue(), 0, static_cast<int32_t>(list.size()) - 1)];
+		switch (e.kind) {
+		case Entry::Kind::DRUM:
+			drum_synth::setDrumEngine(e.engine, e.variant);
+			if (dsp::drum_synth::isXia(e.engine)) {
+				// Moving between variants of the same engine keeps its settings
+				sound.sources[0].drumPatch.set(dsp::drum_synth::Patch::XIA_VARIANT, e.variant);
 			}
 			break;
-		case TB303:
+		case Entry::Kind::TB303:
 			drum_synth::leaveDrumSynth();
 			setSynthMode(::SynthMode::TB303);
 			break;
-		default: {
-			auto current_value = this->getValue<::SynthMode>();
+		case Entry::Kind::MODE: {
 			drum_synth::leaveDrumSynth();
 			// FM and ringmod are made of the Deluge's own oscillators
-			if (current_value != ::SynthMode::SUBTRACTIVE) {
+			if (e.mode != ::SynthMode::SUBTRACTIVE) {
 				for (Source& source : sound.sources) {
 					if (source.oscType > kLastRingmoddableOscType) {
 						sound.killAllVoices();
@@ -89,7 +90,7 @@ public:
 					}
 				}
 			}
-			setSynthMode(current_value);
+			setSynthMode(e.mode);
 			break;
 		}
 		}
@@ -98,19 +99,9 @@ public:
 
 	deluge::vector<std::string_view> getOptions(OptType optType) override {
 		(void)optType;
-		using enum l10n::String;
-		// On a kit row, plain subtractive is a sample
-		deluge::vector<std::string_view> options{
-		    l10n::getView(soundEditor.editingKitRow() ? STRING_FOR_SAMPLE : STRING_FOR_SUBTRACTIVE),
-		    l10n::getView(STRING_FOR_FM),
-		    l10n::getView(STRING_FOR_RINGMOD),
-		    l10n::getView(STRING_FOR_DRUM_ENGINE_TIA),
-		    l10n::getView(STRING_FOR_DRUM_ENGINE_IIA),
-		    l10n::getView(STRING_FOR_DRUM_SYNTH),
-		};
-		// The 303 is a mono synth, played from a clip's mono sequencer, so not on kit rows
-		if (!soundEditor.editingKitRow()) {
-			options.push_back(l10n::getView(STRING_FOR_TB303));
+		deluge::vector<std::string_view> options;
+		for (const Entry& e : entries()) {
+			options.push_back(l10n::getView(e.name));
 		}
 		return options;
 	}
@@ -119,6 +110,46 @@ public:
 		// DX7 sounds have their own engine menu
 		Sound* sound = static_cast<Sound*>(modControllable);
 		return sound->sources[0].oscType != OscType::DX7;
+	}
+
+	/// The list as it stands for the sound being edited: on a kit row plain subtractive reads as Sample, and there is
+	/// no 303 (it's a mono synth, played from a clip's mono sequencer)
+	static deluge::vector<Entry> entries() {
+		using enum l10n::String;
+		using dsp::drum_synth::Engine;
+		using K = Entry::Kind;
+		const bool kitRow = soundEditor.editingKitRow();
+		deluge::vector<Entry> list{
+		    {K::MODE, ::SynthMode::SUBTRACTIVE, Engine::DRUM, 0, kitRow ? STRING_FOR_SAMPLE : STRING_FOR_SUBTRACTIVE},
+		    {K::MODE, ::SynthMode::FM, Engine::DRUM, 0, STRING_FOR_FM},
+		    {K::MODE, ::SynthMode::RINGMOD, Engine::DRUM, 0, STRING_FOR_RINGMOD},
+		};
+		if (!kitRow) {
+			list.push_back({K::TB303, ::SynthMode::TB303, Engine::DRUM, 0, STRING_FOR_TB303});
+		}
+		static constexpr std::array<Entry, 17> kDrumEngines{{
+		    {K::DRUM, ::SynthMode::SUBTRACTIVE, Engine::DRUM, 0, STRING_FOR_DRUM_ENGINE_DRUM},
+		    {K::DRUM, ::SynthMode::SUBTRACTIVE, Engine::SNARE, 0, STRING_FOR_DRUM_ENGINE_SNARE},
+		    {K::DRUM, ::SynthMode::SUBTRACTIVE, Engine::METAL, 0, STRING_FOR_DRUM_ENGINE_METAL},
+		    {K::DRUM, ::SynthMode::SUBTRACTIVE, Engine::TIA, 0, STRING_FOR_DRUM_PRESET_TIA_L},
+		    {K::DRUM, ::SynthMode::SUBTRACTIVE, Engine::TIA, 1, STRING_FOR_DRUM_PRESET_TIA_B},
+		    {K::DRUM, ::SynthMode::SUBTRACTIVE, Engine::TIA, 2, STRING_FOR_DRUM_PRESET_TIA_C},
+		    {K::DRUM, ::SynthMode::SUBTRACTIVE, Engine::IIA, 0, STRING_FOR_DRUM_PRESET_IIA_G},
+		    {K::DRUM, ::SynthMode::SUBTRACTIVE, Engine::IIA, 1, STRING_FOR_DRUM_PRESET_IIA_I},
+		    {K::DRUM, ::SynthMode::SUBTRACTIVE, Engine::IIA, 2, STRING_FOR_DRUM_PRESET_IIA_H},
+		    {K::DRUM, ::SynthMode::SUBTRACTIVE, Engine::CYC_KIK, 0, STRING_FOR_DRUM_ENGINE_CYC_KIK},
+		    {K::DRUM, ::SynthMode::SUBTRACTIVE, Engine::CYC_SNR, 0, STRING_FOR_DRUM_ENGINE_CYC_SNR},
+		    {K::DRUM, ::SynthMode::SUBTRACTIVE, Engine::CYC_METAL, 0, STRING_FOR_DRUM_ENGINE_CYC_METAL},
+		    {K::DRUM, ::SynthMode::SUBTRACTIVE, Engine::CYC_PERC, 0, STRING_FOR_DRUM_ENGINE_CYC_PERC},
+		    {K::DRUM, ::SynthMode::SUBTRACTIVE, Engine::CYC_TONE, 0, STRING_FOR_DRUM_ENGINE_CYC_TONE},
+		    {K::DRUM, ::SynthMode::SUBTRACTIVE, Engine::CYC_CHORD, 0, STRING_FOR_DRUM_ENGINE_CYC_CHORD},
+		    {K::DRUM, ::SynthMode::SUBTRACTIVE, Engine::VTG_SNR, 0, STRING_FOR_DRUM_ENGINE_VTG_SNR},
+		    {K::DRUM, ::SynthMode::SUBTRACTIVE, Engine::CLAP_ENG, 0, STRING_FOR_DRUM_ENGINE_CLAP_ENG},
+		}};
+		for (const Entry& e : kDrumEngines) {
+			list.push_back(e);
+		}
+		return list;
 	}
 
 private:

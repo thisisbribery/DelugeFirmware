@@ -4,13 +4,13 @@ title: Drum Synth
 
 The drum synth is an oscillator type for synthesised drums. It is a port of the drum voices from the open source LXR-02 firmware by Erica Synths, adapted to run inside a Deluge sound. The Deluge's own envelopes, filters, FX, mod matrix, automation and parameter locks all work on top of it.
 
-It has five engines. The first three are ported from the LXR-02:
+It has sixteen engines and variants, all chosen in **SYNTH MODE**. The first three are ported from the LXR-02:
 
 - **Kick / tom**: a main oscillator with a pitch envelope, plus a mod oscillator that either frequency modulates it or is mixed with it.
 - **Snare**: a pitched oscillator with a pitch envelope, plus sample-and-hold noise through its own low, high or band pass filter.
 - **Cymbal / hat**: a main oscillator frequency modulated by two more oscillators, one of them usually noise.
 
-The other two, **Drom1** and **Drom2**, come from the XIA engine set made for the Elektron Model:Cycles. See [Drom1 and Drom2](#drom1-and-drom2) below.
+**Drom1** and **Drom2** (three variants each) come from the XIA engine set made for the Elektron Model:Cycles. See [Drom1 and Drom2](#drom1-and-drom2). The eight **Cyc engines** are modelled on the Model:Cycles machines. See [Cyc engines](#cyc-engines).
 
 Every engine also has a **transient**: a pitch "snap", a start-phase "offset" click, or one of twelve short click samples.
 
@@ -22,17 +22,17 @@ Every engine also has a **transient**: a pitch "snap", a start-phase "offset" cl
 
 The two hat rows are in choke mode, so an open hat is cut off by the next closed hat.
 
-You can also turn any row of any kit, or any synth, into a drum synth: open the sound editor, go to **OSC1 > TYPE** and choose **Drum synth**, then press **SELECT** for the pad editor. That way sampled and synthesised drums can share a kit.
+You can also turn any row of any kit, or any synth, into a drum synth: press the **SYNTH MODE** shortcut and choose an engine. That way sampled and synthesised drums can share a kit. See [Choosing an engine](#choosing-an-engine).
 
 ## Pad editor
 
-On a drum synth row, open the sound menu and choose **Drum synth** (its first item), or press **SELECT** on **OSC1 TYPE**. The pad editor opens: every pad column is one setting, shown as a level meter from the bottom row (lowest) to the top row (highest).
+On a drum synth row, open the sound menu and choose **Drum synth** (its first item), or press **SELECT** on **OSC1 > TYPE** in the sound menu. The pad editor opens: every pad column is one setting, shown as a level meter from the bottom row (lowest) to the top row (highest).
 
 - **Tap a pad** to set that column to that level. The screen shows the setting's name and value.
 - **Turn SELECT** to fine tune the column you last touched.
 - **Turn the horizontal encoder** to move between columns without changing anything.
 - **Audition pads** still play the row, so you can hold one and tap settings while you listen.
-- **SELECT press** opens the full drum synth menu below, with Engine and Load preset.
+- **SELECT press** opens the full drum synth menu below, with Load preset.
 - **BACK** goes up to the normal sound menu. The pad editor is its first item, **Drum synth**.
 - **SHIFT** shows the usual grid shortcuts while held.
 
@@ -65,7 +65,6 @@ The same settings as a list: press **SELECT** in the pad editor, or go to **OSC1
 
 | Setting | Engines | What it does |
 |---|---|---|
-| Engine | all | Kick / tom, Snare or Cymbal / hat |
 | Load preset | all | Replaces the drum synth settings with a starting point. Leaves the Deluge's envelopes, filters and FX alone |
 | Osc wave | all | Main oscillator wave: sine, triangle, saw, square or noise |
 | Pitch amount | kick, snare | Depth of the pitch envelope, up to 32 times the base pitch |
@@ -85,85 +84,86 @@ Values run 0 to 127, as on the original hardware.
 
 The pitch of a row is set with the usual oscillator transpose and the Deluge's pitch controls, so the drum synth responds to note, pitch automation and the mod matrix like any other oscillator.
 
-## Drom1 and Drom2
+## Choosing an engine
 
-Drom1 and Drom2 are ported from the compiled Model:Cycles firmware they were written for. At the Cycles' own sample rate and block size they produce the original's output sample for sample, which the unit tests check.
+Every engine is in one list: press the **SYNTH MODE** shortcut (or **OSC1 TYPE** on a drum synth row, which opens the same list) and turn SELECT:
 
-They work like any other Deluge sound engine: the envelopes, filters, FX, mod matrix and automation all apply on top.
+| Group | Choices |
+|---|---|
+| The Deluge's own | Sample (on a kit row) or Subtractive, FM, Ringmod, 303 (synths only) |
+| LXR voices | Kick / tom, Snare, Cymbal / hat |
+| Drom1 | Drom1 L, Drom1 B, Drom1 C |
+| Drom2 | Drom2 G, Drom2 I, Drom2 H |
+| Cyc engines | Cyc Kik, Cyc Snr, Cyc Metal, Cyc Perc, Cyc Tone, Cyc Chord, Vtg Snr, clap eng |
 
-### Putting one on a row
+Choose **Sample** to put a kit row back on its sample.
 
-On any kit row (or synth), open the **SYNTH MODE** shortcut and choose **Drom1** or **Drom2**. On a kit row the first option reads **Sample**: choose it to go back to the row's sample. **Drum synth** gives the LXR engines.
+A row that wasn't a drum synth gets envelope 2 as a short blip for patching to pitch, and an envelope 1 that suits the engine:
+- LXR voices, Drom1 and Drom2: percussive (attack 0, decay 30, sustain 0, release 30). The Deluge envelope shapes the level.
+- Cyc engines: open (attack 0, sustain 50, release 40). They have their own amp decay; turn the Deluge's sustain down to shorten them from outside.
 
-A row that wasn't a drum synth gets a percussive Deluge envelope (attack 0, decay 30, sustain 0, release 30), so each hit decays, and keeps decaying if you let go early, plus envelope 2 as a short blip for patching to pitch. Shape it with the Deluge's envelopes as usual.
+Moving between the LXR voices, or between variants of Drom1 or Drom2, keeps their settings.
 
-**OSC1 TYPE** on a drum synth row picks the variant: **L**, **B** or **C** for Drom1, **G**, **I** or **H** for Drom2, or the LXR voice.
+## Shortcut pads
 
-- **Drom1**: three sine operators and a carrier. Each operator's **Blendex** moves it from being heard (0) to modulating (127). L: all three modulate the carrier. B: a chain, 1 into 2 into 3 into the carrier. C: a loop, 1 into 2 into 3 and back into 1, with no carrier.
-- **Drom2**: inharmonic partials. G adds six, I adds six with a falling pitch at the start, H chains eight sines.
+All drum engines share one layout, read the way the grid is printed. Only the four oscillator and FM columns change meaning on a drum synth row; the envelope, filter, FX and master pads keep their usual jobs, and so does any pad an engine doesn't use.
 
-### Controls and shortcuts
+- **Columns.** OSC1 is the main voice. OSC2 is the second layer: the snare noise, a rattle, snares, an overtone, a clap tail, or the first operator. MOD1 is the modulator: FM depth and ratio. MOD2 is the pitch sweep, or the second modulator (Cymbal / hat) or third operator (Drom1) on engines without one.
+- **Rows.** LEVEL is an amount, TRANSPOSE a tuning or ratio, TYPE a choice, PULSE WIDTH a shape or fine tune, RETRIGGER the attack, FEEDBACK drive, resonance or curve, and WAVE INDEX a decay. OSC1 NOISE is a noise amount.
 
-The engines' settings are Deluge parameters, so they can be parameter locked, automated and put on gold knobs. They run 0-127 like the Cycles' knobs.
+| Pad | Kick / tom | Snare | Cymbal / hat | Drom1 | Drom2 |
+|---|---|---|---|---|---|
+| OSC1 TYPE | SYNTH MODE | SYNTH MODE | SYNTH MODE | SYNTH MODE | SYNTH MODE |
+| OSC1 PULSE WIDTH | Osc wave | Osc wave | Osc wave | | Shape |
+| OSC1 RETRIGGER | Transient type | Transient type | Transient type | Punch | Punch |
+| OSC1 FEEDBACK | Drive | Drive | Drive | Drive | Drive |
+| OSC1 WAVE INDEX | Engine decay | Engine decay | Engine decay | Engine decay | Engine decay |
+| OSC1 NOISE | | | | | Strike |
+| OSC2 LEVEL | | Noise mix | | Blendex 1 | |
+| OSC2 TRANSPOSE | | Noise rate | | Freq 1 | |
+| OSC2 TYPE | Osc mode (FM / mix) | Noise filter | | | |
+| OSC2 PULSE WIDTH | | Noise cutoff | | | |
+| OSC2 RETRIGGER | Transient level | Transient level | Transient level | | |
+| OSC2 FEEDBACK | | Noise resonance | | | |
+| MOD1 LEVEL | FM amount | | FM amount | Blendex 2 | Alloy |
+| MOD1 TRANSPOSE | Mod pitch | | Mod pitch | Freq 2 | Weight |
+| MOD1 TYPE | Mod wave | | Mod wave | | |
+| MOD1 PULSE WIDTH | Mod fine | | Mod fine | | |
+| MOD1 RETRIGGER | Transient speed | Transient speed | Transient speed | | |
+| MOD2 LEVEL | Pitch amount | Pitch amount | FM 2 amount | Blendex 3 | |
+| MOD2 TRANSPOSE | | | Mod 2 pitch | Freq 3 | |
+| MOD2 TYPE | | | Mod 2 wave | | |
+| MOD2 PULSE WIDTH | | | Mod 2 fine | | |
+| MOD2 FEEDBACK | Pitch curve | Pitch curve | | | |
+| MOD2 WAVE INDEX | Pitch decay | Pitch decay | | | |
 
-Read the shortcut grid as an FM synth. The OSC1 column is the engine, and the OSC2, MOD1 and MOD2 columns are Drom1's three operators:
+| Pad | Cyc Kik | Cyc Snr | Cyc Metal | Cyc Perc | Cyc Tone | Cyc Chord | Vtg Snr | clap eng |
+|---|---|---|---|---|---|---|---|---|
+| OSC1 PULSE WIDTH | Shape | | | | | Sweep (wave) | | |
+| OSC1 RETRIGGER | Punch | Punch | Punch | Punch | Punch | Punch | Punch | Punch |
+| OSC1 FEEDBACK | Drive | Drive | Drive | Drive | Drive | Drive | Drive | Drive |
+| OSC1 WAVE INDEX | Amp decay | Amp decay | Amp decay | Amp decay | Amp decay | Amp decay | Amp decay | Amp decay |
+| OSC2 LEVEL | | | | Color (overtone) | | | Freq complex | Balance |
+| OSC2 FEEDBACK | | | | | | | | Body char |
+| OSC2 TRANSPOSE | | Color (rattle tune) | | | | Color (voicing) | | Spacing crunch |
+| OSC2 TYPE | | | | | | Shape (chord) | | |
+| OSC2 PULSE WIDTH | | Shape (rattle) | | | | | | |
+| OSC2 RETRIGGER | Contour (knock) | | | | | | | |
+| OSC2 WAVE INDEX | | Contour (noise decay) | | Contour (overtone decay) | | | | Body envelope |
+| MOD1 LEVEL | | | Shape (density) | Shape (modulation) | Shape (FM index) | | Mod envelope | |
+| MOD1 TRANSPOSE | | | Color (ratio spread) | | Color (FM ratio) | | Inharm | |
+| MOD1 FEEDBACK | Color (harmonic drive) | | | | | | | |
+| MOD1 RETRIGGER | | | | | Sweep (index burst) | | | |
+| MOD1 WAVE INDEX | | | Contour (top end decay) | | Contour (index decay) | Contour (wave decay) | | |
+| MOD2 LEVEL | Sweep | Sweep | Sweep | Sweep | | | Pitch sweep | |
+| MOD FX RATE | Sweep | Sweep | Sweep | Sweep | Sweep | Sweep | Pitch sweep | Spacing crunch |
+| MOD FX DEPTH | Contour | Contour | Contour | Contour | Contour | Contour | Mod envelope | Body envelope |
 
-| Pad | Drom1 | Drom2 |
-|---|---|---|
-| OSC1 TYPE | Variant | Variant |
-| OSC1 PULSE WIDTH | | Shape (sine > triangle > square > saw) |
-| OSC1 RETRIGGER | Punch (soft clipper) | Punch |
-| OSC1 FEEDBACK | Drive (wavefolder, saturator above 95) | Drive |
-| OSC1 WAVE INDEX | Engine decay | Engine decay |
-| OSC2 LEVEL / TRANSPOSE | Blendex 1 / Freq 1 | Alloy / Weight |
-| MOD1 LEVEL / TRANSPOSE | Blendex 2 / Freq 2 | Strike |
-| MOD2 LEVEL / TRANSPOSE | Blendex 3 / Freq 3 | |
+Every engine's continuous settings are Deluge parameters, so they can be parameter locked, automated, MIDI learned and put on gold knobs. They run 0-127, as on the LXR and the Cycles. The choices (waves, transient type, noise filter, osc mode, Punch) are row settings. The full list is in the sound menu's **Drum synth** item.
 
-The other shortcuts work as usual: OSC1 LEVEL, TRANSPOSE and NOISE, the envelopes, filters and FX.
+**Drive and decay.** Every engine has both, on the same pads and gold knobs. Drom1 and Drom2 use their own. On the LXR voices they are new: drive is a soft clipper that gets louder as it goes up and hard clips at the top, decay is the voice's own fade (127 holds). Both start neutral, so kits made before sound the same. The Cyc engines start with drive at 100.
 
-**Custom 2 / Custom 3** (the last gold knob pair) carry the two key settings: **Blendex 1 / Freq 1** on Drom1, **Weight / Alloy** on Drom2. Hold a step and turn them to parameter lock.
-
-- **Freq 1-3**: each operator's tuning, from 24 semitones down at 0, through unison at 64, to 24 up at 127.
-- **Weight** picks Drom2's partial ratios, **Alloy** their levels (or the modulation depth on H), and **Strike** the level of a noise burst at the start of each hit.
-- **Engine decay** is the engine's own decay, on top of the Deluge's envelope. It starts at 127, which holds (about 9 seconds on Drom2), so the Deluge envelope does the shaping. Turning it down brings back the Cycles' own decay, including Drom2 H's brightness fading with it.
-
-The full list of settings, and the pad editor's columns, are in the sound menu's **Drum synth** item, or press SELECT on OSC1 TYPE.
-
-**Differences from the Cycles.**
-- The Deluge's envelope shapes the level, and the engines' own low pass is left open: use the Deluge's filters.
-- Engine decay and other once-per-block changes run about 9% slower, because the Deluge runs at 44.1 kHz rather than 48 kHz. Pitch is exact.
-- Blendex 3 runs 0 to 127 like Blendex 1 and 2. On the Cycles it sits on the fine tune slot and mirrors around 64.
-- Drom2's attack setting is split: below the middle it set the strike level, which is **Strike** here, and above it a fade-in, which is the Deluge envelope's attack.
-- The settings can be parameter locked and automated, but not yet modulated from the mod matrix.
-
-## Controls, shortcuts and gold knobs
-
-Every engine's continuous settings are Deluge parameters, so they can be parameter locked, automated, MIDI learned and put on gold knobs. They run 0-127, as on the LXR and the Cycles. The choices (waves, transient type, noise filter, osc mode) are menu settings.
-
-The shortcut grid reads as an FM synth. The **OSC1** column is the drum voice itself, and the **OSC2** and **MOD1** columns are its other parts. Pads not listed keep their usual job.
-
-| Pad | Kick / tom | Snare | Cymbal / hat |
-|---|---|---|---|
-| OSC1 TYPE | Voice: kick / tom, snare, cymbal / hat | same | same |
-| OSC1 PULSE WIDTH | Osc wave | Osc wave | Osc wave |
-| OSC1 RETRIGGER | Transient type | Transient type | Transient type |
-| OSC1 FEEDBACK | Transient level | Transient level | Transient level |
-| OSC1 WAVE INDEX | Transient speed | Transient speed | Transient speed |
-| OSC2 LEVEL | FM amount | Noise mix | FM amount |
-| OSC2 TRANSPOSE | Mod pitch | Noise rate | Mod pitch |
-| OSC2 TYPE | Mod wave | Noise filter | Mod wave |
-| OSC2 PULSE WIDTH | Mod fine | Noise cutoff | Mod fine |
-| OSC2 RETRIGGER | Osc mode (FM / mix) | | |
-| OSC2 FEEDBACK | | Noise resonance | |
-| MOD1 LEVEL | Pitch decay | Pitch decay | FM 2 amount |
-| MOD1 TRANSPOSE | Pitch amount | Pitch amount | Mod 2 pitch |
-| MOD1 TYPE | | | Mod 2 wave |
-| MOD1 PULSE WIDTH | | | Mod 2 fine |
-| MOD1 FEEDBACK | Pitch curve | Pitch curve | |
-
-Drom1 and Drom2 have their own layout: see [Drom1 and Drom2](#drom1-and-drom2).
-
-**Gold knobs.** Custom 1 tunes the drum. **Custom 2 / Custom 3** (the last pair) carry each engine's two key settings:
+**Gold knobs.** On every drum synth row the **attack / release** pair is **Drive / Decay** instead of the envelope's (the envelope is still in its menu). On the Cyc engines the **mod rate / mod depth** pair is **Sweep / Contour**. Custom 1 tunes the drum. **Custom 2 / Custom 3** (the last pair) carry each engine's two key settings:
 
 | Engine | Custom 2 | Custom 3 |
 |---|---|---|
@@ -172,14 +172,59 @@ Drom1 and Drom2 have their own layout: see [Drom1 and Drom2](#drom1-and-drom2).
 | Cymbal / hat | FM amount | FM 2 amount |
 | Drom1 | Blendex 1 | Freq 1 |
 | Drom2 | Weight | Alloy |
+| Cyc engines | Color (Inharm, Body char) | Shape (Freq complex, Balance) |
 
 The other gold knobs keep their usual Deluge jobs. Hold a step and turn a knob to parameter lock it.
 
-**Snappy decay.** On any drum synth row, **Snappy decay** (in the sound menu, under **Drum synth**) makes the amp envelope's decay and release follow the square of the Deluge's usual curve: at every point it has dropped twice as many dB, so the same decay setting sounds about half as long, with a tighter body. It is off by default, saved with the row, and only changes envelope 1.
+**Snappy decay.** On any drum synth row, **Snappy decay** (in the sound menu, under **Drum synth**) makes the amp envelope's decay and release follow the square of the Deluge's usual curve: at every point it has dropped twice as many dB, so the same decay setting sounds about half as long, with a tighter body. It is on for every new drum synth row, saved with the row, and only changes envelope 1. Rows saved with it off stay off.
 
 **Envelope 2.** Every drum synth row starts with envelope 2 as a short blip: attack 0, decay 5, sustain 0, release 0. Patch it to pitch (or osc 1 pitch) for a transient snap.
 
-The LXR settings share parameters between engines. Switching a row from one LXR voice to another keeps each voice's settings: they are stored with the row and come back when you switch back. The settings can't be modulated from the mod matrix, because the Deluge only allows that for those parameters in FM mode.
+The LXR settings share parameters between engines: each voice's settings are stored with the row and come back when you switch back. The settings can't be modulated from the mod matrix, because the Deluge only allows that for those parameters in FM mode.
+
+## Drom1 and Drom2
+
+Drom1 and Drom2 are ported from the compiled Model:Cycles firmware they were written for. At the Cycles' own sample rate and block size they produce the original's output sample for sample, which the unit tests check.
+
+- **Drom1**: three sine operators and a carrier. Each operator's **Blendex** moves it from being heard (0) to modulating (127). L: all three modulate the carrier. B: a chain, 1 into 2 into 3 into the carrier. C: a loop, 1 into 2 into 3 and back into 1, with no carrier.
+- **Drom2**: inharmonic partials. G adds six, I adds six with a falling pitch at the start, H chains eight sines.
+- **Freq 1-3**: each operator's tuning, from 24 semitones down at 0, through unison at 64, to 24 up at 127.
+- **Weight** picks Drom2's partial ratios, **Alloy** their levels (or the modulation depth on H), and **Strike** the level of a noise burst at the start of each hit.
+- **Engine decay** is the engine's own decay, on top of the Deluge's envelope. It starts at 127, which holds (about 9 seconds on Drom2), so the Deluge envelope does the shaping. Turning it down brings back the Cycles' own decay, including Drom2 H's brightness fading with it.
+
+**Differences from the Cycles.**
+- The Deluge's envelope shapes the level, and the engines' own low pass is left open: use the Deluge's filters.
+- Engine decay and other once-per-block changes run about 9% slower, because the Deluge runs at 44.1 kHz rather than 48 kHz. Pitch is exact.
+- Blendex 3 runs 0 to 127 like Blendex 1 and 2. On the Cycles it sits on the fine tune slot and mirrors around 64.
+- Drom2's attack setting is split: below the middle it set the strike level, which is **Strike** here, and above it a fade-in, which is the Deluge envelope's attack.
+
+## Cyc engines
+
+**Cyc Kik**, **Cyc Snr**, **Cyc Metal**, **Cyc Perc**, **Cyc Tone**, **Cyc Chord**, **Vtg Snr** and **clap eng** are named after the Model:Cycles machines (and two Syntakt machines moved into it by Modded-Cycles) that they are modelled on, and they keep those machines' knob names and starting values.
+
+They are new code, not ports. They were written from general synthesis principles and tuned against renders of the original machines: pitch sweeps, decay times, harmonic content and levels were measured knob by knob and matched. They sound close, not identical.
+
+| Engine | Knob 1 | Knob 2 | Knob 3 | Knob 4 |
+|---|---|---|---|---|
+| Cyc Kik | Color: odd harmonic drive | Shape: rounder, then spiky and buzzy, then noisy around 96 | Sweep: pitch drop depth and speed | Contour: knock at the start |
+| Cyc Snr | Color: rattle tuning | Shape: rattle from tonal to noise | Sweep: body pitch drop | Contour: how fast the noise dies, leaving a tone |
+| Cyc Metal | Color: spread of the partials | Shape: density | Sweep: pitch drop | Contour: how fast the top end dies |
+| Cyc Perc | Color: bright overtone, 3 to 7 times the note | Shape: modulation, hollow to gnarly | Sweep: pitch drop | Contour: how fast the overtone dies |
+| Cyc Tone | Color: FM ratio, knob / 12 (24 = 2) | Shape: FM index | Sweep: index burst at the start | Contour: how fast the index fades |
+| Cyc Chord | Color: voicing (unison, close, inversions, dropped, spread) | Shape: the chord, 38 of them | Sweep: wave, sine to hollow to buzzy | Contour: how fast the wave mellows |
+| Vtg Snr | Inharm: body ratio | Freq complex: snares against body | Pitch sweep | Mod envelope: knock in the body |
+| clap eng | Body char: brightness and body resonance | Balance: tail against claps | Spacing crunch: gap between claps, then grit | Body envelope: how fast the tail darkens |
+
+The Shape knob on Cyc Chord runs 0 to 127 like the others, stepping through the 38 chords in the Cycles' order: root and fifth, unison, minor, major, sus2, sus4, m7, 7, m(maj7), maj7, 7sus4, dim7, m(add9), add9, m6, 6, and on through the altered chords to fourths and fifths.
+
+**Punch** squares up and lifts the attack and stretches the decay a little.
+
+**Level and defaults.** Each engine is levelled to start close to full scale, then driven: **Drive** starts at 100, a soft clipper after the amp decay that gets louder as it goes up, pushing into hard clipping at 127, and cleaning up as the sound dies away. The amp decay starts longer than the original machines' (for example 50 on Cyc Kik, 60 on Cyc Snr, 80 on Cyc Chord).
+
+**Differences from the originals.**
+- Same knobs, same starting values, new sound engines inside: the curves behind each knob were matched by measurement, and some knobs do more than the original's (Cyc Kik's Contour barely did anything on the Cycles; here it sets the knock).
+- They run natively at 44.1 kHz, so pitch and decay times are exact.
+- No machine-wide gate: notes end with the Deluge envelope.
 
 ## CPU load
 
@@ -203,5 +248,7 @@ Kits that use the drum synth won't play those rows on firmware without it.
 
 Drom1 and Drom2 are the TIA and IIA engines of the XIA engine set for the Model:Cycles, released as open source by their author and distributed here under the GPL-3.0 with the rest of the firmware.
 
+
+The Cyc engines (cyc.cpp) are original code, GPL-3.0-or-later. Elektron, Model:Cycles and Syntakt are trademarks of Elektron Music Machines; these engines are not affiliated with or endorsed by Elektron.
 
 The drum synth code is licensed GPL-3.0-only, with the additional terms in the LXR firmware's NOTICE.md: it is marked as a modified version, and no rights to the Erica Synths or LXR trademarks are granted.

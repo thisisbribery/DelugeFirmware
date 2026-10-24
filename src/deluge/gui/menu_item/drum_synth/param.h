@@ -51,6 +51,9 @@ inline bool usedBySound(ModControllableAudio* modControllable, Patch::Param para
 
 using deluge::dsp::drum_synth::DrumControls;
 
+using deluge::dsp::drum_synth::cycEngineName;
+using deluge::dsp::drum_synth::cycKnobName;
+
 /// Set a patched param of the sound being edited, as turning its knob would (so it can be undone and automated)
 inline void setSoundParam(int32_t p, int32_t value) {
 	char memory[MODEL_STACK_MAX_SIZE];
@@ -77,8 +80,11 @@ inline void setControls(const DrumControls& controls) {
 
 /// Put the sound being edited onto a drum synth engine, or move it between engines. A sound that wasn't a drum synth
 /// gets a percussive Deluge envelope, which decays both while held and after letting go, and envelope 2 as a short
-/// blip to patch to pitch for a snap. fresh: start the engine from its defaults even if it's already playing.
+/// blip to patch to pitch for a snap. The Cyc engines have their own amp decay, so they get an open envelope instead,
+/// which holds while the note does and lets the engine's decay ring out. fresh: start the engine from its defaults even
+/// if it's already playing.
 inline void setDrumEngine(Engine engine, uint8_t variant = 0, bool fresh = false) {
+	using deluge::dsp::drum_synth::isCyc;
 	using deluge::dsp::drum_synth::isXia;
 	namespace params = deluge::modulation::params;
 	Sound& sound = *soundEditor.currentSound;
@@ -97,13 +103,17 @@ inline void setDrumEngine(Engine engine, uint8_t variant = 0, bool fresh = false
 			sound.setSynthMode(SynthMode::SUBTRACTIVE, currentSong);
 		}
 		source.setOscType(OscType::DRUM_SYNTH);
-		setSoundParam(params::LOCAL_ENV_0_ATTACK, getParamFromUserValue(params::LOCAL_ENV_0_ATTACK, 0));
-		setSoundParam(params::LOCAL_ENV_0_DECAY, getParamFromUserValue(params::LOCAL_ENV_0_DECAY, 30));
-		setSoundParam(params::LOCAL_ENV_0_SUSTAIN, getParamFromUserValue(params::LOCAL_ENV_0_SUSTAIN, 0));
-		setSoundParam(params::LOCAL_ENV_0_RELEASE, getParamFromUserValue(params::LOCAL_ENV_0_RELEASE, 30));
 		for (const auto& [p, userValue] : deluge::dsp::drum_synth::kDrumSynthEnvelope2) {
 			setSoundParam(p, getParamFromUserValue(p, userValue));
 		}
+	}
+	// Into or out of the Cyc engines, the amp envelope changes job
+	if (!wasDrumSynth || isCyc(engine) != isCyc(from)) {
+		const bool open = isCyc(engine);
+		setSoundParam(params::LOCAL_ENV_0_ATTACK, getParamFromUserValue(params::LOCAL_ENV_0_ATTACK, 0));
+		setSoundParam(params::LOCAL_ENV_0_DECAY, getParamFromUserValue(params::LOCAL_ENV_0_DECAY, 30));
+		setSoundParam(params::LOCAL_ENV_0_SUSTAIN, getParamFromUserValue(params::LOCAL_ENV_0_SUSTAIN, open ? 50 : 0));
+		setSoundParam(params::LOCAL_ENV_0_RELEASE, getParamFromUserValue(params::LOCAL_ENV_0_RELEASE, open ? 40 : 30));
 	}
 
 	if (wasDrumSynth && engine == from && !fresh) {
@@ -112,7 +122,10 @@ inline void setDrumEngine(Engine engine, uint8_t variant = 0, bool fresh = false
 	if (isXia(engine)) {
 		patch.setXiaPreset(engine, variant);
 	}
-	else if (!wasDrumSynth || isXia(from) || fresh) {
+	else if (isCyc(engine)) {
+		patch.setCycPreset(engine);
+	}
+	else if (!wasDrumSynth || !deluge::dsp::drum_synth::isLxr(from) || fresh) {
 		patch.setPreset(static_cast<deluge::dsp::drum_synth::Preset>(engine == Engine::SNARE   ? 1
 		                                                             : engine == Engine::METAL ? 6
 		                                                                                       : 0));
@@ -173,6 +186,39 @@ private:
 	Engine engine_;
 };
 
+/// A knob of the Cyc engines: one of the four macros, or the amp decay. Named the way the current engine names it.
+class CycControl final : public Control {
+public:
+	CycControl(l10n::String name, DrumControls::Slot slot) : Control(name, slot), slot_(slot) {}
+
+	bool isRelevant(ModControllableAudio* modControllable, int32_t whichThing) const override {
+		const auto* sound = static_cast<Sound*>(modControllable);
+		return sound->sources[0].oscType == OscType::DRUM_SYNTH
+		       && deluge::dsp::drum_synth::isCyc(sound->sources[0].drumPatch.engine());
+	}
+	[[nodiscard]] std::string_view getName() const override { return l10n::getView(currentName()); }
+	[[nodiscard]] std::string_view getTitle() const override { return l10n::getView(currentName()); }
+
+private:
+	[[nodiscard]] l10n::String currentName() const {
+		const Sound* sound = soundEditor.currentSound;
+		return cycKnobName((sound != nullptr) ? sound->sources[0].drumPatch.engine() : Engine::CYC_KIK, slot_);
+	}
+	DrumControls::Slot slot_;
+};
+
+/// The LXR voices' drive and decay, which they share with every other engine's on the same pads and gold knobs
+class LxrCommonControl final : public Control {
+public:
+	using Control::Control;
+
+	bool isRelevant(ModControllableAudio* modControllable, int32_t whichThing) const override {
+		const auto* sound = static_cast<Sound*>(modControllable);
+		return sound->sources[0].oscType == OscType::DRUM_SYNTH
+		       && deluge::dsp::drum_synth::isLxr(sound->sources[0].drumPatch.engine());
+	}
+};
+
 /// A continuous LXR setting, shown for the LXR engines that use it
 class LxrControl final : public Control {
 public:
@@ -214,35 +260,6 @@ public:
 		using enum l10n::String;
 		return {l10n::getView(STRING_FOR_SINE), l10n::getView(STRING_FOR_TRIANGLE), l10n::getView(STRING_FOR_SAW),
 		        l10n::getView(STRING_FOR_SQUARE), l10n::getView(STRING_FOR_NOISE)};
-	}
-};
-
-class EngineSelect final : public Choice {
-public:
-	explicit EngineSelect(l10n::String name) : Choice(name, Patch::ENGINE) {}
-
-	deluge::vector<std::string_view> getOptions(OptType optType) override {
-		(void)optType;
-		using enum l10n::String;
-		return {l10n::getView(STRING_FOR_DRUM_ENGINE_DRUM), l10n::getView(STRING_FOR_DRUM_ENGINE_SNARE),
-		        l10n::getView(STRING_FOR_DRUM_ENGINE_METAL), l10n::getView(STRING_FOR_DRUM_ENGINE_TIA),
-		        l10n::getView(STRING_FOR_DRUM_ENGINE_IIA)};
-	}
-
-	void writeCurrentValue() override { setDrumEngine(static_cast<Engine>(getValue())); }
-};
-
-/// The Model:Cycles variant of the current XIA engine, under its Cycles name
-class XiaVariant final : public Choice {
-public:
-	explicit XiaVariant(l10n::String name) : Choice(name, Patch::XIA_VARIANT) {}
-
-	deluge::vector<std::string_view> getOptions(OptType optType) override {
-		(void)optType;
-		if (currentPatch().engine() == Engine::IIA) {
-			return {"G", "I", "H"};
-		}
-		return {"L", "B", "C"};
 	}
 };
 
