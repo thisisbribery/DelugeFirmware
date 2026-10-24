@@ -160,8 +160,10 @@ Song::Song() : backedUpParamManagers(sizeof(BackedUpParamManager)) {
 	swingAmount = 0;
 
 	swingInterval = FlashStorage::defaultSwingInterval;
-	stumble = false;
-	stumbleStyle = deluge::swing_style::Style::HOPP;
+	// A new song starts on Stumble swing, SQEZ style, still straight until the swing is turned up. (Songs loaded from
+	// file start from the older defaults instead: see readFromFile().)
+	stumble = true;
+	stumbleStyle = deluge::swing_style::Style::SQEZ;
 	stumbleLevel = 0;
 
 	songViewYScroll = 1 - kDisplayHeight;
@@ -1428,6 +1430,11 @@ Error Song::readFromFile(Deserializer& reader) {
 	D_PRINTLN("DEBUG: readFromFile");
 
 	outputClipInstanceListIsCurrentlyInvalid = true;
+
+	// Song files only mention Stumble swing when it differs from these, the defaults before new songs started on it
+	stumble = false;
+	stumbleStyle = deluge::swing_style::Style::HOPP;
+	stumbleLevel = 0;
 
 	D_PRINTLN("");
 	D_PRINTLN("loading song!!!!!!!!!!!!!!");
