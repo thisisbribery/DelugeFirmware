@@ -41,6 +41,21 @@ The list is **Default** (the rows as SHIFT + KIT first makes them) then the pres
 
 Swapping sounds clears the undo history.
 
+## Affect all
+
+Affect all is a performance mode for LXR, Cycles and GIN kits. It takes a temporary snapshot of the kit, lets you push every drum around at once, then puts it all back on the next bar.
+
+1. In a preset kit's clip, press **SHIFT + AFFECT ENTIRE**. The kit is snapshotted and **AFFECT ENTIRE** flashes (**ALL**). You start in **All voices**.
+2. **All voices:** turn any gold knob, or open a setting (**SHIFT** + a shortcut pad) and turn **SELECT**, and every drum synth row moves by the same amount, each from where it was. Each row moves its own engine's control on that knob or pad, so on a kit mixing engines (a Cycles kit with a BXIA row added, say) Sweep moves the sweep on every row. A row pushed to the end of a setting keeps its place against the others when you turn back.
+3. **Kit FX:** press **AFFECT ENTIRE** on its own to swap to the kit's FX (**FX**), the same as AFFECT ENTIRE normally does, and again to go back to **All voices**. Swap as often as you like: the snapshot holds both.
+4. Press **SHIFT + AFFECT ENTIRE** again. **AFFECT ENTIRE** flashes twice as fast (**BACK**), and on the next bar every row and the kit's FX go back to the snapshot, before that bar's first hits. When stopped, it goes back straight away (**DONE**).
+
+- Only drum synth rows move, including ones added to the kit since. Sample rows, synth rows and the 303 are left alone.
+- Changes in affect all are never recorded as automation, so the snapshot always puts the kit back exactly. Holding notes and turning a knob still parameter locks that row, as normal.
+- Settings that are choices (waves, modes, filter type), patch cable amounts and transpose stay on the one row.
+- The snapshot is held in memory only. It isn't saved, and loading another song drops it.
+- On any other kit, **SHIFT + AFFECT ENTIRE** shows **CANT**.
+
 ## Pad editor
 
 On a drum synth row, open the sound menu and choose **Drum synth** (its first item), or press **SELECT** on **OSC1 > TYPE** in the sound menu. The pad editor opens: every pad column is one setting, shown as a level meter from the bottom row (lowest) to the top row (highest).
@@ -274,10 +289,10 @@ They are new code, not ports. They were written from general synthesis principle
 
 | Engine | Knob 1 | Knob 2 | Knob 3 | Knob 4 |
 |---|---|---|---|---|
-| Cyc Kik | Color: odd harmonic drive | Shape: rounder, then spiky and buzzy, then noisy around 96 | Sweep: pitch drop depth and speed | Contour: knock at the start |
+| Cyc Kik | Color: odd harmonic drive | Shape: rounder, then spiky and buzzy, then noisy around 96 | Sweep: pitch drop depth and speed | Contour: length of the pitch drop, short blip to long boom, plus the knock at the start |
 | Cyc Snr | Color: rattle tuning | Shape: rattle from tonal to noise | Sweep: body pitch drop | Contour: how fast the noise dies, leaving a tone |
 | Cyc Metal | Color: spread of the partials | Shape: density | Sweep: pitch drop | Contour: how fast the top end dies |
-| Cyc Perc | Color: bright overtone, 3 to 7 times the note | Shape: modulation, hollow to gnarly | Sweep: pitch drop | Contour: how fast the overtone dies |
+| Cyc Perc | Color: bright overtone, 3 to 7 times the note | Shape: modulation, hollow to gnarly | Sweep: pitch drop | Contour: how fast the overtone dies, and the length of the pitch drop |
 | Cyc Tone | Color: FM ratio, knob / 12 (24 = 2) | Shape: FM index | Sweep: index burst at the start | Contour: how fast the index fades |
 | Cyc Chord | Color: voicing (unison, close, inversions, dropped, spread) | Shape: the chord, 38 of them | Sweep: wave, sine to hollow to buzzy | Contour: how fast the wave mellows |
 | Vtg Snr | Inharm: body ratio | Freq complex: snares against body | Pitch sweep | Mod envelope: knock in the body |
@@ -290,7 +305,7 @@ The Shape knob on Cyc Chord runs 0 to 127 like the others, stepping through the 
 **Level and defaults.** Each engine is levelled to start close to full scale, then driven: **Drive** starts at 100, a soft clipper after the amp decay that gets louder as it goes up, pushing into hard clipping at 127, and cleaning up as the sound dies away. The amp decay starts longer than the original machines' (for example 50 on Cyc Kik, 60 on Cyc Snr, 80 on Cyc Chord).
 
 **Differences from the originals.**
-- Same knobs, same starting values, new sound engines inside: the curves behind each knob were matched by measurement, and some knobs do more than the original's (Cyc Kik's Contour barely did anything on the Cycles; here it sets the knock).
+- Same knobs, same starting values, new sound engines inside: the curves behind each knob were matched by measurement, and some knobs do more than the original's (Cyc Kik's Contour barely did anything on the Cycles; here it sets the length of the pitch drop and the knock).
 - They run natively at 44.1 kHz, so pitch and decay times are exact.
 - No machine-wide gate: notes end with the Deluge envelope.
 
