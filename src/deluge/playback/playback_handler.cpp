@@ -27,6 +27,7 @@
 #include "gui/views/arranger_view.h"
 #include "gui/views/automation_view.h"
 #include "gui/views/instrument_clip_view.h"
+#include "gui/views/kit_affect_all.h"
 #include "gui/views/performance_view.h"
 #include "gui/views/session_view.h"
 #include "gui/views/view.h"
@@ -599,6 +600,7 @@ void PlaybackHandler::setupPlayback(int32_t newPlaybackState, int32_t playFromPo
 
 void PlaybackHandler::endPlayback() {
 	deluge::autofill::autofill.playbackStopped();
+	deluge::kit_affect_all::kitAffectAll.playbackStopped();
 	if (isInternalClockActive() && currentlySendingMIDIOutputClocks()) {
 		midiEngine.sendStop(this);
 	}
@@ -1066,6 +1068,9 @@ void PlaybackHandler::actionSwungTick() {
 			// Autofill decides its hits before the clips play theirs, so it can take theirs away
 			int32_t swungTicksTilAutofillEvent =
 			    deluge::autofill::autofill.processTick(lastSwungTickActioned, swungTickIncrement);
+			// Affect all goes back to its snapshot on the bar line, before the bar's first hits play
+			swungTicksTilAutofillEvent = std::min(
+			    swungTicksTilAutofillEvent, deluge::kit_affect_all::kitAffectAll.processTick(lastSwungTickActioned));
 			currentPlaybackMode->doTickForward(swungTickIncrement);
 			deluge::autofill::autofill.afterTick();
 			swungTicksTilNextEvent = std::min(swungTicksTilNextEvent, swungTicksTilAutofillEvent);

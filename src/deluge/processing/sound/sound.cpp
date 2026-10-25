@@ -297,7 +297,6 @@ void Sound::setupAsDrumSynth(ParamManagerForTimeline* paramManager, deluge::dsp:
 	}
 
 	// Custom 1 tunes the drum; Custom 2 / Custom 3 carry the engine's key settings
-	modKnobs[6][0].paramDescriptor.setToHaveParamOnly(params::LOCAL_PITCH_ADJUST);
 	setDrumSynthKnobs(sources[0].drumPatch.engine());
 
 	paramManager->getPatchCableSet()->numPatchCables = 1;
@@ -506,6 +505,9 @@ void Sound::setDrumSynthKnobs(deluge::dsp::drum_synth::Engine engine) {
 	modKnobs[5][0].paramDescriptor.setToHaveParamOnly(kDrumControlParams[layout.depth]);
 	modKnobs[7][1].paramDescriptor.setToHaveParamOnly(kDrumControlParams[layout.custom2]);
 	modKnobs[7][0].paramDescriptor.setToHaveParamOnly(kDrumControlParams[layout.custom3]);
+	// Custom 1 tunes the drum. Set here, not only in a new kit, as kit files saved without a knob layout load with a
+	// synth's (Custom 1 on portamento)
+	modKnobs[6][0].paramDescriptor.setToHaveParamOnly(params::LOCAL_PITCH_ADJUST);
 }
 
 void Sound::setTb303Knobs(bool tb303) {

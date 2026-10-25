@@ -18,6 +18,7 @@
 #include "gui/menu_item/value_scaling.h"
 #include "gui/ui/sound_editor.h"
 #include "gui/views/automation_view.h"
+#include "gui/views/kit_affect_all.h"
 #include "gui/views/view.h"
 #include "model/clip/clip.h"
 #include "model/clip/instrument_clip.h"
@@ -39,6 +40,7 @@ void Integer::writeCurrentValue() {
 	char modelStackMemory[MODEL_STACK_MAX_SIZE];
 	ModelStackWithAutoParam* modelStack = getModelStack(modelStackMemory);
 	int32_t value = getFinalValue();
+	int32_t oldValue = modelStack->autoParam->getCurrentValue();
 	modelStack->autoParam->setCurrentValueInResponseToUserInput(value, modelStack);
 
 	// If affect-entire button held, do whole kit
@@ -61,6 +63,7 @@ void Integer::writeCurrentValue() {
 	// Or, the normal case of just one sound
 	else {
 		modelStack->autoParam->setCurrentValueInResponseToUserInput(value, modelStack);
+		deluge::kit_affect_all::kitAffectAll.menuValueChanged(modelStack, oldValue);
 	}
 
 	// send midi follow feedback

@@ -31,6 +31,7 @@
 #include "gui/views/arranger_view.h"
 #include "gui/views/automation_view.h"
 #include "gui/views/instrument_clip_view.h"
+#include "gui/views/kit_affect_all.h"
 #include "gui/views/view.h"
 #include "hid/button.h"
 #include "hid/buttons.h"
@@ -443,9 +444,15 @@ ActionResult InstrumentClipMinder::buttonAction(deluge::hid::Button b, bool on, 
 	else if (b == AFFECT_ENTIRE) {
 		if (on && currentUIMode == UI_MODE_NONE) {
 			if (getCurrentOutputType() == OutputType::KIT) {
-
-				getCurrentInstrumentClip()->affectEntire = !getCurrentInstrumentClip()->affectEntire;
-				view.setActiveModControllableTimelineCounter(getCurrentInstrumentClip());
+				auto& affectAll = deluge::kit_affect_all::kitAffectAll;
+				if (Buttons::isShiftButtonPressed()) {
+					affectAll.shiftAffectEntirePressed(getCurrentInstrumentClip());
+				}
+				// In affect all it swaps all voices / kit FX, keeping the snapshot
+				else if (!affectAll.affectEntirePressed(getCurrentInstrumentClip())) {
+					getCurrentInstrumentClip()->affectEntire = !getCurrentInstrumentClip()->affectEntire;
+					view.setActiveModControllableTimelineCounter(getCurrentInstrumentClip());
+				}
 			}
 		}
 	}

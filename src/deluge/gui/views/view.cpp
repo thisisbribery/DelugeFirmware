@@ -37,6 +37,7 @@
 #include "gui/views/arranger_view.h"
 #include "gui/views/automation_view.h"
 #include "gui/views/instrument_clip_view.h"
+#include "gui/views/kit_affect_all.h"
 #include "gui/views/kit_pattern_mode.h"
 #include "gui/views/performance_view.h"
 #include "gui/views/session_view.h"
@@ -880,6 +881,12 @@ void View::modEncoderAction_nonExistentParam(int32_t whichModEncoder, int32_t of
 
 void View::modEncoderAction_existentParam(int32_t whichModEncoder, int32_t offset,
                                           ModelStackWithAutoParam* modelStackWithParam, bool noteTailsAllowedBefore) {
+	// Affect all on a kit moves every drum row, or the kit FX without recording (holding notes still parameter locks)
+	if (!modLength
+	    && deluge::kit_affect_all::kitAffectAll.modEncoderTurned(modelStackWithParam, whichModEncoder, offset)) {
+		return;
+	}
+
 	char modelStackTempMemory[MODEL_STACK_MAX_SIZE];
 	copyModelStack(modelStackTempMemory, modelStackWithParam, sizeof(ModelStackWithThreeMainThings));
 	ModelStackWithThreeMainThings* tempModelStack = (ModelStackWithThreeMainThings*)modelStackTempMemory;
@@ -1643,6 +1650,9 @@ void View::setModLedStates() {
 		affectEntire = (uiContextType == UIType::INSTRUMENT_CLIP) ? ((InstrumentClip*)clip)->affectEntire : true;
 	}
 	indicator_leds::setLedState(IndicatorLED::AFFECT_ENTIRE, affectEntire);
+	if (!itsTheSong) {
+		deluge::kit_affect_all::kitAffectAll.refreshLed();
+	}
 
 	bool onAutomationClipView = false;
 

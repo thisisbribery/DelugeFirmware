@@ -191,7 +191,9 @@ const DecayCurve& decayCurveFor(Kind kind) {
 // - Shape: below 16 it rounds the peaks off; above, it adds a sharp spike on each peak, a buzz of odd harmonics, then
 //   noise riding on those spikes, strongest around 96
 // - Sweep: depth and speed of the pitch sweep, from none to about 13 times the final pitch
-// - Contour: the knock at the start, a short burst of filtered noise and a click
+// - Contour: the length of the pitch sweep, from a short blip (0) to a long, boomy drop (127), plus the knock at the
+//   start, a short burst of filtered noise and a click. The original's Contour barely does anything; at its default
+//   (24) the sweep is as voiced.
 
 constexpr std::array<float, 6> kKikSweepKnob{0.f, 16.f, 32.f, 64.f, 96.f, 127.f};
 constexpr std::array<float, 6> kKikSweepDepth{0.f, 1.46f, 1.70f, 1.90f, 2.30f, 3.09f}; ///< ln(1 + start ratio)
@@ -208,6 +210,15 @@ inline float spike(float x) {
 	const float x16 = x8 * x8;
 	return x * x16 * x2;
 }
+
+/// How much Contour stretches a pitch sweep's time: 0.35 times at 0, as voiced at the engine's default, 5 times at 127
+float sweepTimeScale(float contour, float atDefault) {
+	if (contour <= atDefault) {
+		return 0.35f * powf(1.f / 0.35f, contour / atDefault);
+	}
+	return powf(5.f, (contour - atDefault) / (1.f - atDefault));
+}
+constexpr float kKikContourDefault = 24.f / 127.f;
 
 void startKik(Voice& v, const Ctx& c) {
 	auto& k = v.s_.kik;
@@ -226,7 +237,9 @@ void renderKik(Voice& v, const Ctx& c, float* out, int32_t n) {
 
 	const float fEnd = c.hz * 0.25f;
 	const float depth = expf(interp(kKikSweepKnob, kKikSweepDepth, sweepKnob)) - 1.f;
-	const float pitchCoef = decayFor(interp(kKikSweepKnob, kKikSweepTime, sweepKnob) * 6.907755f, c.sr);
+	const float pitchCoef = decayFor(interp(kKikSweepKnob, kKikSweepTime, sweepKnob) * 6.907755f
+	                                     * sweepTimeScale(contour, kKikContourDefault),
+	                                 c.sr);
 	const float incPerHz = 4294967296.f / c.sr;
 
 	// Shape: spikes, then feedback
@@ -400,8 +413,10 @@ void renderMetal(Voice& v, const Ctx& c, float* out, int32_t n) {
 // - Color: the overtone, coming in and climbing from 3 to 7 times the note
 // - Shape: the modulation, growing sidebands around the note as the third fades: hollow to gnarly
 // - Sweep: the pitch drop, slow and shallow in the middle of the knob, fast and deep at the top
-// - Contour: how fast the overtone dies against the body
+// - Contour: how fast the overtone dies against the body, and the length of the pitch drop (as voiced at the default,
+//   64), so it still does something with no overtone
 
+constexpr float kPercContourDefault = 64.f / 127.f;
 constexpr std::array<float, 5> kPercSweepKnob{0.f, 32.f, 64.f, 100.f, 127.f};
 constexpr std::array<float, 5> kPercSweepDepth{0.f, 0.4f, 0.75f, 0.35f, 1.2f};
 constexpr std::array<float, 5> kPercSweepTime{0.05f, 0.2f, 0.2f, 0.025f, 0.012f};
@@ -422,7 +437,9 @@ void renderPerc(Voice& v, const Ctx& c, float* out, int32_t n) {
 	const float incPerHz = 4294967296.f / c.sr;
 
 	const float depth = interp(kPercSweepKnob, kPercSweepDepth, sweepKnob);
-	const float pitchCoef = decayFor(interp(kPercSweepKnob, kPercSweepTime, sweepKnob) * 6.907755f, c.sr);
+	const float pitchCoef = decayFor(interp(kPercSweepKnob, kPercSweepTime, sweepKnob) * 6.907755f
+	                                     * sweepTimeScale(contour, kPercContourDefault),
+	                                 c.sr);
 	const float index = 0.24f * shape * shape;
 	const float levelB = 0.9f * (1.f - 0.75f * shape);
 	const float ratioC = 1.f + 6.f * powf(color, 1.3f);
