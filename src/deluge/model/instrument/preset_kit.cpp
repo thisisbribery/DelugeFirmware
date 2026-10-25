@@ -27,6 +27,7 @@
 #include "processing/sound/sound_drum.h"
 #include "storage/storage_manager.h"
 #include "util/d_string.h"
+#include <algorithm>
 #include <array>
 
 namespace deluge::preset_kit {
@@ -53,17 +54,50 @@ constexpr std::array<Row, 6> kCyclesRows{{
     {Preset::KICK, Engine::CYC_PERC, "PERC"},
     {Preset::KICK, Engine::CYC_CHORD, "CHORD"},
 }};
+// GIN's eight: the hats choke each other
+constexpr std::array<Row, dsp::drum_synth::gin::kNumKitSounds> kGinRows{{
+    {Preset::KICK, Engine::GIN, "KICK", dsp::drum_synth::gin::KICK},
+    {Preset::KICK, Engine::GIN, "SNR", dsp::drum_synth::gin::SNARE},
+    {Preset::KICK, Engine::GIN, "HAT1", dsp::drum_synth::gin::HAT1},
+    {Preset::KICK, Engine::GIN, "HAT2", dsp::drum_synth::gin::HAT2},
+    {Preset::KICK, Engine::GIN, "PERC1", dsp::drum_synth::gin::PERC1},
+    {Preset::KICK, Engine::GIN, "PERC2", dsp::drum_synth::gin::PERC2},
+    {Preset::KICK, Engine::GIN, "CLAP", dsp::drum_synth::gin::CLAP},
+    {Preset::KICK, Engine::GIN, "OTHER", dsp::drum_synth::gin::OTHER},
+}};
 } // namespace
 
 std::span<const Row> rowsFor(PresetKit kit) {
-	return (kit == PresetKit::CYCLES) ? std::span<const Row>{kCyclesRows} : std::span<const Row>{kLxrRows};
+	switch (kit) {
+	case PresetKit::CYCLES:
+		return kCyclesRows;
+	case PresetKit::GIN:
+		return kGinRows;
+	default:
+		return kLxrRows;
+	}
 }
 
 char const* folderFor(PresetKit kit) {
-	return (kit == PresetKit::CYCLES) ? "KITS/CYCLES" : "KITS/LXR";
+	switch (kit) {
+	case PresetKit::CYCLES:
+		return "KITS/CYCLES";
+	case PresetKit::GIN:
+		return "KITS/GIN";
+	default:
+		return "KITS/LXR";
+	}
 }
 
-SoundDrum* makeDrum(const Row& row, PresetKit kit, ParamManagerForTimeline& paramManager) {
+int32_t numBuiltInKits(PresetKit kit) {
+	return (kit == PresetKit::GIN) ? dsp::drum_synth::gin::kNumKits : 1;
+}
+
+char const* builtInKitName(PresetKit kit, int32_t index) {
+	return dsp::drum_synth::gin::kKits[std::clamp<int32_t>(index, 0, dsp::drum_synth::gin::kNumKits - 1)].name;
+}
+
+SoundDrum* makeDrum(const Row& row, PresetKit kit, ParamManagerForTimeline& paramManager, int32_t builtInKit) {
 	void* memory = GeneralMemoryAllocator::get().allocMaxSpeed(sizeof(SoundDrum));
 	if (memory == nullptr) {
 		return nullptr;
@@ -74,7 +108,16 @@ SoundDrum* makeDrum(const Row& row, PresetKit kit, ParamManagerForTimeline& para
 	}
 	Sound::initParams(&paramManager);
 	auto* drum = new (memory) SoundDrum();
-	drum->setupAsDrumSynth(&paramManager, row.preset, row.cycEngine);
+	if (row.ginRow >= 0) {
+		const auto& kitSounds =
+		    dsp::drum_synth::gin::kKits[std::clamp<int32_t>(builtInKit, 0, dsp::drum_synth::gin::kNumKits - 1)].sounds;
+		const bool hat = row.ginRow == dsp::drum_synth::gin::HAT1 || row.ginRow == dsp::drum_synth::gin::HAT2;
+		drum->setupAsDrumSynth(&paramManager, row.preset, row.cycEngine, &kitSounds[row.ginRow], hat);
+		// The kit's balance is in each sound's GIN level; the row volume stays where the Deluge starts it
+	}
+	else {
+		drum->setupAsDrumSynth(&paramManager, row.preset, row.cycEngine);
+	}
 	drum->presetKit = kit;
 	drum->drumName = row.name;
 	return drum;

@@ -116,4 +116,33 @@ inline deluge::l10n::String cycKnobName(Engine engine, int32_t slot) {
 	}
 }
 
+/// What GIN calls the setting on a control slot
+inline deluge::l10n::String ginKnobName(int32_t slot) {
+	using enum deluge::l10n::String;
+	switch (slot) {
+	case DrumControls::GIN_MIX:
+		return STRING_FOR_GIN_MIX;
+	case DrumControls::GIN_NOISE_FREQ:
+		return STRING_FOR_GIN_NOISE_FREQ;
+	case DrumControls::GIN_MOD_RATE:
+		return STRING_FOR_GIN_MOD_RATE;
+	case DrumControls::GIN_MOD_AMOUNT:
+		return STRING_FOR_GIN_MOD_AMOUNT;
+	case DrumControls::GIN_DRIVE:
+		return STRING_FOR_XIA_DRIVE;
+	case DrumControls::GIN_NOISE_DECAY:
+		return STRING_FOR_GIN_NOISE_DECAY;
+	case DrumControls::GIN_NOISE_RES:
+		return STRING_FOR_GIN_NOISE_RES;
+	case DrumControls::GIN_NOISE_ATTACK:
+		return STRING_FOR_GIN_NOISE_ATTACK;
+	case DrumControls::GIN_TONE_ATTACK:
+		return STRING_FOR_GIN_TONE_ATTACK;
+	case DrumControls::COMMON_DECAY:
+		return STRING_FOR_GIN_DECAY;
+	default:
+		return STRING_FOR_GIN_TONE_DECAY;
+	}
+}
+
 } // namespace deluge::dsp::drum_synth

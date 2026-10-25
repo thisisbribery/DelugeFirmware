@@ -260,9 +260,11 @@ public:
 
 	virtual bool isDrum() { return false; }
 	void setupAsSample(ParamManagerForTimeline* paramManager);
-	/// A kit row on an LXR voice from preset, or, given a Cyc engine, on that engine at the note as the Cycles plays it
+	/// A kit row on an LXR voice from preset, or, given a Cyc engine, on that engine at the note as the Cycles plays
+	/// it, or given a GIN kit sound (or Engine::GIN for the default one), on GIN tuned to that sound
 	void setupAsDrumSynth(ParamManagerForTimeline* paramManager, deluge::dsp::drum_synth::Preset preset,
-	                      deluge::dsp::drum_synth::Engine cycEngine = deluge::dsp::drum_synth::Engine::NUM_ENGINES);
+	                      deluge::dsp::drum_synth::Engine cycEngine = deluge::dsp::drum_synth::Engine::NUM_ENGINES,
+	                      const deluge::dsp::drum_synth::gin::KitSound* ginSound = nullptr, bool ginChoke = false);
 	/// The gold knobs every drum synth engine shares, laid out like the Cycles': attack / release = drive / decay, mod
 	/// rate / depth = the sweep's speed and depth, Custom 2 / Custom 3 = two voicing settings. Any other engine value
 	/// puts the Deluge's defaults back.

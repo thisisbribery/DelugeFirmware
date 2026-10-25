@@ -117,8 +117,11 @@ Editor::Layout Editor::layout() const {
 		return {};
 	}
 	const Engine engine = sound->sources[0].drumPatch.engine();
+	if (deluge::dsp::drum_synth::isGin(engine)) {
+		return layouts_[6];
+	}
 	if (deluge::dsp::drum_synth::isCyc(engine)) {
-		return layouts_.back();
+		return layouts_[5];
 	}
 	return layouts_[util::to_underlying(engine)];
 }
@@ -145,6 +148,8 @@ std::string_view Editor::getTitle() const {
 		return l10n::getView(deluge::dsp::drum_synth::cycEngineName(engine));
 	}
 	switch (engine) {
+	case Engine::GIN:
+		return l10n::getView(STRING_FOR_DRUM_ENGINE_GIN);
 	case Engine::SNARE:
 		return l10n::getView(STRING_FOR_DRUM_ENGINE_SNARE);
 	case Engine::METAL:

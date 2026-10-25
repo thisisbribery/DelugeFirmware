@@ -21,7 +21,7 @@
  * - The snare noise filter is a plain TPT state variable filter with low, high and band pass outputs.
  *
  * The TIA and IIA engines are not LXR code: they are in xia.cpp, and only hooked in here. Nor are the Cyc engines,
- * which are in cyc.cpp.
+ * which are in cyc.cpp, or GIN, in gin.cpp.
  */
 
 #include "dsp/drum_synth/drum_synth.h"
@@ -128,6 +128,12 @@ void Patch::setPreset(Preset preset) {
 	setXiaPreset(Engine::TIA, 0);
 	params_[ENGINE] = static_cast<uint8_t>(Engine::DRUM);
 	params_[CONTROLS_VERSION] = 1;
+	params_[GIN_WAVE] = static_cast<uint8_t>(gin::Wave::SINE);
+	params_[GIN_MOD_MODE] = static_cast<uint8_t>(gin::ModMode::DECAY);
+	params_[GIN_NOISE_ENV] = static_cast<uint8_t>(gin::NoiseEnv::EXP);
+	params_[GIN_EQ_FREQ] = 64;
+	params_[GIN_EQ_GAIN] = 64;
+	params_[GIN_LEVEL] = 102;
 
 	switch (preset) {
 	case Preset::KICK:
@@ -224,6 +230,71 @@ void Patch::setCycPreset(Engine engine) {
 }
 
 namespace {
+/// A GIN setting, 0 to 1, as a knob value with the Cycles' 8.8 resolution
+int32_t ginKnob(float x) {
+	return static_cast<int32_t>(std::clamp(x, 0.f, 1.f) * 0x7F00 + 0.5f);
+}
+/// A byte setting, 0 to 127
+uint8_t ginByte(float x) {
+	return static_cast<uint8_t>(std::clamp(x, 0.f, 1.f) * 127.f + 0.5f);
+}
+} // namespace
+
+void Patch::setGinSound(const gin::KitSound& sound) {
+	params_[ENGINE] = static_cast<uint8_t>(Engine::GIN);
+	params_[GIN_WAVE] = static_cast<uint8_t>(sound.wave);
+	params_[GIN_MOD_MODE] = static_cast<uint8_t>(sound.modMode);
+	params_[NOISE_FILTER_TYPE] = static_cast<uint8_t>(sound.noiseFilter);
+	params_[GIN_NOISE_ENV] = static_cast<uint8_t>(sound.noiseEnv);
+	params_[GIN_EQ_FREQ] = ginByte(sound.eqFreq);
+	// 64 is exactly flat
+	params_[GIN_EQ_GAIN] = (sound.eqGain <= 0.5f) ? static_cast<uint8_t>(sound.eqGain * 128.f + 0.5f)
+	                                              : static_cast<uint8_t>(64 + (sound.eqGain - 0.5f) * 126.f + 0.5f);
+	params_[GIN_LEVEL] = ginByte(sound.level);
+}
+
+DrumControls ginControlsFor(const gin::KitSound& sound) {
+	using S = DrumControls;
+	DrumControls c;
+	c.values[S::GIN_MIX] = S::fromKnob(ginKnob(sound.mix));
+	c.values[S::GIN_NOISE_FREQ] = S::fromKnob(ginKnob(sound.noiseFreq));
+	c.values[S::GIN_MOD_RATE] = S::fromKnob(ginKnob(sound.modRate));
+	const float amount = std::clamp(sound.modAmount, -1.f, 1.f);
+	c.values[S::GIN_MOD_AMOUNT] =
+	    S::fromKnob(0x4000 + static_cast<int32_t>(amount * ((amount < 0.f) ? 0x4000 : 0x3F00)));
+	c.values[S::GIN_DRIVE] = S::fromKnob(ginKnob(sound.drive));
+	c.values[S::GIN_NOISE_DECAY] = S::fromKnob(ginKnob(sound.noiseDecay));
+	c.values[S::GIN_NOISE_RES] = S::fromKnob(ginKnob(sound.noiseQ));
+	c.values[S::GIN_NOISE_ATTACK] = S::fromKnob(ginKnob(sound.noiseAttack));
+	c.values[S::GIN_TONE_ATTACK] = S::fromKnob(ginKnob(sound.toneAttack));
+	c.values[S::COMMON_DECAY] = S::fromValue(64);
+	c.values[S::GIN_TONE_DECAY] = S::fromKnob(ginKnob(sound.toneDecay));
+	return c;
+}
+
+RowSetup rowSetupForGinSound(const gin::KitSound& sound, bool choke) {
+	// Kit rows play at middle C
+	const float semitones = 12.f * log2f(sound.hz / 261.6256f);
+	const int32_t whole = static_cast<int32_t>(std::floor(semitones + 0.5f));
+	const int32_t cents = static_cast<int32_t>(std::floor((semitones - whole) * 100.f + 0.5f));
+	// The envelope opens for the engine's own envelopes, its release fitted to the longer layer heard, as for the
+	// other engines (envelopeReleaseFor())
+	auto attack = [](float x) { return (x <= 0.f) ? 0.f : x * 0.03981072f * powf(10.f, 2.4f * x); };
+	auto decay = [](float x) { return 0.01f * powf(1000.f, x); };
+	float t60 = 0.f;
+	if (sound.mix < 1.f) {
+		t60 = attack(sound.toneAttack) + decay(sound.toneDecay);
+	}
+	if (sound.mix > 0.f) {
+		const float noise = attack(sound.noiseAttack) + decay(sound.noiseDecay);
+		t60 = std::max(t60, (sound.noiseEnv == gin::NoiseEnv::LINEAR) ? noise * (2.f / 3.f) : noise);
+	}
+	RowSetup row{static_cast<int16_t>(whole), 30, -1, choke, 5, 0, 50, envelopeReleaseFor(t60)};
+	row.cents = static_cast<int8_t>(cents);
+	return row;
+}
+
+namespace {
 /// Knob value that puts Cyc Chord's Shape on a chord shape
 constexpr int32_t chordShapeKnob(int32_t shape) {
 	return (shape * 128 + cyc::kNumChordShapes - 1) / cyc::kNumChordShapes;
@@ -246,6 +317,9 @@ constexpr int32_t kCycDefaultDrive = 100;
 
 DrumControls DrumControls::defaultsFor(Engine engine) {
 	// The Model:Cycles' own defaults, except that the engine's decay holds: the Deluge envelope does the shaping
+	if (isGin(engine)) {
+		return ginControlsFor(gin::defaultSound());
+	}
 	DrumControls c;
 	if (isCyc(engine)) {
 		// The Cyc engines start where the originals do, their own amp decay included
@@ -301,6 +375,12 @@ uint8_t Patch::maxValue(Param p) {
 		return kNumTransientModes - 1;
 	case XIA_VARIANT:
 		return 2;
+	case GIN_WAVE:
+		return static_cast<uint8_t>(gin::Wave::NUM_WAVES) - 1;
+	case GIN_MOD_MODE:
+		return static_cast<uint8_t>(gin::ModMode::NUM_MODES) - 1;
+	case GIN_NOISE_ENV:
+		return static_cast<uint8_t>(gin::NoiseEnv::NUM_ENVS) - 1;
 	case XIA_PUNCH:
 	case SNAPPY_DECAY:
 	case CONTROLS_VERSION:
@@ -340,12 +420,20 @@ bool Patch::isUsedBy(Param p, Engine engine) {
 	case MOD2_COARSE:
 	case MOD2_FINE:
 		return engine == Engine::METAL;
+	case NOISE_FILTER_TYPE:
+		return engine == Engine::SNARE || isGin(engine);
 	case NOISE_MIX:
 	case NOISE_PITCH:
-	case NOISE_FILTER_TYPE:
 	case NOISE_CUTOFF:
 	case NOISE_RESONANCE:
 		return engine == Engine::SNARE;
+	case GIN_WAVE:
+	case GIN_MOD_MODE:
+	case GIN_NOISE_ENV:
+	case GIN_EQ_FREQ:
+	case GIN_EQ_GAIN:
+	case GIN_LEVEL:
+		return isGin(engine);
 	default:
 		return isXia(engine);
 	}
@@ -536,6 +624,9 @@ RowSetup rowSetupForEngine(Engine engine, uint8_t variant) {
 	if (isCyc(engine)) {
 		const auto& d = kCycDefaults[static_cast<size_t>(cycKind(engine))];
 		return {0, 30, -1, false, 5, 0, 50, cycEnvelopeRelease(engine, d[4], false)};
+	}
+	if (isGin(engine)) {
+		return rowSetupForGinSound(gin::defaultSound(), false);
 	}
 	return xiaPresetFor(engine, variant).row;
 }
@@ -869,10 +960,25 @@ void Voice::renderMetal(int32_t* out, int32_t n, int32_t& amplitude, int32_t amp
 void Voice::render(const Patch& patch, const DrumControls& controls, int32_t* buffer, int32_t numSamples,
                    uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement) {
 	updateSettings(patch, controls);
+	if (isGin(settings_.engine)) {
+		if (!ginReady_) {
+			xia_.gin.reset();
+			ginReady_ = true;
+			cycReady_ = false;
+			xiaEngine_ = Engine::DRUM;
+		}
+		if (pendingTrigger_) {
+			pendingTrigger_ = false;
+			xia_.gin.trigger();
+		}
+		renderGin(settingsFrom_, controls, buffer, numSamples, basePhaseIncrement, amplitude, amplitudeIncrement);
+		return;
+	}
 	if (isCyc(settings_.engine)) {
 		if (!cycReady_) {
 			xia_.cyc.reset();
 			cycReady_ = true;
+			ginReady_ = false;
 			xiaEngine_ = Engine::DRUM;
 		}
 		if (pendingTrigger_) {
@@ -1017,6 +1123,7 @@ int32_t iiaAttackForStrike(int32_t strike) {
 void Voice::startXia(Engine engine) {
 	xiaEngine_ = engine;
 	cycReady_ = false;
+	ginReady_ = false;
 	if (engine == Engine::TIA) {
 		xia::reset(xia_.tia);
 	}
@@ -1132,6 +1239,60 @@ void Voice::renderCyc(Engine engine, const std::array<uint8_t, Patch::NUM_PARAMS
 		remaining -= n;
 	}
 	xiaFinished_ = xia_.cyc.finished();
+}
+
+// GIN -----------------------------------------------------------------------------------------------------------------
+
+void Voice::renderGin(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const DrumControls& controls, int32_t* buffer,
+                      int32_t numSamples, uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement) {
+	auto knob = [&](int32_t slot) {
+		return static_cast<float>(std::clamp<int32_t>(DrumControls::toKnob(controls.values[slot]), 0, 0x7F00)) / 0x7F00;
+	};
+	/// A knob as -1 to 1 around its centre
+	auto bipolar = [&](int32_t slot) {
+		const int32_t d = std::clamp<int32_t>(DrumControls::toKnob(controls.values[slot]), 0, 0x7F00) - 0x4000;
+		return static_cast<float>(d) / ((d < 0) ? 0x4000 : 0x3F00);
+	};
+	// The Decay knob moves both decays together, up to 0.6 either way: 63 times longer or shorter
+	const float decayOffset = bipolar(DrumControls::COMMON_DECAY) * 0.6f;
+	const uint8_t eqGain = p[Patch::GIN_EQ_GAIN];
+
+	gin::Settings s;
+	s.wave = static_cast<gin::Wave>(p[Patch::GIN_WAVE]);
+	s.modMode = static_cast<gin::ModMode>(p[Patch::GIN_MOD_MODE]);
+	s.noiseFilter = static_cast<gin::NoiseFilter>(p[Patch::NOISE_FILTER_TYPE]);
+	s.noiseEnv = static_cast<gin::NoiseEnv>(p[Patch::GIN_NOISE_ENV]);
+	s.toneAttack = knob(DrumControls::GIN_TONE_ATTACK);
+	s.toneDecay = std::clamp(knob(DrumControls::GIN_TONE_DECAY) + decayOffset, 0.f, 1.f);
+	s.modRate = knob(DrumControls::GIN_MOD_RATE);
+	s.modAmount = bipolar(DrumControls::GIN_MOD_AMOUNT);
+	s.noiseFreq = knob(DrumControls::GIN_NOISE_FREQ);
+	s.noiseQ = knob(DrumControls::GIN_NOISE_RES);
+	s.noiseAttack = knob(DrumControls::GIN_NOISE_ATTACK);
+	s.burstSpacing = knob(DrumControls::GIN_NOISE_DECAY);
+	s.noiseDecay = std::clamp(s.burstSpacing + decayOffset, 0.f, 1.f);
+	s.mix = knob(DrumControls::GIN_MIX);
+	s.drive = knob(DrumControls::GIN_DRIVE);
+	s.eqFreq = p[Patch::GIN_EQ_FREQ] / 127.f;
+	s.eqGain = (eqGain <= 64) ? eqGain / 128.f : 0.5f + (eqGain - 64) / 126.f;
+	s.level = gin::levelGain(p[Patch::GIN_LEVEL] / 127.f);
+
+	constexpr int32_t kChunk = 64;
+	std::array<int32_t, kChunk> chunk;
+	int32_t* out = buffer;
+	int32_t remaining = numSamples;
+	while (remaining > 0) {
+		const int32_t n = std::min(remaining, kChunk);
+		xia_.gin.render(s, basePhaseIncrement, chunk.data(), n);
+		for (int32_t i = 0; i < n; i++) {
+			amplitude += amplitudeIncrement;
+			// Halved like the Cyc engines, which leaves it q30 like the LXR engines'
+			out[i] += multiply_32x32_rshift32(chunk[i] >> 1, amplitude) << 2;
+		}
+		out += n;
+		remaining -= n;
+	}
+	xiaFinished_ = xia_.gin.finished();
 }
 
 } // namespace deluge::dsp::drum_synth

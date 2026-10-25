@@ -228,18 +228,27 @@ void Sound::setupAsSample(ParamManagerForTimeline* paramManager) {
 }
 
 void Sound::setupAsDrumSynth(ParamManagerForTimeline* paramManager, deluge::dsp::drum_synth::Preset preset,
-                             deluge::dsp::drum_synth::Engine cycEngine) {
+                             deluge::dsp::drum_synth::Engine cycEngine,
+                             const deluge::dsp::drum_synth::gin::KitSound* ginSound, bool ginChoke) {
 	using deluge::dsp::drum_synth::Preset;
+	const bool gin = ginSound != nullptr || deluge::dsp::drum_synth::isGin(cycEngine);
 	const bool cyc = deluge::dsp::drum_synth::isCyc(cycEngine);
+	const deluge::dsp::drum_synth::gin::KitSound& ginKitSound =
+	    (ginSound != nullptr) ? *ginSound : deluge::dsp::drum_synth::gin::defaultSound();
 
 	const deluge::dsp::drum_synth::RowSetup row =
-	    cyc ? deluge::dsp::drum_synth::rowSetupForEngine(cycEngine) : deluge::dsp::drum_synth::rowSetupFor(preset);
+	    gin   ? deluge::dsp::drum_synth::rowSetupForGinSound(ginKitSound, ginChoke)
+	    : cyc ? deluge::dsp::drum_synth::rowSetupForEngine(cycEngine)
+	          : deluge::dsp::drum_synth::rowSetupFor(preset);
 
 	polyphonic = row.choke ? PolyphonyMode::CHOKE : PolyphonyMode::AUTO;
 	lpfMode = FilterMode::TRANSISTOR_24DB;
 
 	sources[0].oscType = OscType::DRUM_SYNTH;
-	if (cyc) {
+	if (gin) {
+		sources[0].drumPatch.setGinSound(ginKitSound);
+	}
+	else if (cyc) {
 		sources[0].drumPatch.setCycPreset(cycEngine);
 	}
 	else {
@@ -248,6 +257,7 @@ void Sound::setupAsDrumSynth(ParamManagerForTimeline* paramManager, deluge::dsp:
 	sources[0].drumPatch.set(deluge::dsp::drum_synth::Patch::SNAPPY_DECAY,
 	                         deluge::dsp::drum_synth::snappyByDefault(sources[0].drumPatch.engine()) ? 1 : 0);
 	sources[0].transpose = row.transpose;
+	sources[0].setCents(row.cents);
 	sources[1].oscType = OscType::SINE;
 
 	PatchedParamSet* patchedParams = paramManager->getPatchedParamSet();
@@ -270,7 +280,8 @@ void Sound::setupAsDrumSynth(ParamManagerForTimeline* paramManager, deluge::dsp:
 	}
 
 	// The engine's continuous settings live on Deluge params
-	const auto controls = deluge::dsp::drum_synth::controlsFromPatch(sources[0].drumPatch);
+	const auto controls = gin ? deluge::dsp::drum_synth::ginControlsFor(ginKitSound)
+	                          : deluge::dsp::drum_synth::controlsFromPatch(sources[0].drumPatch);
 	for (int32_t i = 0; i < deluge::dsp::drum_synth::DrumControls::NUM_SLOTS; i++) {
 		patchedParams->params[deluge::dsp::drum_synth::kDrumControlParams[i]].setCurrentValueBasicForSetup(
 		    controls.values[i]);
@@ -466,6 +477,11 @@ void Sound::setDrumSynthKnobs(deluge::dsp::drum_synth::Engine engine) {
 	case Engine::IIA:
 		layout = {DrumControls::IIA_SHAPE, DrumControls::IIA_STRIKE, DrumControls::IIA_WEIGHT, DrumControls::IIA_ALLOY};
 		break;
+	case Engine::GIN:
+		// The pitch modulation, then the tone / noise mix and the noise filter, as on GIN's own front panel
+		layout = {DrumControls::GIN_MOD_RATE, DrumControls::GIN_MOD_AMOUNT, DrumControls::GIN_MIX,
+		          DrumControls::GIN_NOISE_FREQ};
+		break;
 	default:
 		// The Cyc engines: Sweep / Contour, Color / Shape
 		layout = {DrumControls::CYC_MACRO3, DrumControls::CYC_MACRO4, DrumControls::CYC_MACRO1,
@@ -535,6 +551,9 @@ char const* Sound::getPatchedParamDisplayNameOverride(int32_t p) {
 	}
 
 	const auto engine = sources[0].drumPatch.engine();
+	if (deluge::dsp::drum_synth::isGin(engine)) {
+		return deluge::l10n::get(deluge::dsp::drum_synth::ginKnobName(slot));
+	}
 	if (deluge::dsp::drum_synth::isCyc(engine)) {
 		return (slot <= DrumControls::CYC_DRIVE || slot == DrumControls::COMMON_DECAY)
 		           ? deluge::l10n::get(deluge::dsp::drum_synth::cycKnobName(engine, slot))

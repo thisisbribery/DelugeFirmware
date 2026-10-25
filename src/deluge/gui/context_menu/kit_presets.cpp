@@ -28,6 +28,8 @@
 #include "model/instrument/kit.h"
 #include "model/song/song.h"
 #include "processing/sound/sound_drum.h"
+#include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <strings.h>
 
@@ -57,6 +59,7 @@ bool KitPresets::setup(preset_kit::PresetKit kit) {
 	originals_.fill(nullptr);
 
 	// Open on the preset the kit is on now, or on Current if it's on none of them
+	numBuiltIn_ = std::min(preset_kit::numBuiltInKits(kit), kMaxBuiltIn);
 	hasCurrent_ = false;
 	home_ = findHome();
 	if (home_ < 0) {
@@ -68,7 +71,10 @@ bool KitPresets::setup(preset_kit::PresetKit kit) {
 	if (hasCurrent_) {
 		options_[o++] = l10n::get(STRING_FOR_KIT_PRESET_CURRENT);
 	}
-	options_[o++] = l10n::get(STRING_FOR_KIT_PRESET_DEFAULT);
+	for (int32_t i = 0; i < numBuiltIn_; i++) {
+		options_[o++] = (kit == preset_kit::PresetKit::GIN) ? preset_kit::builtInKitName(kit, i)
+		                                                    : l10n::get(STRING_FOR_KIT_PRESET_DEFAULT);
+	}
 	for (int32_t i = 0; i < numPresets_; i++) {
 		options_[o++] = labels_[i].data();
 	}
@@ -81,8 +87,10 @@ bool KitPresets::setup(preset_kit::PresetKit kit) {
 int32_t KitPresets::findHome() {
 	Kit* kit = getCurrentKit();
 	char const* name = kit->presetName.get();
-	if (!strcmp(name, "*")) {
-		return defaultOption();
+	// A built in kit: "*" for the first (Default), "*2" on for GIN's others
+	if (name[0] == '*') {
+		const int32_t index = (name[1] != 0) ? atoi(name + 1) - 1 : 0;
+		return defaultOption() + std::clamp<int32_t>(index, 0, numBuiltIn_ - 1);
 	}
 	// A kit loaded straight from a preset file is named after it
 	if (!*name) {
@@ -154,10 +162,11 @@ void KitPresets::preview(int32_t option) {
 	// Read the whole preset before touching the kit, so a file that won't load leaves it as it was
 	int32_t count = 0;
 	Error error = Error::NONE;
-	if (option == defaultOption()) {
+	if (option >= defaultOption() && option < firstPresetOption()) {
 		const auto rows = preset_kit::rowsFor(kit_);
 		for (; count < static_cast<int32_t>(rows.size()) && count < kMaxRows; count++) {
-			loaded_[count] = preset_kit::makeDrum(rows[count], kit_, loadedParamManagers_[count]);
+			loaded_[count] =
+			    preset_kit::makeDrum(rows[count], kit_, loadedParamManagers_[count], option - defaultOption());
 			if (loaded_[count] == nullptr) {
 				error = Error::INSUFFICIENT_RAM;
 				break;
@@ -242,6 +251,11 @@ bool KitPresets::acceptCurrentOption() {
 	if (currentOption == defaultOption()) {
 		kit->presetName.set("*");
 	}
+	else if (currentOption > defaultOption() && currentOption < firstPresetOption()) {
+		char builtIn[8];
+		snprintf(builtIn, sizeof(builtIn), "*%d", static_cast<int>(currentOption - defaultOption() + 1));
+		kit->presetName.set(builtIn);
+	}
 	else if (currentOption >= firstPresetOption()) {
 		kit->presetName.set(labels_[currentOption - firstPresetOption()].data());
 	}
@@ -253,7 +267,7 @@ bool KitPresets::acceptCurrentOption() {
 }
 
 ActionResult KitPresets::buttonAction(deluge::hid::Button b, bool on, bool inCardRoutine) {
-	// BACK puts the kit back as it was and goes up to the Kit / LXR / Cycles menu
+	// BACK puts the kit back as it was and goes up to the Kit / LXR / Cycles / GIN menu
 	if (b == deluge::hid::button::BACK) {
 		if (on) {
 			if (inCardRoutine) {

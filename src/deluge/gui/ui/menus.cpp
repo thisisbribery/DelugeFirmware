@@ -1571,6 +1571,24 @@ PLACE_SDRAM_BSS drum_synth::CycControl cycDriveMenu{STRING_FOR_XIA_DRIVE, XiaSlo
 PLACE_SDRAM_BSS drum_synth::LxrCommonControl lxrDriveMenu{STRING_FOR_XIA_DRIVE, XiaSlot::LXR_DRIVE};
 PLACE_SDRAM_BSS drum_synth::LxrCommonControl lxrDecayMenu{STRING_FOR_XIA_DECAY, XiaSlot::COMMON_DECAY};
 PLACE_SDRAM_BSS drum_synth::SnappyDecay drumSnappyDecayMenu{STRING_FOR_DRUM_SNAPPY_DECAY};
+PLACE_SDRAM_BSS drum_synth::GinSoundSelect ginSoundMenu{STRING_FOR_GIN_SOUND};
+PLACE_SDRAM_BSS drum_synth::GinWave ginWaveMenu{STRING_FOR_GIN_WAVE};
+PLACE_SDRAM_BSS drum_synth::GinControl ginToneAttackMenu{STRING_FOR_GIN_TONE_ATTACK, XiaSlot::GIN_TONE_ATTACK};
+PLACE_SDRAM_BSS drum_synth::GinControl ginToneDecayMenu{STRING_FOR_GIN_TONE_DECAY, XiaSlot::GIN_TONE_DECAY};
+PLACE_SDRAM_BSS drum_synth::GinModMode ginModModeMenu{STRING_FOR_GIN_MOD_MODE};
+PLACE_SDRAM_BSS drum_synth::GinControl ginModRateMenu{STRING_FOR_GIN_MOD_RATE, XiaSlot::GIN_MOD_RATE};
+PLACE_SDRAM_BSS drum_synth::GinControl ginModAmountMenu{STRING_FOR_GIN_MOD_AMOUNT, XiaSlot::GIN_MOD_AMOUNT};
+PLACE_SDRAM_BSS drum_synth::GinControl ginMixMenu{STRING_FOR_GIN_MIX, XiaSlot::GIN_MIX};
+PLACE_SDRAM_BSS drum_synth::GinControl ginNoiseFreqMenu{STRING_FOR_GIN_NOISE_FREQ, XiaSlot::GIN_NOISE_FREQ};
+PLACE_SDRAM_BSS drum_synth::GinControl ginNoiseResMenu{STRING_FOR_GIN_NOISE_RES, XiaSlot::GIN_NOISE_RES};
+PLACE_SDRAM_BSS drum_synth::GinNoiseEnv ginNoiseEnvMenu{STRING_FOR_GIN_NOISE_ENV};
+PLACE_SDRAM_BSS drum_synth::GinControl ginNoiseAttackMenu{STRING_FOR_GIN_NOISE_ATTACK, XiaSlot::GIN_NOISE_ATTACK};
+PLACE_SDRAM_BSS drum_synth::GinControl ginNoiseDecayMenu{STRING_FOR_GIN_NOISE_DECAY, XiaSlot::GIN_NOISE_DECAY};
+PLACE_SDRAM_BSS drum_synth::GinControl ginDriveMenu{STRING_FOR_XIA_DRIVE, XiaSlot::GIN_DRIVE};
+PLACE_SDRAM_BSS drum_synth::GinControl ginDecayMenu{STRING_FOR_GIN_DECAY, XiaSlot::COMMON_DECAY};
+PLACE_SDRAM_BSS drum_synth::GinNumber ginEqFreqMenu{STRING_FOR_GIN_EQ_FREQ, DrumParam::GIN_EQ_FREQ};
+PLACE_SDRAM_BSS drum_synth::GinNumber ginEqGainMenu{STRING_FOR_GIN_EQ_GAIN, DrumParam::GIN_EQ_GAIN};
+PLACE_SDRAM_BSS drum_synth::GinNumber ginLevelMenu{STRING_FOR_GIN_LEVEL, DrumParam::GIN_LEVEL};
 // Items the current engine doesn't use hide themselves
 PLACE_SDRAM_BSS menu_item::Submenu drumSynthMenu{
     STRING_FOR_DRUM_SYNTH,
@@ -1589,7 +1607,13 @@ PLACE_SDRAM_BSS menu_item::Submenu drumSynthMenu{
         &cycMacro2Menu,          &cycMacro3Menu,       &cycMacro4Menu,
         &cycDecayMenu,           &cycDriveMenu,        &lxrDriveMenu,
         &lxrDecayMenu,           &xiaDriveMenu,        &xiaDecayMenu,
-        &xiaPunchMenu,           &drumSnappyDecayMenu,
+        &xiaPunchMenu,           &ginSoundMenu,        &ginWaveMenu,
+        &ginToneAttackMenu,      &ginToneDecayMenu,    &ginModModeMenu,
+        &ginModRateMenu,         &ginModAmountMenu,    &ginMixMenu,
+        &ginNoiseFreqMenu,       &ginNoiseResMenu,     &ginNoiseEnvMenu,
+        &ginNoiseAttackMenu,     &ginNoiseDecayMenu,   &ginDriveMenu,
+        &ginDecayMenu,           &ginEqFreqMenu,       &ginEqGainMenu,
+        &ginLevelMenu,           &drumSnappyDecayMenu,
     },
 };
 
@@ -1694,6 +1718,25 @@ PLACE_SDRAM_DATA std::array<DrumColumn, 10> drumEditorCycLayout{{
     {&source0TransposeMenu, DrumKind::NUMBER, DrumGroup::SOUND, -2400, 2400, 100, 100},
     {&lpfFreqMenu, DrumKind::NUMBER, DrumGroup::SOUND},
     {&hpfFreqMenu, DrumKind::NUMBER, DrumGroup::SOUND},
+}};
+// GIN: the tone, its pitch modulation, the noise layer, then drive, decay and tuning
+PLACE_SDRAM_DATA std::array<DrumColumn, 16> drumEditorGinLayout{{
+    {&ginWaveMenu, DrumKind::CHOICE, DrumGroup::OSC},
+    {&ginToneAttackMenu, DrumKind::NUMBER, DrumGroup::OSC},
+    {&ginToneDecayMenu, DrumKind::NUMBER, DrumGroup::OSC},
+    {&ginModModeMenu, DrumKind::CHOICE, DrumGroup::PITCH},
+    {&ginModRateMenu, DrumKind::NUMBER, DrumGroup::PITCH},
+    {&ginModAmountMenu, DrumKind::NUMBER, DrumGroup::PITCH},
+    {&ginMixMenu, DrumKind::NUMBER, DrumGroup::NOISE},
+    {&drumNoiseFilterMenu, DrumKind::CHOICE, DrumGroup::NOISE},
+    {&ginNoiseFreqMenu, DrumKind::NUMBER, DrumGroup::NOISE},
+    {&ginNoiseResMenu, DrumKind::NUMBER, DrumGroup::NOISE},
+    {&ginNoiseEnvMenu, DrumKind::CHOICE, DrumGroup::NOISE},
+    {&ginNoiseAttackMenu, DrumKind::NUMBER, DrumGroup::NOISE},
+    {&ginNoiseDecayMenu, DrumKind::NUMBER, DrumGroup::NOISE},
+    {&ginDriveMenu, DrumKind::NUMBER, DrumGroup::TRANSIENT},
+    {&ginDecayMenu, DrumKind::NUMBER, DrumGroup::XIA_ENVELOPE},
+    {&source0TransposeMenu, DrumKind::NUMBER, DrumGroup::SOUND, -2400, 2400, 100, 100},
 }};
 
 // Drum synth shortcut pads. One layout for every drum engine, read the way the grid is printed. Only the four
@@ -1839,6 +1882,29 @@ PLACE_SDRAM_DATA DrumPad drumPads[] = {
     {DrumEngine::CLAP_ENG, kPadOsc2, LEVEL, &cycMacro2Menu},      // Balance: tail against claps
     {DrumEngine::CLAP_ENG, kPadOsc2, TRANSPOSE, &cycMacro3Menu},  // Spacing crunch: gap between claps
     {DrumEngine::CLAP_ENG, kPadOsc2, WAVE_INDEX, &cycMacro4Menu}, // Body envelope: tail decay
+
+    // GIN: OSC1 the tone, OSC2 the noise layer, MOD1 the EQ and the tone's own decay, MOD2 the pitch modulation. No
+    // drive switch, so OSC1 FEEDBACK is the drive amount, as on the LXR voices. OSC1 WAVE INDEX moves both decays.
+    {DrumEngine::GIN, kPadOsc1, FEEDBACK, &ginDriveMenu},
+    {DrumEngine::GIN, kPadOsc1, WAVE_INDEX, &ginDecayMenu},
+    {DrumEngine::GIN, kPadOsc1, PULSE_WIDTH, &ginWaveMenu},
+    {DrumEngine::GIN, kPadOsc1, RETRIGGER, &ginToneAttackMenu},
+    {DrumEngine::GIN, kPadOsc1, LEVEL, &ginLevelMenu},
+    {DrumEngine::GIN, kPadOsc1, NOISE, &ginMixMenu},
+    {DrumEngine::GIN, kPadOsc2, LEVEL, &ginMixMenu},
+    {DrumEngine::GIN, kPadOsc2, TRANSPOSE, &ginNoiseFreqMenu},
+    {DrumEngine::GIN, kPadOsc2, TYPE, &drumNoiseFilterMenu},
+    {DrumEngine::GIN, kPadOsc2, PULSE_WIDTH, &ginNoiseEnvMenu},
+    {DrumEngine::GIN, kPadOsc2, RETRIGGER, &ginNoiseAttackMenu},
+    {DrumEngine::GIN, kPadOsc2, FEEDBACK, &ginNoiseResMenu},
+    {DrumEngine::GIN, kPadOsc2, WAVE_INDEX, &ginNoiseDecayMenu},
+    {DrumEngine::GIN, kPadMod1, LEVEL, &ginEqGainMenu},
+    {DrumEngine::GIN, kPadMod1, TRANSPOSE, &ginEqFreqMenu},
+    {DrumEngine::GIN, kPadMod1, WAVE_INDEX, &ginToneDecayMenu},
+    {DrumEngine::GIN, kPadMod2, LEVEL, &ginModAmountMenu},
+    {DrumEngine::GIN, kPadMod2, TYPE, &ginModModeMenu},
+    {DrumEngine::GIN, kPadMod2, WAVE_INDEX, &ginModRateMenu},
+    SWEEP_PADS(DrumEngine::GIN, &ginModRateMenu, &ginModAmountMenu),
 };
 #undef LXR_COMMON_PADS
 #undef LXR_PITCH_PADS
@@ -1871,7 +1937,7 @@ MenuItem* drumShortcutFor(const Sound* sound, int32_t x, int32_t y) {
 namespace deluge::gui::menu_item::drum_synth {
 PLACE_SDRAM_BSS Editor drumSynthEditor{STRING_FOR_DRUM_SYNTH, drumEditorDrumLayout, drumEditorSnareLayout,
                                        drumEditorMetalLayout, drumEditorTiaLayout,  drumEditorIiaLayout,
-                                       drumEditorCycLayout,   &drumSynthMenu};
+                                       drumEditorCycLayout,   drumEditorGinLayout,  &drumSynthMenu};
 } // namespace deluge::gui::menu_item::drum_synth
 
 // Not FM

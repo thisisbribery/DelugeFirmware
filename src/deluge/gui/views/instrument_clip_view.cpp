@@ -1955,8 +1955,8 @@ bool InstrumentClipView::presetKitHasAddedRows(Kit* kit) {
 
 namespace {
 /// The soft tint on a preset kit row's audition pad: blue for the Cyc engines, orange for the LXR voices, green for
-/// DXIA and DIIA, by the engine the row plays now. A preset row put back on a sample keeps its kit's colour. Rows added
-/// to the kit any other way aren't tinted (returns false).
+/// DXIA and DIIA, pink for GIN, by the engine the row plays now. A preset row put back on a sample keeps its kit's
+/// colour. Rows added to the kit any other way aren't tinted (returns false).
 bool presetRowTint(Drum* drum, RGB* tint) {
 	using deluge::dsp::drum_synth::PresetKit;
 	if (drum == nullptr || drum->type != DrumType::SOUND) {
@@ -1969,14 +1969,18 @@ bool presetRowTint(Drum* drum, RGB* tint) {
 	constexpr RGB kBlue{0, 60, 255};
 	constexpr RGB kOrange{255, 70, 0};
 	constexpr RGB kGreen{0, 255, 40};
+	constexpr RGB kPink{255, 0, 120};
 	if (soundDrum->sources[0].oscType == OscType::DRUM_SYNTH) {
 		const auto engine = soundDrum->sources[0].drumPatch.engine();
 		*tint = deluge::dsp::drum_synth::isCyc(engine)   ? kBlue
 		        : deluge::dsp::drum_synth::isXia(engine) ? kGreen
+		        : deluge::dsp::drum_synth::isGin(engine) ? kPink
 		                                                 : kOrange;
 	}
 	else {
-		*tint = (soundDrum->presetKit == PresetKit::CYCLES) ? kBlue : kOrange;
+		*tint = (soundDrum->presetKit == PresetKit::CYCLES) ? kBlue
+		        : (soundDrum->presetKit == PresetKit::GIN)  ? kPink
+		                                                    : kOrange;
 	}
 	return true;
 }
@@ -2026,9 +2030,10 @@ bool InstrumentClipView::createNewDrumSynthKit(deluge::dsp::drum_synth::PresetKi
 	if (firstDrum != nullptr) {
 		setSelectedDrum(firstDrum, true);
 	}
-	display->consoleText(deluge::l10n::get((type == PresetKit::CYCLES)
-	                                           ? deluge::l10n::String::STRING_FOR_NEW_CYCLES_KIT_CREATED
-	                                           : deluge::l10n::String::STRING_FOR_NEW_DRUM_SYNTH_KIT_CREATED));
+	display->consoleText(
+	    deluge::l10n::get((type == PresetKit::CYCLES) ? deluge::l10n::String::STRING_FOR_NEW_CYCLES_KIT_CREATED
+	                      : (type == PresetKit::GIN)  ? deluge::l10n::String::STRING_FOR_NEW_GIN_KIT_CREATED
+	                                                  : deluge::l10n::String::STRING_FOR_NEW_DRUM_SYNTH_KIT_CREATED));
 	uiNeedsRendering(this);
 	return true;
 }

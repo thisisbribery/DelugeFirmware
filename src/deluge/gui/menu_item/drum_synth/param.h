@@ -106,7 +106,7 @@ inline void applyRowSetup(const deluge::dsp::drum_synth::RowSetup& row) {
 	sound.killAllVoices();
 	sound.polyphonic = row.choke ? PolyphonyMode::CHOKE : PolyphonyMode::AUTO;
 	sound.sources[0].transpose = row.transpose;
-	sound.sources[0].setCents(0);
+	sound.sources[0].setCents(row.cents);
 
 	auto user = [](int32_t p, int32_t value) { setSoundParam(p, getParamFromUserValue(p, value)); };
 	user(params::LOCAL_ENV_0_ATTACK, 0);
@@ -149,6 +149,7 @@ inline void setEngineDecay(const deluge::dsp::drum_synth::RowSetup& row) {
 /// their settings. fresh: start the engine from its defaults even if it's already playing.
 inline void setDrumEngine(Engine engine, uint8_t variant = 0, bool fresh = false) {
 	using deluge::dsp::drum_synth::isCyc;
+	using deluge::dsp::drum_synth::isGin;
 	using deluge::dsp::drum_synth::isXia;
 	Sound& sound = *soundEditor.currentSound;
 	Source& source = sound.sources[0];
@@ -179,6 +180,9 @@ inline void setDrumEngine(Engine engine, uint8_t variant = 0, bool fresh = false
 	}
 	else if (isCyc(engine)) {
 		patch.setCycPreset(engine);
+	}
+	else if (isGin(engine)) {
+		patch.setGinSound(deluge::dsp::drum_synth::gin::defaultSound());
 	}
 	else {
 		patch.setPreset(deluge::dsp::drum_synth::presetForLxrEngine(engine));
@@ -257,6 +261,35 @@ private:
 		return cycKnobName((sound != nullptr) ? sound->sources[0].drumPatch.engine() : Engine::CYC_KIK, slot_);
 	}
 	DrumControls::Slot slot_;
+};
+
+/// A continuous setting of GIN
+class GinControl final : public Control {
+public:
+	using Control::Control;
+
+	bool isRelevant(ModControllableAudio* modControllable, int32_t whichThing) const override {
+		const auto* sound = static_cast<Sound*>(modControllable);
+		return sound->sources[0].oscType == OscType::DRUM_SYNTH
+		       && deluge::dsp::drum_synth::isGin(sound->sources[0].drumPatch.engine());
+	}
+};
+
+/// A GIN setting kept in the patch as a number, 0-127 (EQ, level). Menu edits only: not a patched param.
+class GinNumber final : public Integer {
+public:
+	GinNumber(l10n::String name, Patch::Param param) : Integer(name), param_(param) {}
+
+	[[nodiscard]] int32_t getMaxValue() const override { return 127; }
+	[[nodiscard]] int32_t getMinValue() const override { return 0; }
+	void readCurrentValue() override { setValue(currentPatch().get(param_)); }
+	void writeCurrentValue() override { currentPatch().set(param_, getValue()); }
+	bool isRelevant(ModControllableAudio* modControllable, int32_t whichThing) const override {
+		return usedBySound(modControllable, param_);
+	}
+
+private:
+	Patch::Param param_;
 };
 
 /// The LXR voices' drive and decay, which they share with every other engine's on the same pads and gold knobs
@@ -346,6 +379,88 @@ public:
 		using enum l10n::String;
 		return {l10n::getView(STRING_FOR_LPF), l10n::getView(STRING_FOR_HPF),
 		        l10n::getView(STRING_FOR_DRUM_FILTER_BAND), l10n::getView(STRING_FOR_OFF)};
+	}
+};
+
+/// GIN's oscillator wave
+class GinWave final : public Choice {
+public:
+	explicit GinWave(l10n::String name) : Choice(name, Patch::GIN_WAVE) {}
+
+	deluge::vector<std::string_view> getOptions(OptType optType) override {
+		(void)optType;
+		using enum l10n::String;
+		return {l10n::getView(STRING_FOR_SINE), l10n::getView(STRING_FOR_TRIANGLE), l10n::getView(STRING_FOR_SAW)};
+	}
+};
+
+/// What bends GIN's pitch: a decaying sweep, a sine LFO (FM at audio rates), or filtered noise
+class GinModMode final : public Choice {
+public:
+	explicit GinModMode(l10n::String name) : Choice(name, Patch::GIN_MOD_MODE) {}
+
+	deluge::vector<std::string_view> getOptions(OptType optType) override {
+		(void)optType;
+		using enum l10n::String;
+		return {l10n::getView(STRING_FOR_GIN_DECAY), l10n::getView(STRING_FOR_SINE), l10n::getView(STRING_FOR_NOISE)};
+	}
+};
+
+/// GIN's noise envelope: exponential, linear, or modulated (bursts, for claps)
+class GinNoiseEnv final : public Choice {
+public:
+	explicit GinNoiseEnv(l10n::String name) : Choice(name, Patch::GIN_NOISE_ENV) {}
+
+	deluge::vector<std::string_view> getOptions(OptType optType) override {
+		(void)optType;
+		using enum l10n::String;
+		return {l10n::getView(STRING_FOR_GIN_ENV_EXP), l10n::getView(STRING_FOR_LINEAR),
+		        l10n::getView(STRING_FOR_GIN_ENV_MOD)};
+	}
+};
+
+/// Puts any sound of the GIN kits on this row, tuned and set up as in its kit
+class GinSoundSelect final : public Selection {
+public:
+	using Selection::Selection;
+
+	void readCurrentValue() override { setValue(0); }
+	void writeCurrentValue() override {}
+	bool isRelevant(ModControllableAudio* modControllable, int32_t whichThing) const override {
+		const auto* sound = static_cast<Sound*>(modControllable);
+		return sound->sources[0].oscType == OscType::DRUM_SYNTH
+		       && deluge::dsp::drum_synth::isGin(sound->sources[0].drumPatch.engine());
+	}
+	MenuItem* selectButtonPress() override {
+		namespace gin = deluge::dsp::drum_synth::gin;
+		const int32_t choice = std::clamp<int32_t>(getValue(), 0, gin::kNumKits * gin::kNumKitSounds - 1);
+		const int32_t row = choice % gin::kNumKitSounds;
+		const gin::KitSound& sound = gin::kKits[choice / gin::kNumKitSounds].sounds[row];
+		applyRowSetup(deluge::dsp::drum_synth::rowSetupForGinSound(sound, row == gin::HAT1 || row == gin::HAT2));
+		currentPatch().setGinSound(sound);
+		setControls(deluge::dsp::drum_synth::ginControlsFor(sound));
+		setDrumKnobs(*soundEditor.currentSound, Engine::GIN);
+		soundEditor.markInstrumentAsEdited();
+		display->displayPopup(l10n::get(l10n::String::STRING_FOR_GIN_SOUND_LOADED));
+		return nullptr; // Back up to the drum synth menu
+	}
+
+	deluge::vector<std::string_view> getOptions(OptType optType) override {
+		(void)optType;
+		namespace gin = deluge::dsp::drum_synth::gin;
+		// "808 KICK" and so on: kit, then row
+		static constexpr std::array<char const*, gin::kNumKitSounds> kRows{"KICK",  "SNR",   "HAT1", "HAT2",
+		                                                                   "PERC1", "PERC2", "CLAP", "OTHER"};
+		static std::array<std::array<char, 12>, gin::kNumKits * gin::kNumKitSounds> names{};
+		deluge::vector<std::string_view> options;
+		for (int32_t i = 0; i < gin::kNumKits * gin::kNumKitSounds; i++) {
+			if (names[i][0] == 0) {
+				snprintf(names[i].data(), names[i].size(), "%s %s", gin::kKits[i / gin::kNumKitSounds].name,
+				         kRows[i % gin::kNumKitSounds]);
+			}
+			options.emplace_back(names[i].data());
+		}
+		return options;
 	}
 };
 

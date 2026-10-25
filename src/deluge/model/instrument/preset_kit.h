@@ -27,9 +27,10 @@ class Kit;
 class ParamManagerForTimeline;
 class SoundDrum;
 
-/// The preset kits SHIFT + KIT makes (LXR, Cycles), and their presets: ordinary kit files saved into KITS/LXR or
-/// KITS/CYCLES. A preset only replaces the sounds of a kit's preset rows, in order from the bottom, so the pattern and
-/// any rows added to the kit stay as they are.
+/// The preset kits SHIFT + KIT makes (LXR, Cycles, GIN), and their presets: ordinary kit files saved into KITS/LXR,
+/// KITS/CYCLES or KITS/GIN. GIN also has sixteen kits built in (see dsp/drum_synth/gin_kits.h). A preset only replaces
+/// the sounds of a kit's preset rows, in order from the bottom, so the pattern and any rows added to the kit stay as
+/// they are.
 namespace deluge::preset_kit {
 
 using dsp::drum_synth::PresetKit;
@@ -39,6 +40,7 @@ struct Row {
 	dsp::drum_synth::Preset preset;
 	dsp::drum_synth::Engine cycEngine; ///< NUM_ENGINES for an LXR voice
 	char const* name;
+	int8_t ginRow = -1; ///< On a GIN kit, which of its kit sounds the row plays
 };
 
 /// The rows a preset kit starts with, bottom row first
@@ -47,8 +49,16 @@ std::span<const Row> rowsFor(PresetKit kit);
 /// Where a preset kit's presets are saved on the card
 char const* folderFor(PresetKit kit);
 
-/// A new sound for a preset kit row, with its param manager set up in paramManager. nullptr if out of RAM.
-SoundDrum* makeDrum(const Row& row, PresetKit kit, ParamManagerForTimeline& paramManager);
+/// The number of kits built into the firmware for a preset kit: GIN's sixteen, or for the others just the one SHIFT +
+/// KIT makes
+int32_t numBuiltInKits(PresetKit kit);
+
+/// The name of a built in kit
+char const* builtInKitName(PresetKit kit, int32_t index);
+
+/// A new sound for a preset kit row, with its param manager set up in paramManager. nullptr if out of RAM. builtInKit:
+/// which built in kit a GIN row takes its sound from.
+SoundDrum* makeDrum(const Row& row, PresetKit kit, ParamManagerForTimeline& paramManager, int32_t builtInKit = 0);
 
 /// The preset kit a kit was made as, from its rows, or NONE
 PresetKit typeOf(Kit* kit);

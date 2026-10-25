@@ -26,11 +26,11 @@ class SoundDrum;
 
 namespace deluge::gui::context_menu {
 
-/// Shown by SHIFT + KIT on a preset kit (LXR or Cycles): its presets, the kit files in KITS/LXR or KITS/CYCLES. It
-/// opens on the preset the kit has now. Turning SELECT plays each one on the kit's preset rows straight away, pattern
-/// running; the other rows and the pattern stay. SELECT or KIT keeps the one showing. BACK puts the kit back as it was
-/// and goes up to the Kit / LXR / Cycles menu. The list: Default (as SHIFT + KIT makes it), then the presets in name
-/// order, with Current first if the kit isn't on any of them.
+/// Shown by SHIFT + KIT on a preset kit (LXR, Cycles or GIN): its presets, the kit files in KITS/LXR, KITS/CYCLES or
+/// KITS/GIN. It opens on the preset the kit has now. Turning SELECT plays each one on the kit's preset rows straight
+/// away, pattern running; the other rows and the pattern stay. SELECT or KIT keeps the one showing. BACK puts the kit
+/// back as it was and goes up to the Kit / LXR / Cycles / GIN menu. The list: Default (as SHIFT + KIT makes it), or on
+/// GIN its sixteen built in kits, then the presets in name order, with Current first if the kit isn't on any of them.
 class KitPresets final : public ContextMenu {
 public:
 	KitPresets() = default;
@@ -51,9 +51,11 @@ private:
 	static constexpr int32_t kMaxPresets = 48;
 	static constexpr int32_t kMaxNameLength = 64;
 	static constexpr int32_t kMaxRows = 16;
+	static constexpr int32_t kMaxBuiltIn = 16;
 
+	/// The first kit built into the firmware: Default, or GIN's first
 	[[nodiscard]] int32_t defaultOption() const { return hasCurrent_ ? 1 : 0; }
-	[[nodiscard]] int32_t firstPresetOption() const { return defaultOption() + 1; }
+	[[nodiscard]] int32_t firstPresetOption() const { return defaultOption() + numBuiltIn_; }
 	[[nodiscard]] int32_t numOptions() const { return firstPresetOption() + numPresets_; }
 	void readPresetList();
 	/// The option the kit is on now: its last kept preset, or a preset with the kit's name, or Default for a kit as
@@ -70,9 +72,10 @@ private:
 	std::array<std::array<char, kMaxNameLength>, kMaxPresets> fileNames_{}; ///< With the .XML
 	std::array<std::array<char, kMaxNameLength>, kMaxPresets> labels_{};    ///< Without
 	int32_t numPresets_ = 0;
+	int32_t numBuiltIn_ = 1; ///< Kits in the firmware: Default, or GIN's sixteen
 	bool hasCurrent_ = false;
 	int32_t home_ = 0;
-	std::array<char const*, kMaxPresets + 2> options_{};
+	std::array<char const*, kMaxPresets + kMaxBuiltIn + 1> options_{};
 
 	/// The clip's NoteRows that are preset rows, bottom first
 	std::array<int32_t, kMaxRows> rows_{};

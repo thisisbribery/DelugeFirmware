@@ -8,6 +8,13 @@ file (GLOB_RECURSE deluge_dsp_SOURCES
 
 add_library(deluge_dsp STATIC ${deluge_dsp_SOURCES})
 
+# Built on their own, so the unity batches of the other files stay as they were (two DX7 files can't share one)
+set_source_files_properties(
+  ${CMAKE_CURRENT_LIST_DIR}/drum_synth/gin.cpp
+  ${CMAKE_CURRENT_LIST_DIR}/drum_synth/gin_kits.cpp
+  PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON
+)
+
 target_include_directories(deluge_dsp PRIVATE
   ${CMAKE_CURRENT_LIST_DIR}/..
   ${SHARED_INCLUDE}

@@ -36,13 +36,13 @@ char const* NewKitType::getTitle() {
 std::span<char const*> NewKitType::getOptions() {
 	using enum l10n::String;
 	static char const* options[] = {l10n::get(STRING_FOR_SAMPLE_KIT), l10n::get(STRING_FOR_LXR_KIT),
-	                                l10n::get(STRING_FOR_CYCLES_KIT)};
-	return {options, 3};
+	                                l10n::get(STRING_FOR_CYCLES_KIT), l10n::get(STRING_FOR_GIN_KIT)};
+	return {options, 4};
 }
 
 bool NewKitType::setupFor(dsp::drum_synth::PresetKit kit) {
 	using dsp::drum_synth::PresetKit;
-	currentOption = (kit == PresetKit::LXR) ? 1 : (kit == PresetKit::CYCLES) ? 2 : 0;
+	currentOption = (kit == PresetKit::LXR) ? 1 : (kit == PresetKit::CYCLES) ? 2 : (kit == PresetKit::GIN) ? 3 : 0;
 	scrollPos = currentOption;
 	return true;
 }
@@ -50,7 +50,10 @@ bool NewKitType::setupFor(dsp::drum_synth::PresetKit kit) {
 bool NewKitType::acceptCurrentOption() {
 	using dsp::drum_synth::PresetKit;
 	const int32_t option = currentOption;
-	const PresetKit chosen = (option == 1) ? PresetKit::LXR : (option == 2) ? PresetKit::CYCLES : PresetKit::NONE;
+	const PresetKit chosen = (option == 1)   ? PresetKit::LXR
+	                         : (option == 2) ? PresetKit::CYCLES
+	                         : (option == 3) ? PresetKit::GIN
+	                                         : PresetKit::NONE;
 	const PresetKit current =
 	    (getCurrentOutputType() == OutputType::KIT) ? preset_kit::typeOf(getCurrentKit()) : PresetKit::NONE;
 
@@ -74,6 +77,7 @@ bool NewKitType::acceptCurrentOption() {
 	switch (chosen) {
 	case PresetKit::LXR:
 	case PresetKit::CYCLES:
+	case PresetKit::GIN:
 		instrumentClipView.createNewDrumSynthKit(chosen);
 		break;
 	default:

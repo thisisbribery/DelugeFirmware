@@ -13,6 +13,8 @@
 #pragma once
 
 #include "dsp/drum_synth/cyc.h"
+#include "dsp/drum_synth/gin.h"
+#include "dsp/drum_synth/gin_kits.h"
 #include "dsp/drum_synth/xia.h"
 #include <algorithm>
 #include <array>
@@ -22,7 +24,7 @@
 namespace deluge::dsp::drum_synth {
 
 /// The three LXR voice structures, then two engines from the XIA set for the Model:Cycles (see xia.h), then the Cyc
-/// engines (see cyc.h). New engines go on the end: the number is saved with the sound.
+/// engines (see cyc.h), then GIN (see gin.h). New engines go on the end: the number is saved with the sound.
 enum class Engine : uint8_t {
 	DRUM,  ///< Kick and toms: main osc, FM or mixed mod osc, pitch envelope
 	SNARE, ///< Pitched osc with pitch envelope, plus filtered sample-and-hold noise
@@ -37,6 +39,7 @@ enum class Engine : uint8_t {
 	CYC_CHORD,
 	VTG_SNR,
 	CLAP_ENG,
+	GIN, ///< The PO-32 style drum voice from SquareWave Studio's GIN for the OP-1
 	NUM_ENGINES,
 };
 
@@ -47,7 +50,12 @@ constexpr bool isXia(Engine engine) {
 
 /// Whether an engine is one of the Cyc engines
 constexpr bool isCyc(Engine engine) {
-	return engine >= Engine::CYC_KIK && engine < Engine::NUM_ENGINES;
+	return engine >= Engine::CYC_KIK && engine <= Engine::CLAP_ENG;
+}
+
+/// Whether an engine is GIN
+constexpr bool isGin(Engine engine) {
+	return engine == Engine::GIN;
 }
 
 /// Whether an engine is one of the three LXR voices
@@ -86,8 +94,19 @@ struct DrumControls {
 		CYC_DRIVE = 4,
 		// Drive and decay for the engines without their own (the LXR voices), and the Cyc engines' decay. Added after
 		// the LXR settings, on params a drum synth sound has no other use for.
-		COMMON_DECAY = 9, ///< 127 holds
+		COMMON_DECAY = 9, ///< 127 holds. On GIN, moves both its decays: 64 leaves them as they are.
 		LXR_DRIVE = 10,
+		// GIN's continuous settings. Its choices (waves, modes, filter type), EQ and level stay in the Patch.
+		GIN_MIX = 0,          ///< Tone against noise: Custom 2
+		GIN_NOISE_FREQ = 1,   ///< Noise filter cutoff: Custom 3
+		GIN_MOD_RATE = 2,     ///< Pitch modulation speed: mod rate knob
+		GIN_MOD_AMOUNT = 3,   ///< Pitch modulation depth, 64 = none: mod depth knob
+		GIN_DRIVE = 4,        ///< Shares the Cyc engines' drive slot
+		GIN_NOISE_DECAY = 5,  ///< Also spaces the bursts of the modulated noise envelope
+		GIN_NOISE_RES = 6,    ///< Noise filter resonance
+		GIN_NOISE_ATTACK = 7, ///< Noise envelope attack
+		GIN_TONE_ATTACK = 8,
+		GIN_TONE_DECAY = 10,
 		NUM_SLOTS = 11,
 	};
 	/// Raw Deluge param values: the whole int32 range, centre 0
@@ -119,7 +138,9 @@ struct DrumControls {
 /// Every engine has a drive and a decay, on the same pads and gold knobs, though they live on different slots: the
 /// XIA engines kept theirs where they were first saved
 constexpr int32_t driveSlot(Engine engine) {
-	return isXia(engine) ? DrumControls::DRIVE : isCyc(engine) ? DrumControls::CYC_DRIVE : DrumControls::LXR_DRIVE;
+	return isXia(engine)                      ? DrumControls::DRIVE
+	       : (isCyc(engine) || isGin(engine)) ? DrumControls::CYC_DRIVE
+	                                          : DrumControls::LXR_DRIVE;
 }
 constexpr int32_t decaySlot(Engine engine) {
 	return isXia(engine) ? DrumControls::ENGINE_DECAY : DrumControls::COMMON_DECAY;
@@ -134,7 +155,7 @@ enum class Preset : uint8_t { KICK, SNARE, CLOSED_HAT, OPEN_HAT, LOW_TOM, HIGH_T
 
 /// The kits SHIFT + KIT makes. Each row of one remembers which it came from (saved with the row), so its audition pad
 /// can be tinted and the kit can't be swapped for another once rows have been added to it.
-enum class PresetKit : uint8_t { NONE, LXR, CYCLES, NUM_KITS };
+enum class PresetKit : uint8_t { NONE, LXR, CYCLES, GIN, NUM_KITS };
 
 /// How a drum synth row sits in a kit, besides the engine's own settings: the same whether it came from a preset kit
 /// or from SYNTH MODE, so an engine picked on any row sounds as it does in its kit. Every engine shapes its own hits
@@ -150,6 +171,7 @@ struct RowSetup {
 	int8_t sustain = 50;   ///< Envelope 1 sustain and release, as user values
 	int8_t release = 40;
 	int8_t engineDecay = -1; ///< The LXR voices' own decay (DrumControls::COMMON_DECAY, 0-127), or -1 to leave it
+	int8_t cents = 0;        ///< Fine tune, for GIN rows tuned to their sound
 };
 
 /// Envelope 1 release (a user value) that lets a sound falling 60 dB in t60 seconds ring out after its note ends: five
@@ -180,6 +202,9 @@ XiaPreset xiaPresetFor(Engine engine, uint8_t variant);
 
 /// Envelope 1 release (a user value, 0 to 50) for a Cyc engine at its own decay knob (see envelopeReleaseFor)
 int8_t cycEnvelopeRelease(Engine engine, int32_t decayKnob, bool punch);
+
+/// A GIN kit sound's row: tuned to the sound's pitch, with the release fitted to its longer layer's decay
+RowSetup rowSetupForGinSound(const gin::KitSound& sound, bool choke);
 
 /// Any engine, as picked in SYNTH MODE (or a preset kit row), with its default settings. The LXR voices as their kit
 /// rows, DXIA and DIIA as their presets. The Cyc engines play at the note, as the Cycles does at its default tune.
@@ -234,6 +259,13 @@ public:
 		SNAPPY_DECAY,     ///< 1 = the Deluge amp envelope's decay and release fall away faster (any engine). On by
 		                  ///< default.
 		CONTROLS_VERSION, ///< 1 once the drive and decay controls exist. Sounds saved before have no byte for it.
+		// GIN. Its continuous settings are on Deluge params: see DrumControls. The noise filter is NOISE_FILTER_TYPE.
+		GIN_WAVE,      ///< gin::Wave
+		GIN_MOD_MODE,  ///< gin::ModMode
+		GIN_NOISE_ENV, ///< gin::NoiseEnv
+		GIN_EQ_FREQ,   ///< Peak EQ frequency, 20 Hz to 20 kHz
+		GIN_EQ_GAIN,   ///< Peak EQ gain, 64 = flat, 0 / 127 = 40 dB cut / boost
+		GIN_LEVEL,     ///< GIN's level before its clipper. 102 is about -2 dB.
 		NUM_PARAMS,
 	};
 
@@ -248,6 +280,9 @@ public:
 	void setXiaPreset(Engine engine, uint8_t variant);
 	/// Switch to a Cyc engine. Its continuous settings are on Deluge params: see DrumControls.
 	void setCycPreset(Engine engine);
+	/// Switch to GIN, with a kit sound's choices, EQ and level. Its continuous settings are on Deluge params: see
+	/// ginControlsFor().
+	void setGinSound(const gin::KitSound& sound);
 
 	[[nodiscard]] uint8_t get(Param p) const { return params_[p]; }
 	void set(Param p, uint8_t value);
@@ -283,6 +318,9 @@ int32_t lxrControlSlot(Patch::Param param);
 
 /// The controls a patch starts from: its LXR settings, or an XIA engine's defaults
 DrumControls controlsFromPatch(const Patch& patch);
+
+/// A GIN kit sound's continuous settings, as controls
+DrumControls ginControlsFor(const gin::KitSound& sound);
 
 /// Copy the LXR settings back from the controls into the patch, so switching engine and back keeps them
 void storeControlsInPatch(const DrumControls& controls, Patch& patch);
@@ -333,6 +371,8 @@ private:
 	void renderCyc(Engine engine, const std::array<uint8_t, Patch::NUM_PARAMS>& p, const DrumControls& controls,
 	               int32_t* buffer, int32_t numSamples, uint32_t basePhaseIncrement, int32_t amplitude,
 	               int32_t amplitudeIncrement);
+	void renderGin(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const DrumControls& controls, int32_t* buffer,
+	               int32_t numSamples, uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement);
 
 	void updateSettings(const Patch& patch, const DrumControls& controls);
 	void startLxr();
@@ -364,17 +404,19 @@ private:
 	uint32_t random_ = 0x12345678;
 	int32_t samplesUntilTick_ = 0;
 
-	// XIA engines render whole blocks; samples left over from the last one wait here. The Cyc engines' state shares the
-	// memory, as only one engine plays at a time.
+	// XIA engines render whole blocks; samples left over from the last one wait here. The Cyc engines' and GIN's state
+	// share the memory, as only one engine plays at a time.
 	union {
 		xia::TiaState tia;
 		xia::IiaState iia;
 		cyc::Voice cyc;
+		gin::Voice gin;
 	} xia_{};
 	std::array<int32_t, xia::kBlockSize> xiaBlock_{};
 	int32_t xiaBlockPos_ = xia::kBlockSize;
 	Engine xiaEngine_ = Engine::DRUM; ///< The XIA engine xia_ holds, or DRUM for none
 	bool cycReady_ = false;           ///< xia_ holds a Cyc engine's state
+	bool ginReady_ = false;           ///< xia_ holds GIN's state
 	float lxrLevel_ = 1.f;            ///< The LXR voices' decay
 	bool xiaTrigger_ = false;
 	bool xiaFinished_ = false;
