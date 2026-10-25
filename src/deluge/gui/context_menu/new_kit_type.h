@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "dsp/drum_synth/drum_synth.h"
 #include "gui/context_menu/context_menu.h"
 
 namespace deluge::gui::context_menu {
@@ -27,6 +28,9 @@ namespace deluge::gui::context_menu {
 class NewKitType final : public ContextMenu {
 public:
 	NewKitType() = default;
+
+	/// Open on the option for kit, a preset kit type (or NONE for Kit). The kit's own type then opens its presets.
+	bool setupFor(dsp::drum_synth::PresetKit kit);
 
 	char const* getTitle() override;
 	std::span<char const*> getOptions() override;

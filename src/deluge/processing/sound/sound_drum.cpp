@@ -36,6 +36,13 @@ bool SoundDrum::readTagFromFile(Deserializer& reader, char const* tagName) {
 		reader.readTagOrAttributeValueString(&path);
 		reader.exitTag("path");
 	}
+	else if (!strcmp(tagName, "presetKit")) {
+		const int32_t kit = reader.readTagOrAttributeValueInt();
+		presetKit = (kit > 0 && kit < static_cast<int32_t>(deluge::dsp::drum_synth::PresetKit::NUM_KITS))
+		                ? static_cast<deluge::dsp::drum_synth::PresetKit>(kit)
+		                : deluge::dsp::drum_synth::PresetKit::NONE;
+		reader.exitTag("presetKit");
+	}
 	else if (readDrumTagFromFile(reader, tagName)) {
 		// Delegation is also considered a success.
 	}
@@ -131,6 +138,9 @@ void SoundDrum::writeToFileAsInstrument(bool savingSong, ParamManager* paramMana
 void SoundDrum::writeToFile(Serializer& writer, bool savingSong, ParamManager* paramManager) {
 	writer.writeOpeningTagBeginning("sound", true);
 	writeDrumTagsToFile(writer);
+	if (presetKit != deluge::dsp::drum_synth::PresetKit::NONE) {
+		writer.writeAttribute("presetKit", static_cast<int32_t>(presetKit));
+	}
 
 	Sound::writeToFile(writer, savingSong, paramManager, &arpSettings, path.get());
 

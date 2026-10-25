@@ -912,4 +912,12 @@ void Voice::render(Kind kind, const Settings& settings, uint32_t phaseIncrement,
 	}
 }
 
+float ampDecaySeconds(Kind kind, float knob, bool punch) {
+	const DecayCurve& curve = decayCurveFor(kind);
+	if (curve.holdsAtTop && knob / 127.f >= kHoldKnob) {
+		return 1000.f;
+	}
+	return ampDecayTime(curve, knob) * (punch ? 1.25f : 1.f);
+}
+
 } // namespace deluge::dsp::drum_synth::cyc

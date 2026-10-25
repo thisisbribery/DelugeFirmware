@@ -34,6 +34,8 @@ extern "C" const int8_t drumSynthTransientData[deluge::dsp::drum_synth::kNumTran
 // The Deluge's 256-point sine, from util/lookuptables. Declared here rather than through util/waves.h so this file
 // stays free of the GUI headers that waves.h drags in, and can be unit tested on its own.
 extern const int16_t sineWaveSmall[];
+// The envelope rates, also from util/lookuptables
+extern const int32_t releaseRateTable64[65];
 
 namespace deluge::dsp::drum_synth {
 
@@ -213,7 +215,7 @@ void Patch::setPreset(Preset preset) {
 void Patch::setXiaPreset(Engine engine, uint8_t variant) {
 	params_[ENGINE] = static_cast<uint8_t>(engine);
 	params_[XIA_VARIANT] = std::min<uint8_t>(variant, 2);
-	params_[XIA_PUNCH] = 0;
+	params_[XIA_PUNCH] = xiaPresetFor(engine, params_[XIA_VARIANT]).punch ? 1 : 0;
 }
 
 void Patch::setCycPreset(Engine engine) {
@@ -404,8 +406,150 @@ int32_t lxrControlSlot(Patch::Param param) {
 	}
 }
 
+namespace {
+/// How long an envelope release takes at a user value, in seconds, as the Deluge works it out: the preset value through
+/// the release rate table (lookupReleaseRate in util/functions), scaled by the release's neutral rate, then stepped
+/// through 2^23 positions a sample
+float releaseSeconds(int32_t userValue) {
+	const int64_t preset = static_cast<int64_t>(userValue) * 85899345 - 2147483648LL;
+	const int32_t patched = static_cast<int32_t>(preset >> 2);
+	int32_t index = (patched >> 24) + 32;
+	const int32_t further = static_cast<int32_t>((static_cast<uint32_t>(patched) << 7) & 2147483647u);
+	int32_t rate;
+	if (index < 0) {
+		rate = releaseRateTable64[0];
+	}
+	else if (index >= 64) {
+		rate = releaseRateTable64[64];
+	}
+	else {
+		rate = (multiply_32x32_rshift32(releaseRateTable64[index + 1], further)
+		        + multiply_32x32_rshift32(releaseRateTable64[index], 2147483647 - further))
+		       << 1;
+	}
+	const int32_t perSample = multiply_32x32_rshift32(140 << 9, rate);
+	return 8388608.f / static_cast<float>(std::max<int32_t>(perSample, 1)) / kSampleRate;
+}
+} // namespace
+
+int8_t envelopeReleaseFor(float t60) {
+	constexpr int8_t kPresetRelease = 40;
+	if (t60 >= 1000.f) {
+		return kPresetRelease;
+	}
+	// The release falls about 48 dB, steadily in dB
+	const float wanted = 5.f * t60;
+	for (int8_t r = kPresetRelease; r < 50; r++) {
+		if (releaseSeconds(r) >= wanted) {
+			return r;
+		}
+	}
+	return 50;
+}
+
+float lxrDecaySeconds(int32_t knob) {
+	return (knob >= 127) ? 1000.f : 0.03f * powf(400.f, static_cast<float>(knob) / 126.f);
+}
+
+int8_t cycEnvelopeRelease(Engine engine, int32_t decayKnob, bool punch) {
+	return envelopeReleaseFor(cyc::ampDecaySeconds(cycKind(engine), static_cast<float>(decayKnob), punch));
+}
+
+namespace {
+/// DXIA and DIIA's own decay at a knob of 0-127, measured: the time to fall 60 dB
+float xiaDecaySeconds(int32_t knob) {
+	static constexpr std::array<float, 7> kKnob{60.f, 70.f, 80.f, 90.f, 100.f, 110.f, 120.f};
+	static constexpr std::array<float, 7> kSeconds{0.39f, 0.64f, 1.05f, 1.7f, 2.7f, 4.1f, 5.9f};
+	if (knob >= 127) {
+		return 1000.f;
+	}
+	const float k = std::clamp(static_cast<float>(knob), kKnob.front(), kKnob.back());
+	size_t i = 0;
+	while (i + 2 < kKnob.size() && k > kKnob[i + 1]) {
+		i++;
+	}
+	const float f = (k - kKnob[i]) / (kKnob[i + 1] - kKnob[i]);
+	return expf(logf(kSeconds[i]) + f * (logf(kSeconds[i + 1]) - logf(kSeconds[i])));
+}
+
+/// An LXR kit row: its own decay knob sets the length (chosen to match how long the row rang in earlier versions), the
+/// release lets it ring out
+RowSetup lxrRow(int16_t transpose, int8_t decayKnob, int8_t hpf, bool choke) {
+	return {transpose, 30, hpf, choke, 5, 0, 50, envelopeReleaseFor(lxrDecaySeconds(decayKnob)), decayKnob};
+}
+
+/// A DXIA / DIIA preset row
+XiaPreset xiaPreset(std::array<uint8_t, 8> slots, int16_t transpose, int8_t env2Decay, int8_t pitchCable) {
+	return {slots,
+	        true,
+	        {transpose, 30, -1, false, env2Decay, pitchCable, 50, envelopeReleaseFor(xiaDecaySeconds(slots[4]))}};
+}
+} // namespace
+
+RowSetup rowSetupFor(Preset preset) {
+	switch (preset) {
+	case Preset::KICK:
+		return lxrRow(-29, 100, -1, false); // G1, about 49 Hz
+	case Preset::SNARE:
+		return lxrRow(-6, 90, -1, false); // F#3, about 185 Hz
+	case Preset::CLOSED_HAT:
+		return lxrRow(13, 67, 30, true); // C#5, about 554 Hz
+	case Preset::OPEN_HAT:
+		return lxrRow(13, 94, 30, true);
+	case Preset::LOW_TOM:
+		return lxrRow(-17, 95, -1, false); // G2
+	case Preset::HIGH_TOM:
+		return lxrRow(-10, 92, -1, false); // D3
+	default:
+		return lxrRow(8, 109, 26, false); // Cymbal, G#4
+	}
+}
+
+XiaPreset xiaPresetFor(Engine engine, uint8_t variant) {
+	// DXIA slots: Blendex 1-3, drive, engine decay, Freq 1-3. All three operators heard at unison is a clean sine:
+	// the kick's body, dropped by envelope 2 on pitch.
+	if (engine == Engine::TIA) {
+		switch (variant) {
+		case 1: // B: a knock, operator 1 an octave and a bit up feeding the chain
+			return xiaPreset({20, 0, 0, 8, 87, 76, 64, 64}, -30, 1, 20);
+		case 2: // C: long and deep, a touch more drive
+			return xiaPreset({0, 0, 0, 12, 104, 64, 64, 64}, -32, 2, 16);
+		default: // L: tight, a fast drop from about 200 Hz to 44 Hz
+			return xiaPreset({0, 0, 0, 8, 90, 64, 64, 64}, -31, 1, 20);
+		}
+	}
+	// DIIA slots: Weight, Alloy, Shape, drive, engine decay, Strike. A loud noise strike over the partials.
+	switch (variant) {
+	case 1: // I: partials falling in pitch under the strike, a zap
+		return xiaPreset({53, 71, 10, 40, 75, 79, 64, 64}, 0, 5, 0);
+	case 2: // H: chained sines, metallic and bright
+		return xiaPreset({70, 90, 19, 20, 70, 111, 64, 64}, 0, 5, 0);
+	default: // G: noise with body, a snare-ish perc
+		return xiaPreset({35, 24, 65, 40, 72, 105, 64, 64}, 0, 5, 0);
+	}
+}
+
+RowSetup rowSetupForEngine(Engine engine, uint8_t variant) {
+	if (isLxr(engine)) {
+		return rowSetupFor(presetForLxrEngine(engine));
+	}
+	if (isCyc(engine)) {
+		const auto& d = kCycDefaults[static_cast<size_t>(cycKind(engine))];
+		return {0, 30, -1, false, 5, 0, 50, cycEnvelopeRelease(engine, d[4], false)};
+	}
+	return xiaPresetFor(engine, variant).row;
+}
+
 DrumControls controlsFromPatch(const Patch& patch) {
 	const Engine engine = patch.engine();
+	if (isXia(engine)) {
+		DrumControls controls = DrumControls::defaultsFor(engine);
+		const XiaPreset preset = xiaPresetFor(engine, patch.get(Patch::XIA_VARIANT));
+		for (int32_t i = 0; i < static_cast<int32_t>(preset.slots.size()); i++) {
+			controls.values[i] = DrumControls::fromValue(preset.slots[i]);
+		}
+		return controls;
+	}
 	if (!isLxr(engine)) {
 		return DrumControls::defaultsFor(engine);
 	}
@@ -944,8 +1088,10 @@ void Voice::renderXia(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const Dru
 		const int32_t* in = &xiaBlock_[xiaBlockPos_];
 		for (int32_t i = 0; i < n; i++) {
 			amplitude += amplitudeIncrement;
-			// The Cycles halves each voice's output, which leaves it q30 like the LXR engines'
-			out[i] += multiply_32x32_rshift32(in[i] >> 1, amplitude) << 2;
+			// Twice the Cycles' own voice level (it halves each voice), which puts DXIA and DIIA level with the LXR and
+			// Cyc engines. Saturates rather than wrapping when driven and punched to full scale.
+			const int64_t sample = (static_cast<int64_t>(in[i]) * amplitude) >> 30;
+			out[i] += static_cast<int32_t>(std::clamp<int64_t>(sample, INT32_MIN, INT32_MAX));
 		}
 		out += n;
 		xiaBlockPos_ += n;

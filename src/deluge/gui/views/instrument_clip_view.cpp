@@ -20,6 +20,7 @@
 #include "extern.h"
 #include "fatfs.hpp"
 #include "gui/colour/colour.h"
+#include "gui/context_menu/kit_presets.h"
 #include "gui/context_menu/new_kit_type.h"
 #include "gui/context_menu/stem_export/cancel_stem_export.h"
 #include "gui/l10n/l10n.h"
@@ -27,6 +28,7 @@
 #include "gui/menu_item/file_selector.h"
 #include "gui/menu_item/horizontal_menu.h"
 #include "gui/menu_item/multi_range.h"
+#include "gui/menu_item/synth_mode.h"
 #include "gui/ui/audio_recorder.h"
 #include "gui/ui/browser/sample_browser.h"
 #include "gui/ui/keyboard/keyboard_screen.h"
@@ -69,6 +71,7 @@
 #include "model/instrument/kit.h"
 #include "model/instrument/melodic_instrument.h"
 #include "model/instrument/non_audio_instrument.h"
+#include "model/instrument/preset_kit.h"
 #include "model/model_stack.h"
 #include "model/note/copied_note_row.h"
 #include "model/note/note.h"
@@ -104,6 +107,7 @@
 
 extern "C" {}
 
+extern deluge::gui::menu_item::SynthModeSelection synthModeMenu;
 using namespace deluge::gui;
 
 PLACE_SDRAM_DATA InstrumentClipView instrumentClipView{};
@@ -992,7 +996,15 @@ bool InstrumentClipView::handleInstrumentChange(OutputType outputType) {
 	}
 
 	if (outputType == OutputType::KIT && Buttons::isShiftButtonPressed() && getRootUI() == this) {
-		// Ask whether the new kit should be samples or drum synths. The menu does the creating.
+		// On a preset kit: browse its presets
+		if (getCurrentOutputType() == OutputType::KIT
+		    && deluge::preset_kit::typeOf(getCurrentKit()) != deluge::dsp::drum_synth::PresetKit::NONE) {
+			if (context_menu::kitPresets.setup(deluge::preset_kit::typeOf(getCurrentKit()))) {
+				openUI(&context_menu::kitPresets);
+			}
+			return false;
+		}
+		// Otherwise ask what kind of kit to make. The menu does the creating.
 		if (context_menu::newKitType.setupAndCheckAvailability()) {
 			openUI(&context_menu::newKitType);
 		}
@@ -1895,41 +1907,90 @@ bool InstrumentClipView::createNewInstrument(OutputType newOutputType, bool is_d
 	return false;
 }
 
-bool InstrumentClipView::createNewDrumSynthKit(DrumSynthKit type) {
-	using deluge::dsp::drum_synth::Engine;
-	using deluge::dsp::drum_synth::Preset;
+void InstrumentClipView::addRowToPresetKit(ModelStackWithTimelineCounter* modelStack, Kit* kit) {
+	using deluge::dsp::drum_synth::PresetKit;
+	const PresetKit type = deluge::preset_kit::typeOf(kit);
+	InstrumentClip* clip = getCurrentInstrumentClip();
+
+	String name;
+	name.set("ROW");
+	int32_t noteRowIndex;
+	NoteRow* noteRow = getOrCreateEmptyNoteRowForKit(modelStack, yDisplayOfNewNoteRow, &noteRowIndex);
+	ParamManagerForTimeline paramManager;
+	SoundDrum* drum = (noteRow != nullptr && kit->makeDrumNameUnique(&name, 1) == Error::NONE)
+	                      ? deluge::preset_kit::makeDrum(deluge::preset_kit::rowsFor(type)[0], type, paramManager)
+	                      : nullptr;
+	if (drum == nullptr) {
+		display->displayError(Error::INSUFFICIENT_RAM);
+		uiNeedsRendering(this);
+		return;
+	}
+	// An added row, not one of the preset's: it isn't tinted, and the kit can no longer be swapped for another
+	drum->presetKit = PresetKit::NONE;
+	drum->drumName = name.get();
+	currentSong->backUpParamManager(drum, clip, &paramManager, true);
+	kit->addDrum(drum);
+	noteRow->setDrum(drum, kit, modelStack->addNoteRow(noteRowIndex, noteRow));
+	kit->beenEdited();
+	setSelectedDrum(drum, true);
+	uiNeedsRendering(this);
+
+	if (soundEditor.setup(clip, &synthModeMenu, 0)) {
+		openUI(&soundEditor);
+	}
+}
+
+bool InstrumentClipView::presetKitHasAddedRows(Kit* kit) {
+	using deluge::dsp::drum_synth::PresetKit;
+	bool anyPreset = false;
+	bool anyOther = false;
+	for (Drum* drum = kit->firstDrum; drum != nullptr; drum = drum->next) {
+		const bool preset =
+		    drum->type == DrumType::SOUND && static_cast<SoundDrum*>(drum)->presetKit != PresetKit::NONE;
+		anyPreset |= preset;
+		anyOther |= !preset;
+	}
+	return anyPreset && anyOther;
+}
+
+namespace {
+/// The soft tint on a preset kit row's audition pad: blue for the Cyc engines, orange for the LXR voices, green for
+/// DXIA and DIIA, by the engine the row plays now. A preset row put back on a sample keeps its kit's colour. Rows added
+/// to the kit any other way aren't tinted (returns false).
+bool presetRowTint(Drum* drum, RGB* tint) {
+	using deluge::dsp::drum_synth::PresetKit;
+	if (drum == nullptr || drum->type != DrumType::SOUND) {
+		return false;
+	}
+	auto* soundDrum = static_cast<SoundDrum*>(drum);
+	if (soundDrum->presetKit == PresetKit::NONE) {
+		return false;
+	}
+	constexpr RGB kBlue{0, 60, 255};
+	constexpr RGB kOrange{255, 70, 0};
+	constexpr RGB kGreen{0, 255, 40};
+	if (soundDrum->sources[0].oscType == OscType::DRUM_SYNTH) {
+		const auto engine = soundDrum->sources[0].drumPatch.engine();
+		*tint = deluge::dsp::drum_synth::isCyc(engine)   ? kBlue
+		        : deluge::dsp::drum_synth::isXia(engine) ? kGreen
+		                                                 : kOrange;
+	}
+	else {
+		*tint = (soundDrum->presetKit == PresetKit::CYCLES) ? kBlue : kOrange;
+	}
+	return true;
+}
+} // namespace
+
+bool InstrumentClipView::createNewDrumSynthKit(deluge::dsp::drum_synth::PresetKit type) {
+	using deluge::dsp::drum_synth::PresetKit;
 
 	if (!InstrumentClipMinder::createNewInstrument(OutputType::KIT, false)) {
 		return false;
 	}
 	recalculateColours();
 
-	struct Row {
-		Preset preset;
-		Engine cycEngine; ///< NUM_ENGINES for an LXR voice
-		char const* name;
-	};
-	// Bottom row first
-	constexpr std::array<Row, 7> kLxrRows{{
-	    {Preset::KICK, Engine::NUM_ENGINES, "KICK"},
-	    {Preset::SNARE, Engine::NUM_ENGINES, "SNARE"},
-	    {Preset::CLOSED_HAT, Engine::NUM_ENGINES, "CH"},
-	    {Preset::OPEN_HAT, Engine::NUM_ENGINES, "OH"},
-	    {Preset::LOW_TOM, Engine::NUM_ENGINES, "LTOM"},
-	    {Preset::HIGH_TOM, Engine::NUM_ENGINES, "HTOM"},
-	    {Preset::CYMBAL, Engine::NUM_ENGINES, "CYM"},
-	}};
-	// The Cycles' usual six tracks
-	constexpr std::array<Row, 6> kCyclesRows{{
-	    {Preset::KICK, Engine::CYC_KIK, "KIK"},
-	    {Preset::KICK, Engine::CYC_SNR, "SNR"},
-	    {Preset::KICK, Engine::CYC_METAL, "METAL"},
-	    {Preset::KICK, Engine::CYC_TONE, "TONE"},
-	    {Preset::KICK, Engine::CYC_PERC, "PERC"},
-	    {Preset::KICK, Engine::CYC_CHORD, "CHORD"},
-	}};
-	const std::span<const Row> rows =
-	    (type == DrumSynthKit::CYCLES) ? std::span<const Row>{kCyclesRows} : std::span<const Row>{kLxrRows};
+	const std::span<const deluge::preset_kit::Row> rows = deluge::preset_kit::rowsFor(type);
 
 	char modelStackMemory[MODEL_STACK_MAX_SIZE];
 	ModelStackWithTimelineCounter* modelStack = currentSong->setupModelStackWithCurrentClip(modelStackMemory);
@@ -1944,21 +2005,13 @@ bool InstrumentClipView::createNewDrumSynthKit(DrumSynthKit type) {
 			noteRow = clip->createNewNoteRowForKit(modelStack, false, &noteRowIndex);
 		}
 
-		void* memory = GeneralMemoryAllocator::get().allocMaxSpeed(sizeof(SoundDrum));
 		ParamManagerForTimeline paramManager;
-		if (noteRow == nullptr || memory == nullptr || paramManager.setupWithPatching() != Error::NONE) {
-			if (memory != nullptr) {
-				delugeDealloc(memory);
-			}
+		SoundDrum* newDrum = (noteRow != nullptr) ? deluge::preset_kit::makeDrum(rows[i], type, paramManager) : nullptr;
+		if (newDrum == nullptr) {
 			display->displayError(Error::INSUFFICIENT_RAM);
 			break;
 		}
-
-		Sound::initParams(&paramManager);
-		SoundDrum* newDrum = new (memory) SoundDrum();
-		newDrum->setupAsDrumSynth(&paramManager, rows[i].preset, rows[i].cycEngine);
 		currentSong->backUpParamManager(newDrum, clip, &paramManager, true);
-		newDrum->drumName = rows[i].name;
 
 		kit->addDrum(newDrum);
 		ModelStackWithNoteRow* modelStackWithNoteRow = modelStack->addNoteRow(noteRowIndex, noteRow);
@@ -1973,7 +2026,7 @@ bool InstrumentClipView::createNewDrumSynthKit(DrumSynthKit type) {
 	if (firstDrum != nullptr) {
 		setSelectedDrum(firstDrum, true);
 	}
-	display->consoleText(deluge::l10n::get((type == DrumSynthKit::CYCLES)
+	display->consoleText(deluge::l10n::get((type == PresetKit::CYCLES)
 	                                           ? deluge::l10n::String::STRING_FOR_NEW_CYCLES_KIT_CREATED
 	                                           : deluge::l10n::String::STRING_FOR_NEW_DRUM_SYNTH_KIT_CREATED));
 	uiNeedsRendering(this);
@@ -5666,6 +5719,11 @@ Drum* InstrumentClipView::getAuditionedDrum(int32_t velocity, int32_t yDisplay, 
 						AudioEngine::mustUpdateReverbParamsBeforeNextRender = true;
 					}
 				}
+				// On a preset kit, a tap on an empty row adds a row there and opens SYNTH MODE to choose its sound
+				else if (deluge::preset_kit::typeOf((Kit*)instrument) != deluge::dsp::drum_synth::PresetKit::NONE) {
+					addRowToPresetKit(modelStackWithTimelineCounter, (Kit*)instrument);
+					return nullptr;
+				}
 				if (display->haveOLED()) {
 					deluge::hid::display::OLED::removePopup();
 				}
@@ -6551,6 +6609,11 @@ drawNormally:
 			}
 
 			NoteRow* noteRow = getCurrentInstrumentClip()->getNoteRowOnScreen(yDisplay, currentSong);
+			// Preset kit rows: softly tinted, full when selected
+			if (RGB tint; noteRow != nullptr && presetRowTint(noteRow->drum, &tint)) {
+				thisColour = (noteRow->drum == getCurrentKit()->selectedDrum) ? tint : tint.dim(3);
+				return;
+			}
 			if (noteRow != nullptr && noteRow->drum != nullptr && noteRow->drum == getCurrentKit()->selectedDrum) {
 
 				int32_t totalColour =

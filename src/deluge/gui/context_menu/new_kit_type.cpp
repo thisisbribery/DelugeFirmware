@@ -17,9 +17,13 @@
 
 #include "gui/context_menu/new_kit_type.h"
 #include "definitions_cxx.hpp"
+#include "gui/context_menu/kit_presets.h"
 #include "gui/l10n/l10n.h"
 #include "gui/views/instrument_clip_view.h"
 #include "hid/display/display.h"
+#include "model/instrument/kit.h"
+#include "model/instrument/preset_kit.h"
+#include "model/song/song.h"
 
 namespace deluge::gui::context_menu {
 
@@ -36,18 +40,41 @@ std::span<char const*> NewKitType::getOptions() {
 	return {options, 3};
 }
 
+bool NewKitType::setupFor(dsp::drum_synth::PresetKit kit) {
+	using dsp::drum_synth::PresetKit;
+	currentOption = (kit == PresetKit::LXR) ? 1 : (kit == PresetKit::CYCLES) ? 2 : 0;
+	scrollPos = currentOption;
+	return true;
+}
+
 bool NewKitType::acceptCurrentOption() {
+	using dsp::drum_synth::PresetKit;
 	const int32_t option = currentOption;
+	const PresetKit chosen = (option == 1) ? PresetKit::LXR : (option == 2) ? PresetKit::CYCLES : PresetKit::NONE;
+	const PresetKit current =
+	    (getCurrentOutputType() == OutputType::KIT) ? preset_kit::typeOf(getCurrentKit()) : PresetKit::NONE;
 
 	display->setNextTransitionDirection(-1);
 	close();
 
-	switch (option) {
-	case 1:
-		instrumentClipView.createNewDrumSynthKit(InstrumentClipView::DrumSynthKit::LXR);
-		break;
-	case 2:
-		instrumentClipView.createNewDrumSynthKit(InstrumentClipView::DrumSynthKit::CYCLES);
+	// The kit's own type: back into its presets
+	if (chosen != PresetKit::NONE && chosen == current) {
+		if (kitPresets.setup(current)) {
+			openUI(&kitPresets);
+		}
+		return true;
+	}
+
+	// A preset kit with rows added to it can't be swapped for another kit: the added rows would lose their sounds
+	if (current != PresetKit::NONE && InstrumentClipView::presetKitHasAddedRows(getCurrentKit())) {
+		display->displayPopup(l10n::get(l10n::String::STRING_FOR_PRESET_KIT_HAS_ADDED_ROWS));
+		return true;
+	}
+
+	switch (chosen) {
+	case PresetKit::LXR:
+	case PresetKit::CYCLES:
+		instrumentClipView.createNewDrumSynthKit(chosen);
 		break;
 	default:
 		instrumentClipView.createNewInstrument(OutputType::KIT);

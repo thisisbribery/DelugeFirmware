@@ -70,10 +70,6 @@ public:
 		switch (e.kind) {
 		case Entry::Kind::DRUM:
 			drum_synth::setDrumEngine(e.engine, e.variant);
-			if (dsp::drum_synth::isXia(e.engine)) {
-				// Moving between variants of the same engine keeps its settings
-				sound.sources[0].drumPatch.set(dsp::drum_synth::Patch::XIA_VARIANT, e.variant);
-			}
 			break;
 		case Entry::Kind::TB303:
 			drum_synth::leaveDrumSynth();

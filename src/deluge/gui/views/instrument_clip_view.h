@@ -18,6 +18,7 @@
 #pragma once
 
 #include "definitions_cxx.hpp"
+#include "dsp/drum_synth/drum_synth.h"
 #include "gui/views/clip_view.h"
 #include "hid/button.h"
 #include "model/clip/instrument_clip_minder.h"
@@ -223,8 +224,13 @@ public:
 	uint32_t getSquareWidth(int32_t square, int32_t effectiveLength);
 	void drawNoteCode(uint8_t yDisplay);
 	bool createNewInstrument(OutputType instrumentType, bool is_fm = false);
-	enum class DrumSynthKit : uint8_t { LXR, CYCLES };
-	bool createNewDrumSynthKit(DrumSynthKit type);
+	bool createNewDrumSynthKit(deluge::dsp::drum_synth::PresetKit type);
+	/// Whether kit was made as a preset kit (LXR or Cycles) and has had other rows added since. Swapping it for a new
+	/// kit would leave those rows without their sounds, so SHIFT + KIT refuses.
+	static bool presetKitHasAddedRows(Kit* kit);
+	/// Add a row to a preset kit at the empty row being auditioned, starting on the kit's first engine, and open SYNTH
+	/// MODE on it to choose what it is
+	void addRowToPresetKit(ModelStackWithTimelineCounter* modelStack, Kit* kit);
 	bool changeOutputType(OutputType newOutputType);
 	Sound* getSoundForNoteRow(NoteRow* noteRow, ParamManagerForTimeline** getParamManager);
 	void someAuditioningHasEnded(bool recalculateLastAuditionedNoteOnScreen);

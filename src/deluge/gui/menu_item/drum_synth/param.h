@@ -78,26 +78,85 @@ inline void setControls(const DrumControls& controls) {
 	}
 }
 
-/// Put the sound being edited onto a drum synth engine, or move it between engines. A sound that wasn't a drum synth
-/// gets a percussive Deluge envelope, which decays both while held and after letting go, and envelope 2 as a short
-/// blip to patch to pitch for a snap. The Cyc engines have their own amp decay, so they get an open envelope instead,
-/// which holds while the note does and lets the engine's decay ring out. fresh: start the engine from its defaults even
-/// if it's already playing.
+/// Envelope 2 to pitch on the sound being edited, as a patch cable user value. 0 takes the cable away.
+inline void setPitchCable(int32_t userValue) {
+	namespace params = deluge::modulation::params;
+	ParamDescriptor descriptor;
+	descriptor.setToHaveParamAndSource(params::LOCAL_PITCH_ADJUST, PatchSource::ENVELOPE_1);
+	char memory[MODEL_STACK_MAX_SIZE];
+	ModelStackWithThreeMainThings* modelStack = soundEditor.getCurrentModelStack(memory);
+	ParamCollectionSummary* summary = modelStack->paramManager->getPatchCableSetSummary();
+	ModelStackWithParamId* modelStackWithParamId =
+	    modelStack->addParamCollectionSummary(summary)->addParamId(descriptor.data);
+	ModelStackWithAutoParam* modelStackWithParam =
+	    summary->paramCollection->getAutoParamFromId(modelStackWithParamId, userValue != 0);
+	if (modelStackWithParam->autoParam != nullptr) {
+		modelStackWithParam->autoParam->setCurrentValueInResponseToUserInput(
+		    getParamFromUserValue(params::PATCH_CABLE, userValue), modelStackWithParam);
+	}
+}
+
+/// Set the sound being edited up as a drum synth row sits in its kit: transpose, both envelopes as percussive
+/// one-shots, envelope 2 on pitch where the engine wants a drop, polyphony, filters open (the high pass on for hats and
+/// cymbals), osc 2 and noise off, tune centred. Whatever the row was before (a sample, an LXR kick tuned down 29
+/// semitones, a hat behind a high pass), the engine then sounds as it does in its kit.
+inline void applyRowSetup(const deluge::dsp::drum_synth::RowSetup& row) {
+	namespace params = deluge::modulation::params;
+	Sound& sound = *soundEditor.currentSound;
+	sound.killAllVoices();
+	sound.polyphonic = row.choke ? PolyphonyMode::CHOKE : PolyphonyMode::AUTO;
+	sound.sources[0].transpose = row.transpose;
+	sound.sources[0].setCents(0);
+
+	auto user = [](int32_t p, int32_t value) { setSoundParam(p, getParamFromUserValue(p, value)); };
+	user(params::LOCAL_ENV_0_ATTACK, 0);
+	user(params::LOCAL_ENV_0_DECAY, row.decay);
+	user(params::LOCAL_ENV_0_SUSTAIN, row.sustain);
+	user(params::LOCAL_ENV_0_RELEASE, row.release);
+	user(params::LOCAL_ENV_1_ATTACK, 0);
+	user(params::LOCAL_ENV_1_DECAY, row.env2Decay);
+	user(params::LOCAL_ENV_1_SUSTAIN, 0);
+	user(params::LOCAL_ENV_1_RELEASE, 0);
+	setPitchCable(row.pitchCable);
+	setSoundParam(params::LOCAL_LPF_FREQ, 2147483647);
+	setSoundParam(params::LOCAL_LPF_RESONANCE, -2147483648);
+	if (row.hpf >= 0) {
+		user(params::LOCAL_HPF_FREQ, row.hpf);
+	}
+	else {
+		setSoundParam(params::LOCAL_HPF_FREQ, -2147483648);
+	}
+	setSoundParam(params::LOCAL_HPF_RESONANCE, -2147483648);
+	setSoundParam(params::LOCAL_OSC_A_VOLUME, 2147483647);
+	setSoundParam(params::LOCAL_OSC_B_VOLUME, -2147483648);
+	setSoundParam(params::LOCAL_NOISE_VOLUME, -2147483648);
+	setSoundParam(params::LOCAL_OSC_A_PITCH_ADJUST, 0);
+	setSoundParam(params::LOCAL_PITCH_ADJUST, 0);
+}
+
+/// The LXR voices' own decay, which a row setup sets after their controls
+inline void setEngineDecay(const deluge::dsp::drum_synth::RowSetup& row) {
+	if (row.engineDecay >= 0) {
+		setSoundParam(deluge::dsp::drum_synth::kDrumControlParams[DrumControls::COMMON_DECAY],
+		              DrumControls::fromValue(row.engineDecay));
+	}
+}
+
+/// Put the sound being edited onto a drum synth engine, or move it between engines. Each new engine starts from its
+/// defaults, set up as its kit row is (applyRowSetup), so what SYNTH MODE previews is what the kit plays: the Cyc
+/// engines as in the Cycles kit, the LXR voices as their kick, snare and cymbal rows. A sound that wasn't a drum synth
+/// also gets envelope 2 as a short blip to patch to pitch for a snap. Moving between variants of DXIA or DIIA keeps
+/// their settings. fresh: start the engine from its defaults even if it's already playing.
 inline void setDrumEngine(Engine engine, uint8_t variant = 0, bool fresh = false) {
 	using deluge::dsp::drum_synth::isCyc;
 	using deluge::dsp::drum_synth::isXia;
-	namespace params = deluge::modulation::params;
 	Sound& sound = *soundEditor.currentSound;
 	Source& source = sound.sources[0];
 	Patch& patch = source.drumPatch;
 	const bool wasDrumSynth = source.oscType == OscType::DRUM_SYNTH;
 	const Engine from = patch.engine();
 
-	if (wasDrumSynth) {
-		// The LXR engines share control slots, so keep this one's settings in the patch for coming back to it
-		deluge::dsp::drum_synth::storeControlsInPatch(currentControls(), patch);
-	}
-	else {
+	if (!wasDrumSynth) {
 		sound.killAllVoices();
 		if (sound.getSynthMode() != SynthMode::SUBTRACTIVE) {
 			sound.setSynthMode(SynthMode::SUBTRACTIVE, currentSong);
@@ -107,33 +166,26 @@ inline void setDrumEngine(Engine engine, uint8_t variant = 0, bool fresh = false
 			setSoundParam(p, getParamFromUserValue(p, userValue));
 		}
 	}
-	// Into or out of the Cyc engines, the amp envelope changes job
-	if (!wasDrumSynth || isCyc(engine) != isCyc(from)) {
-		const bool open = isCyc(engine);
-		setSoundParam(params::LOCAL_ENV_0_ATTACK, getParamFromUserValue(params::LOCAL_ENV_0_ATTACK, 0));
-		setSoundParam(params::LOCAL_ENV_0_DECAY, getParamFromUserValue(params::LOCAL_ENV_0_DECAY, 30));
-		setSoundParam(params::LOCAL_ENV_0_SUSTAIN, getParamFromUserValue(params::LOCAL_ENV_0_SUSTAIN, open ? 50 : 0));
-		setSoundParam(params::LOCAL_ENV_0_RELEASE, getParamFromUserValue(params::LOCAL_ENV_0_RELEASE, open ? 40 : 30));
-	}
-
-	if (wasDrumSynth && engine == from && !fresh) {
+	// Moving to another variant of DXIA or DIIA starts that variant's own preset too
+	const bool sameVariant = !isXia(engine) || variant == patch.get(Patch::XIA_VARIANT);
+	if (wasDrumSynth && engine == from && sameVariant && !fresh) {
 		return;
 	}
+
+	const deluge::dsp::drum_synth::RowSetup row = deluge::dsp::drum_synth::rowSetupForEngine(engine, variant);
+	applyRowSetup(row);
 	if (isXia(engine)) {
 		patch.setXiaPreset(engine, variant);
 	}
 	else if (isCyc(engine)) {
 		patch.setCycPreset(engine);
 	}
-	else if (!wasDrumSynth || !deluge::dsp::drum_synth::isLxr(from) || fresh) {
-		patch.setPreset(static_cast<deluge::dsp::drum_synth::Preset>(engine == Engine::SNARE   ? 1
-		                                                             : engine == Engine::METAL ? 6
-		                                                                                       : 0));
-	}
 	else {
-		patch.set(Patch::ENGINE, static_cast<uint8_t>(engine));
+		patch.setPreset(deluge::dsp::drum_synth::presetForLxrEngine(engine));
 	}
+	patch.set(Patch::SNAPPY_DECAY, deluge::dsp::drum_synth::snappyByDefault(engine) ? 1 : 0);
 	setControls(deluge::dsp::drum_synth::controlsFromPatch(patch));
+	setEngineDecay(row);
 	setDrumKnobs(sound, engine);
 	soundEditor.markInstrumentAsEdited();
 }
@@ -336,8 +388,8 @@ public:
 	}
 };
 
-/// Replaces this row's drum synth settings with one of the starting points. Leaves the Deluge side of the sound
-/// (envelopes, filters, FX) alone.
+/// Replaces this row's drum synth settings with one of the starting points, set up as its kit row is (transpose,
+/// envelope, filters). Leaves the FX alone.
 class PresetSelect final : public Selection {
 public:
 	using Selection::Selection;
@@ -349,8 +401,12 @@ public:
 		constexpr int32_t kKitPresets = static_cast<int32_t>(Preset::NUM_PRESETS);
 		const int32_t choice = getValue();
 		if (choice < kKitPresets) {
+			const deluge::dsp::drum_synth::RowSetup row =
+			    deluge::dsp::drum_synth::rowSetupFor(static_cast<Preset>(choice));
+			applyRowSetup(row);
 			currentPatch().setPreset(static_cast<Preset>(choice));
 			setControls(deluge::dsp::drum_synth::controlsFromPatch(currentPatch()));
+			setEngineDecay(row);
 			setDrumKnobs(*soundEditor.currentSound, currentPatch().engine());
 			soundEditor.markInstrumentAsEdited();
 		}

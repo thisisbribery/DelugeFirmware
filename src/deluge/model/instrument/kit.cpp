@@ -117,6 +117,9 @@ bool Kit::writeDataToFile(Serializer& writer, Clip* clipForSavingOutputOnly, Son
 	}
 
 	GlobalEffectableForClip::writeAttributesToFile(writer, clipForSavingOutputOnly == nullptr);
+	if (!presetName.isEmpty()) {
+		writer.writeAttribute("presetName", presetName.get());
+	}
 
 	writer.writeOpeningTagEnd();
 	// Attributes end
@@ -299,6 +302,10 @@ doReadDrum:
 			}
 			reader.match(']');
 			reader.exitTag("soundSources");
+		}
+		else if (!strcmp(tagName, "presetName")) {
+			reader.readTagOrAttributeValueString(&presetName);
+			reader.exitTag("presetName");
 		}
 		else if (!strcmp(tagName, "selectedDrumIndex")) {
 			selectedDrumIndex = reader.readTagOrAttributeValueInt();

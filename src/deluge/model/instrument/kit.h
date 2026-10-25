@@ -37,6 +37,9 @@ public:
 
 	ArpeggiatorForKit arpeggiator;
 	ArpeggiatorSettings defaultArpSettings;
+	/// On a preset kit (LXR, Cycles): the preset last kept from its Kit presets list, the file name without .XML, or
+	/// "*" for Default. Empty if none was. Saved with the kit.
+	String presetName;
 
 	Drum* getNextDrum(Drum* fromSoundSource);
 	Drum* getPrevDrum(Drum* fromSoundSource);

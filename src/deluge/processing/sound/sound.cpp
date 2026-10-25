@@ -232,42 +232,8 @@ void Sound::setupAsDrumSynth(ParamManagerForTimeline* paramManager, deluge::dsp:
 	using deluge::dsp::drum_synth::Preset;
 	const bool cyc = deluge::dsp::drum_synth::isCyc(cycEngine);
 
-	struct RowSetup {
-		int16_t transpose; ///< Kit rows play at middle C, so drop or raise each drum to its usual range
-		int8_t decay;      ///< Amp envelope decay, as a user value
-		int8_t hpf;        ///< High pass cutoff as a user value, -1 = off
-		bool choke;        ///< Hats choke each other
-	};
-	RowSetup row;
-	switch (preset) {
-	case Preset::KICK:
-		row = {-29, 27, -1, false}; // G1, about 49 Hz
-		break;
-	case Preset::SNARE:
-		row = {-6, 21, -1, false}; // F#3, about 185 Hz
-		break;
-	case Preset::CLOSED_HAT:
-		row = {13, 9, 30, true}; // C#5, about 554 Hz
-		break;
-	case Preset::OPEN_HAT:
-		row = {13, 23, 30, true};
-		break;
-	case Preset::LOW_TOM:
-		row = {-17, 24, -1, false}; // G2
-		break;
-	case Preset::HIGH_TOM:
-		row = {-10, 22, -1, false}; // D3
-		break;
-	case Preset::CYMBAL:
-	default:
-		row = {8, 33, 26, false}; // G#4
-		break;
-	}
-
-	if (cyc) {
-		// The Cyc engines play at the note, as the Cycles does at its default tune
-		row = {0, 30, -1, false};
-	}
+	const deluge::dsp::drum_synth::RowSetup row =
+	    cyc ? deluge::dsp::drum_synth::rowSetupForEngine(cycEngine) : deluge::dsp::drum_synth::rowSetupFor(preset);
 
 	polyphonic = row.choke ? PolyphonyMode::CHOKE : PolyphonyMode::AUTO;
 	lpfMode = FilterMode::TRANSISTOR_24DB;
@@ -279,6 +245,8 @@ void Sound::setupAsDrumSynth(ParamManagerForTimeline* paramManager, deluge::dsp:
 	else {
 		sources[0].drumPatch.setPreset(preset);
 	}
+	sources[0].drumPatch.set(deluge::dsp::drum_synth::Patch::SNAPPY_DECAY,
+	                         deluge::dsp::drum_synth::snappyByDefault(sources[0].drumPatch.engine()) ? 1 : 0);
 	sources[0].transpose = row.transpose;
 	sources[1].oscType = OscType::SINE;
 
@@ -289,13 +257,10 @@ void Sound::setupAsDrumSynth(ParamManagerForTimeline* paramManager, deluge::dsp:
 	    getParamFromUserValue(params::LOCAL_ENV_0_ATTACK, 0));
 	patchedParams->params[params::LOCAL_ENV_0_DECAY].setCurrentValueBasicForSetup(
 	    getParamFromUserValue(params::LOCAL_ENV_0_DECAY, row.decay));
-	// The Cyc engines have their own amp decay, so their envelope stays open while the note is held and lets the engine
-	// ring out after (as choosing one in SYNTH MODE sets it up)
 	patchedParams->params[params::LOCAL_ENV_0_SUSTAIN].setCurrentValueBasicForSetup(
-	    getParamFromUserValue(params::LOCAL_ENV_0_SUSTAIN, cyc ? 50 : 0));
-	// Letting go early carries on the decay rather than cutting it
+	    getParamFromUserValue(params::LOCAL_ENV_0_SUSTAIN, row.sustain));
 	patchedParams->params[params::LOCAL_ENV_0_RELEASE].setCurrentValueBasicForSetup(
-	    getParamFromUserValue(params::LOCAL_ENV_0_RELEASE, cyc ? 40 : row.decay));
+	    getParamFromUserValue(params::LOCAL_ENV_0_RELEASE, row.release));
 
 	patchedParams->params[params::LOCAL_LPF_RESONANCE].setCurrentValueBasicForSetup(-2147483648);
 	patchedParams->params[params::LOCAL_LPF_FREQ].setCurrentValueBasicForSetup(2147483647);
@@ -309,6 +274,12 @@ void Sound::setupAsDrumSynth(ParamManagerForTimeline* paramManager, deluge::dsp:
 	for (int32_t i = 0; i < deluge::dsp::drum_synth::DrumControls::NUM_SLOTS; i++) {
 		patchedParams->params[deluge::dsp::drum_synth::kDrumControlParams[i]].setCurrentValueBasicForSetup(
 		    controls.values[i]);
+	}
+	// The LXR voices' own decay shapes their hits
+	if (row.engineDecay >= 0) {
+		using deluge::dsp::drum_synth::DrumControls;
+		patchedParams->params[deluge::dsp::drum_synth::kDrumControlParams[DrumControls::COMMON_DECAY]]
+		    .setCurrentValueBasicForSetup(DrumControls::fromValue(row.engineDecay));
 	}
 	for (const auto& [p, userValue] : deluge::dsp::drum_synth::kDrumSynthEnvelope2) {
 		patchedParams->params[p].setCurrentValueBasicForSetup(getParamFromUserValue(p, userValue));

@@ -29,6 +29,8 @@ class SoundDrum final : public Sound, public Drum {
 public:
 	String path;
 	bool nameIsDiscardable = false;
+	/// The preset kit (SHIFT + KIT) this row was made by, or NONE for a row added any other way. Saved with the row.
+	deluge::dsp::drum_synth::PresetKit presetKit = deluge::dsp::drum_synth::PresetKit::NONE;
 
 	SoundDrum() : Drum(DrumType::SOUND) {}
 

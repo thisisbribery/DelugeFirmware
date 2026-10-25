@@ -34,6 +34,10 @@ enum class Kind : uint8_t {
 
 inline constexpr int32_t kNumMacros = 4;
 
+/// How long a Cyc engine's amp decay takes to fall 60 dB, in seconds, at a decay knob of 0 to 127. Punch stretches it
+/// by a quarter. Very long (1000 s) where the knob holds.
+float ampDecaySeconds(Kind kind, float knob, bool punch);
+
 /// Number of chord shapes Cyc Chord's Shape knob steps through
 inline constexpr int32_t kNumChordShapes = 38;
 

@@ -132,6 +132,66 @@ enum class NoiseFilter : uint8_t { LOW_PASS, HIGH_PASS, BAND_PASS, OFF, NUM_FILT
 /// Starting points for a drum synth row, in the order a new drum synth kit lays them out
 enum class Preset : uint8_t { KICK, SNARE, CLOSED_HAT, OPEN_HAT, LOW_TOM, HIGH_TOM, CYMBAL, NUM_PRESETS };
 
+/// The kits SHIFT + KIT makes. Each row of one remembers which it came from (saved with the row), so its audition pad
+/// can be tinted and the kit can't be swapped for another once rows have been added to it.
+enum class PresetKit : uint8_t { NONE, LXR, CYCLES, NUM_KITS };
+
+/// How a drum synth row sits in a kit, besides the engine's own settings: the same whether it came from a preset kit
+/// or from SYNTH MODE, so an engine picked on any row sounds as it does in its kit. Every engine shapes its own hits
+/// with its own decay, inside an open Deluge envelope (attack 0, sustain full) whose release is long enough for that
+/// decay to ring out after the note ends: one tap plays the whole hit, gated sounds follow the note.
+struct RowSetup {
+	int16_t transpose; ///< Kit rows play at middle C, so the kicks and toms drop and the hats rise to their usual range
+	int8_t decay;      ///< Envelope 1 decay, as a user value
+	int8_t hpf;        ///< High pass cutoff as a user value, -1 = off
+	bool choke;        ///< Hats choke each other
+	int8_t env2Decay = 5;  ///< Envelope 2 decay, as a user value
+	int8_t pitchCable = 0; ///< Envelope 2 to pitch, as a patch cable user value (about 1.9 semitones each). 0 = none
+	int8_t sustain = 50;   ///< Envelope 1 sustain and release, as user values
+	int8_t release = 40;
+	int8_t engineDecay = -1; ///< The LXR voices' own decay (DrumControls::COMMON_DECAY, 0-127), or -1 to leave it
+};
+
+/// Envelope 1 release (a user value) that lets a sound falling 60 dB in t60 seconds ring out after its note ends: five
+/// times that, about 4 dB off untouched by the time the sound is 30 dB down, and never under the presets' 40. Held
+/// sounds (t60 of 1000 s or more) are gated by the note and get 40.
+int8_t envelopeReleaseFor(float t60);
+
+/// The LXR voices' own decay at a knob of 0-127: 30 ms to 12 s to fall 60 dB, 127 holds (1000 s)
+float lxrDecaySeconds(int32_t knob);
+
+/// The LXR kit's rows
+RowSetup rowSetupFor(Preset preset);
+
+/// The preset an LXR voice starts from when picked on its own
+constexpr Preset presetForLxrEngine(Engine engine) {
+	return (engine == Engine::SNARE) ? Preset::SNARE : (engine == Engine::METAL) ? Preset::CYMBAL : Preset::KICK;
+}
+
+/// What DXIA and DIIA start as when picked: DXIA's three variants as kicks, DIIA's as noisy percussion. Their settings
+/// (slots 0 to 7, 0-127, see DrumControls), Punch, and the row around them. Tuned by measuring renders against Cyc Kik
+/// and Cyc Snr: level, pitch drop, how bright the attack and tail are, how long they ring.
+struct XiaPreset {
+	std::array<uint8_t, 8> slots;
+	bool punch;
+	RowSetup row;
+};
+XiaPreset xiaPresetFor(Engine engine, uint8_t variant);
+
+/// Envelope 1 release (a user value, 0 to 50) for a Cyc engine at its own decay knob (see envelopeReleaseFor)
+int8_t cycEnvelopeRelease(Engine engine, int32_t decayKnob, bool punch);
+
+/// Any engine, as picked in SYNTH MODE (or a preset kit row), with its default settings. The LXR voices as their kit
+/// rows, DXIA and DIIA as their presets. The Cyc engines play at the note, as the Cycles does at its default tune.
+RowSetup rowSetupForEngine(Engine engine, uint8_t variant = 0);
+
+/// Whether a row on this engine starts with Snappy decay on. None do: each engine's own decay shapes the hit, and the
+/// Deluge envelope only has to stay out of its way.
+constexpr bool snappyByDefault(Engine engine) {
+	(void)engine;
+	return false;
+}
+
 /// Transient modes. Values from kTransientSampleFirst up pick one of the LXR transient samples.
 constexpr uint8_t kTransientSnap = 0;
 constexpr uint8_t kTransientOffset = 1;

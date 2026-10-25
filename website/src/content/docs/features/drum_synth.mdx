@@ -22,7 +22,23 @@ Every engine also has a **transient**: a pitch "snap", a start-phase "offset" cl
    - **LXR**: seven LXR voice rows, from the bottom: **KICK**, **SNARE**, **CH** (closed hat), **OH** (open hat), **LTOM**, **HTOM** and **CYM**. The two hat rows are in choke mode, so an open hat is cut off by the next closed hat.
    - **Cycles**: the Model:Cycles' usual six tracks as Cyc engine rows, from the bottom: **KIK**, **SNR**, **METAL**, **TONE**, **PERC** and **CHORD**. They play at the note, as the Cycles does at its default tune.
 
+The rows a preset kit makes have softly coloured audition pads, by the engine each plays: blue for the Cyc engines, orange for the LXR voices, green for DXIA and DIIA (brighter on the selected row). You can add more rows above or below them: tap an empty audition pad and a new row appears there with **SYNTH MODE** open, so you can turn it into any engine, **Sample** or FM straight away (or hold the empty pad and press **LOAD** for a sample, **SYNTH** for a synth preset, **MIDI** or **CV**, as on any kit). Added rows aren't coloured. On a preset kit, **SHIFT + KIT** opens its [Kit presets](#kit-presets); **BACK** from there goes up to the Kit / LXR / Cycles menu, where its own type goes back into its presets. Once a preset kit has rows added, that menu won't swap it for another kit, which would leave the added rows without their sounds: the screen shows **CANT**. Without added rows, swapping keeps the pattern on the rows the new kit fills.
+
 Every other engine (Vtg Snr, clap eng, DXIA, DIIA) is a **SYNTH MODE** choice. You can turn any row of any kit, or any synth, into a drum synth: press the **SYNTH MODE** shortcut and choose an engine. That way sampled and synthesised drums can share a kit. See [Choosing an engine](#choosing-an-engine).
+
+## Kit presets
+
+A preset kit (LXR or Cycles) can swap all its preset rows' sounds at once for a saved preset, with the pattern still playing.
+
+1. On a preset kit, press **SHIFT + KIT**. The **Kit presets** (**PRST**) list opens instead of the New kit menu.
+2. Turn **SELECT**. Each preset plays on the kit's preset rows straight away; the pattern, its notes and any rows you added stay as they are. The audition pads still play the rows.
+3. Press **SELECT** (or **KIT**) to keep the one showing. **BACK** puts the kit back as it was and goes up to the Kit / LXR / Cycles menu, where you can swap to the other preset kit (if no rows have been added) or go back into the presets.
+
+The list is **Default** (the rows as SHIFT + KIT first makes them) then the presets in name order. It opens on the one the kit is on, so you carry on from there: the last preset kept (saved with the kit), or the preset a kit loaded from the presets folder is named after. A kit on none of them gets **Current** at the top.
+
+**Making presets.** A preset is an ordinary kit file in **KITS/CYCLES** (Cycles kits) or **KITS/LXR** (LXR kits). LXR-02 kits (.SND files) convert with `lxr_to_deluge.py`, Model:Cycles kits with `cycles_to_deluge.py`. Set up a preset kit's rows the way you like, then save the kit into that folder. The folder is made the first time you open the Kit presets list, so it's there to save into. Only the preset rows are read back, bottom first: rows you added to the kit you saved from are ignored. A kit file made by hand with no preset rows gives its sound rows, bottom first. If a preset has fewer rows than the kit, the rest keep their sounds.
+
+Swapping sounds clears the undo history.
 
 ## Pad editor
 
@@ -98,11 +114,22 @@ Every engine is in one list: press the **SYNTH MODE** shortcut (or **OSC1 TYPE**
 
 Choose **Sample** to put a kit row back on its sample.
 
-A row that wasn't a drum synth gets envelope 2 as a short blip for patching to pitch, and an envelope 1 that suits the engine:
-- LXR voices, DXIA and DIIA: percussive (attack 0, decay 30, sustain 0, release 30). The Deluge envelope shapes the level.
-- Cyc engines: open (attack 0, sustain 50, release 40). They have their own amp decay; turn the Deluge's sustain down to shorten them from outside.
+Each engine you pick starts from its defaults, set up as its kit row is, so what you hear while choosing is what the kit plays: the transpose, both envelopes, filters (open, with the high pass on for the cymbal), osc 2 and noise off, and the tune centred, whatever the row was before. FX are left alone. A row that wasn't a drum synth also gets envelope 2 as a short blip for patching to pitch.
 
-Moving between the LXR voices, or between variants of DXIA or DIIA, keeps their settings.
+Every drum engine shapes its hits with its own decay: the LXR voices' Decay, DXIA and DIIA's engine decay, the Cyc engines' amp decay. The Deluge envelope around it is the same on every drum row: attack 0, sustain full, and a release long enough for the engine's decay to ring out after the note ends (40, up to 50 for the longest decays). So one tap plays the whole hit, whatever the note length, and gated sounds follow the note. Snappy decay starts off. Envelope 2's decay is 5 unless a preset sets it.
+
+**DXIA and DIIA presets.** Each variant starts on a preset: DXIA's as kicks, DIIA's as noisy percussion, level with the Cyc and LXR engines.
+
+| Variant | Sound | How |
+|---|---|---|
+| DXIA L | Tight kick | Clean sine at F1, envelope 2 on pitch drops it from about 200 Hz, decay 18, Punch |
+| DXIA B | Knocky kick | Operator 1 feeding the chain for a knock, decay 16 |
+| DXIA C | Long deep kick | E1, a slower drop, decay 26, more drive |
+| DIIA G | Snare-ish noise perc | Loud strike over the partials, decay 9 |
+| DIIA I | Zap | The falling partials under the strike, decay 10 |
+| DIIA H | Metallic noise | Chained sines, bright, decay 8 |
+
+Picking another DXIA or DIIA variant starts that variant's preset.
 
 ## Shortcut pads
 
@@ -188,7 +215,7 @@ Every engine's continuous settings are Deluge parameters, so they can be paramet
 
 The Cymbal / hat and DXIA have no pitch sweep, so their mod rate / depth pair goes to the closest thing they have. Custom 2 / Custom 3 never fall back to the Deluge's decimation and bitcrush on a drum synth row. The other gold knobs keep their usual Deluge jobs. Hold a step and turn a knob to parameter lock it.
 
-**Snappy decay.** On any drum synth row, **Snappy decay** (in the sound menu, under **Drum synth**) makes the amp envelope's decay and release follow the square of the Deluge's usual curve: at every point it has dropped twice as many dB, so the same decay setting sounds about half as long, with a tighter body. It is on for every new drum synth row, saved with the row, and only changes envelope 1. Rows saved with it off stay off.
+**Snappy decay.** On any drum synth row, **Snappy decay** (in the sound menu, under **Drum synth**) makes the amp envelope's decay and release follow the square of the Deluge's usual curve: at every point it has dropped twice as many dB, so the same decay setting sounds about half as long, with a tighter body. It starts off on new drum synth rows (each engine's own decay does the shaping), is saved with the row, and only changes envelope 1.
 
 **Envelope 2.** Every drum synth row starts with envelope 2 as a short blip: attack 0, decay 5, sustain 0, release 0. Patch it to pitch (or osc 1 pitch) for a transient snap.
 
