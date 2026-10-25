@@ -166,6 +166,8 @@ inline void setDrumEngine(Engine engine, uint8_t variant = 0, bool fresh = false
 		for (const auto& [p, userValue] : deluge::dsp::drum_synth::kDrumSynthEnvelope2) {
 			setSoundParam(p, getParamFromUserValue(p, userValue));
 		}
+		// Patch cables can reach the drum controls now
+		sound.setupPatchingForAllParamManagers(currentSong);
 	}
 	// Moving to another variant of DXIA or DIIA starts that variant's own preset too
 	const bool sameVariant = !isXia(engine) || variant == patch.get(Patch::XIA_VARIANT);
@@ -204,6 +206,10 @@ inline void leaveDrumSynth() {
 	deluge::dsp::drum_synth::storeControlsInPatch(currentControls(), source.drumPatch);
 	sound.killAllVoices();
 	source.setOscType(soundEditor.editingKitRow() ? OscType::SAMPLE : OscType::SAW);
+	// GIN's EQ frequency sits on the sample start offset
+	setSoundParam(modulation::params::LOCAL_OSC_A_START_OFFSET, 0);
+	// Cables to the drum controls only work on a drum synth
+	sound.setupPatchingForAllParamManagers(currentSong);
 	setDrumKnobs(sound, Engine::NUM_ENGINES);
 	soundEditor.markInstrumentAsEdited();
 }
@@ -275,7 +281,7 @@ public:
 	}
 };
 
-/// A GIN setting kept in the patch as a number, 0-127 (EQ, level). Menu edits only: not a patched param.
+/// A GIN setting kept in the patch as a number, 0-127 (EQ gain, level). Menu edits only: not a patched param.
 class GinNumber final : public Integer {
 public:
 	GinNumber(l10n::String name, Patch::Param param) : Integer(name), param_(param) {}

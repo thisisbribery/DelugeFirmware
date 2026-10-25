@@ -1586,7 +1586,7 @@ PLACE_SDRAM_BSS drum_synth::GinControl ginNoiseAttackMenu{STRING_FOR_GIN_NOISE_A
 PLACE_SDRAM_BSS drum_synth::GinControl ginNoiseDecayMenu{STRING_FOR_GIN_NOISE_DECAY, XiaSlot::GIN_NOISE_DECAY};
 PLACE_SDRAM_BSS drum_synth::GinControl ginDriveMenu{STRING_FOR_XIA_DRIVE, XiaSlot::GIN_DRIVE};
 PLACE_SDRAM_BSS drum_synth::GinControl ginDecayMenu{STRING_FOR_GIN_DECAY, XiaSlot::COMMON_DECAY};
-PLACE_SDRAM_BSS drum_synth::GinNumber ginEqFreqMenu{STRING_FOR_GIN_EQ_FREQ, DrumParam::GIN_EQ_FREQ};
+PLACE_SDRAM_BSS drum_synth::GinControl ginEqFreqMenu{STRING_FOR_GIN_EQ_FREQ, XiaSlot::GIN_EQ_FREQ};
 PLACE_SDRAM_BSS drum_synth::GinNumber ginEqGainMenu{STRING_FOR_GIN_EQ_GAIN, DrumParam::GIN_EQ_GAIN};
 PLACE_SDRAM_BSS drum_synth::GinNumber ginLevelMenu{STRING_FOR_GIN_LEVEL, DrumParam::GIN_LEVEL};
 // Items the current engine doesn't use hide themselves
@@ -1928,6 +1928,20 @@ MenuItem* drumShortcutFor(const Sound* sound, int32_t x, int32_t y) {
 		}
 	}
 	return nullptr;
+}
+
+uint32_t drumShortcutParam(const Sound* sound, int32_t x, int32_t y) {
+	const uint32_t usual = params::patchedParamShortcuts[x][y];
+	if (x < kPadOsc1 || x > kPadMod2) {
+		return usual;
+	}
+	MenuItem* item = drumShortcutFor(sound, x, y);
+	if (item != nullptr && item->getParamKind() == params::Kind::PATCHED) {
+		return item->getParamIndex();
+	}
+	// A choice, or a pad the engine leaves alone: the Deluge's own param, unless that's where another of the engine's
+	// controls lives
+	return (deluge::dsp::drum_synth::drumSlotForParam(usual) >= 0) ? params::kNoParamID : usual;
 }
 #undef XIA_ENGINE_COLUMNS
 #undef DRUM_SOUND_COLUMNS

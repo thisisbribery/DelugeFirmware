@@ -110,13 +110,10 @@ using deluge::modulation::params::unpatchedNonGlobalParamShortcuts;
 
 using namespace deluge::gui;
 
-// The patched param on a shortcut pad. On a sample oscillator, the pulse width pad (unused for samples) gives the
-// sample start offset instead.
+// The patched param on a shortcut pad, or kNoParamID. On a sample oscillator, the pulse width pad (unused for samples)
+// gives the sample start offset instead. On a drum synth, the oscillator and FM columns follow the drum synth's own
+// pads, as in the sound editor.
 static uint32_t patchedParamForShortcut(Output* output, int32_t x, int32_t y) {
-	uint32_t paramId = patchedParamShortcuts[x][y];
-	if (paramId != params::LOCAL_OSC_A_PHASE_WIDTH && paramId != params::LOCAL_OSC_B_PHASE_WIDTH) {
-		return paramId;
-	}
 	Sound* sound = nullptr;
 	if (output->type == OutputType::SYNTH) {
 		sound = static_cast<SoundInstrument*>(output);
@@ -126,6 +123,13 @@ static uint32_t patchedParamForShortcut(Output* output, int32_t x, int32_t y) {
 		if (drum && drum->type == DrumType::SOUND) {
 			sound = static_cast<SoundDrum*>(drum);
 		}
+	}
+	if (sound && sound->getSynthMode() != SynthMode::FM && sound->sources[0].oscType == OscType::DRUM_SYNTH) {
+		return drumShortcutParam(sound, x, y);
+	}
+	uint32_t paramId = patchedParamShortcuts[x][y];
+	if (paramId != params::LOCAL_OSC_A_PHASE_WIDTH && paramId != params::LOCAL_OSC_B_PHASE_WIDTH) {
+		return paramId;
 	}
 	int32_t s = paramId - params::LOCAL_OSC_A_PHASE_WIDTH;
 	if (sound && sound->getSynthMode() != SynthMode::FM && sound->sources[s].oscType == OscType::SAMPLE) {
@@ -814,10 +818,10 @@ void AutomationView::renderAutomationOverview(ModelStackWithTimelineCounter* mod
 			ModelStackWithAutoParam* modelStackWithParam = nullptr;
 
 			if (!onArrangerView && (outputType == OutputType::SYNTH || singleSoundDrum)) {
-				if (patchedParamShortcuts[xDisplay][yDisplay] != kNoParamID) {
-					modelStackWithParam = getModelStackWithParamForClip(
-					    modelStackWithTimelineCounter, clip, patchedParamForShortcut(clip->output, xDisplay, yDisplay),
-					    params::Kind::PATCHED);
+				if (uint32_t paramID = patchedParamForShortcut(clip->output, xDisplay, yDisplay);
+				    paramID != kNoParamID) {
+					modelStackWithParam = getModelStackWithParamForClip(modelStackWithTimelineCounter, clip, paramID,
+					                                                    params::Kind::PATCHED);
 				}
 
 				else if (unpatchedNonGlobalParamShortcuts[xDisplay][yDisplay] != kNoParamID) {
@@ -1927,7 +1931,7 @@ void AutomationView::handleParameterSelection(Clip* clip, Output* output, Output
 	    && (outputType == OutputType::SYNTH
 	        || (outputType == OutputType::KIT && !getAffectEntire() && ((Kit*)output)->selectedDrum
 	            && ((Kit*)output)->selectedDrum->type == DrumType::SOUND))
-	    && ((patchedParamShortcuts[xDisplay][yDisplay] != kNoParamID)
+	    && ((patchedParamForShortcut(output, xDisplay, yDisplay) != kNoParamID)
 	        || (unpatchedNonGlobalParamShortcuts[xDisplay][yDisplay] != kNoParamID)
 	        || params::isPatchCableShortcut(xDisplay, yDisplay))) {
 		// don't allow automation of portamento in kit's
@@ -1938,7 +1942,7 @@ void AutomationView::handleParameterSelection(Clip* clip, Output* output, Output
 
 		// if you are in a synth or a kit instrumentClip and the shortcut is valid, set current selected
 		// ParamID
-		if (patchedParamShortcuts[xDisplay][yDisplay] != kNoParamID) {
+		if (patchedParamForShortcut(output, xDisplay, yDisplay) != kNoParamID) {
 			clip->lastSelectedParamKind = params::Kind::PATCHED;
 			clip->lastSelectedParamID = patchedParamForShortcut(output, xDisplay, yDisplay);
 		}

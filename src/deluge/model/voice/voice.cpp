@@ -2192,6 +2192,42 @@ void Voice::renderFMWithFeedbackAdd(int32_t* bufferStart, int32_t numSamples, in
 // require an additional copying(summing) step, 		and we might as well just apply amplitude while that's
 // happening, which is exactly how it is currently.
 
+namespace {
+/// The controls a drum synth voice plays: each control's param as turned, automated or locked, plus every patch cable
+/// that reaches it in this voice (envelopes, LFOs, velocity, random, MPE, ...). The Patcher's final values for these
+/// params are made for the FM operators, so the cables are summed here instead, the same way for every control: a cable
+/// at 50 with its source at full moves a control 64 steps, from the centre to either end.
+deluge::dsp::drum_synth::DrumControls modulatedDrumControls(ParamManagerForTimeline& paramManager,
+                                                            std::span<const int32_t> sourceValues) {
+	using deluge::dsp::drum_synth::DrumControls;
+	DrumControls controls = deluge::dsp::drum_synth::readDrumControls(*paramManager.getPatchedParamSet());
+	PatchCableSet& cables = *paramManager.getPatchCableSet();
+	const Destination* destination = cables.destinations[GLOBALITY_LOCAL];
+	if (destination == nullptr) {
+		return controls;
+	}
+	for (; destination->sources != 0u; destination++) {
+		if (!destination->destinationParamDescriptor.isJustAParam()) {
+			continue; // A cable patched to another cable's depth
+		}
+		const int32_t slot =
+		    deluge::dsp::drum_synth::drumSlotForParam(destination->destinationParamDescriptor.getJustTheParam());
+		if (slot < 0) {
+			continue;
+		}
+		int64_t total = controls.values[slot];
+		for (int32_t c = destination->firstCable; c < destination->endCable; c++) {
+			PatchCable& cable = cables.patchCables[c];
+			const int32_t source = cable.toPolarity(sourceValues[util::to_underlying(cable.from)]);
+			total += int64_t{cable.applyRangeAdjustment(multiply_32x32_rshift32(source, cable.param.getCurrentValue()))}
+			         << 2;
+		}
+		controls.values[slot] = static_cast<int32_t>(std::clamp<int64_t>(total, INT32_MIN, INT32_MAX));
+	}
+	return controls;
+}
+} // namespace
+
 void Voice::renderBasicSource(Sound& sound, ParamManagerForTimeline* paramManager, int32_t s,
                               int32_t* __restrict__ oscBuffer, int32_t numSamples, bool stereoBuffer,
                               int32_t sourceAmplitude, bool* __restrict__ unisonPartBecameInactive,
@@ -2796,10 +2832,9 @@ dontUseCache: {}
 				memset(renderBuffer, 0, SSI_TX_BUFFER_NUM_SAMPLES * sizeof(int32_t));
 			}
 
-			unisonParts[u].sources[s].drumVoice.render(
-			    sound.sources[s].drumPatch,
-			    deluge::dsp::drum_synth::readDrumControls(*paramManager->getPatchedParamSet()), renderBuffer,
-			    numSamples, phaseIncrement, sourceAmplitude, amplitudeIncrement);
+			unisonParts[u].sources[s].drumVoice.render(sound.sources[s].drumPatch,
+			                                           modulatedDrumControls(*paramManager, sourceValues), renderBuffer,
+			                                           numSamples, phaseIncrement, sourceAmplitude, amplitudeIncrement);
 
 			if (stereoBuffer) {
 				for (int32_t i = 0; i < numSamples; i++) {

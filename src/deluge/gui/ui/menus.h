@@ -129,6 +129,11 @@ class Sound;
 /// On drum synth sounds, some sound shortcut pads open the engine's settings instead (see menus.cpp). nullptr = the
 /// normal shortcut.
 MenuItem* drumShortcutFor(const Sound* sound, int32_t x, int32_t y);
+/// The patched param on a drum synth sound's shortcut pad, for the automation view and patch cable blinks. In the
+/// oscillator and FM columns, the drum synth's own pads: the engine's control there, else the Deluge's own param, or
+/// kNoParamID where that would be another of the engine's controls. Elsewhere (the mod FX pads too, as every sweep
+/// setting also has a pad in those columns), the Deluge's own.
+uint32_t drumShortcutParam(const Sound* sound, int32_t x, int32_t y);
 extern MenuItem* paramShortcutsForAudioClips[kDisplayWidth][kDisplayHeight];
 extern MenuItem* paramShortcutsForSongView[kDisplayWidth][kDisplayHeight];
 extern MenuItem* paramShortcutsForKitGlobalFX[kDisplayWidth][kDisplayHeight];

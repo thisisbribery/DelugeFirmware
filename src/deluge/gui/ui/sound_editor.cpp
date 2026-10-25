@@ -1024,9 +1024,15 @@ ActionResult SoundEditor::exitCompletely() {
 
 bool SoundEditor::findPatchedParam(int32_t paramLookingFor, int32_t* xout, int32_t* yout, bool* isSecondLayerParamOut) {
 	bool found = false;
+	// A drum synth's controls are on its own pads
+	const Sound* sound = shortcutSound();
+	const bool drumSynth = sound != nullptr && sound->getSynthMode() != SynthMode::FM
+	                       && sound->sources[0].oscType == OscType::DRUM_SYNTH;
 	for (int32_t x = 0; x < kDisplayWidth; x++) {
 		for (int32_t y = 0; y < kDisplayHeight; y++) {
-			if (deluge::modulation::params::patchedParamShortcuts[x][y] == paramLookingFor) {
+			const uint32_t param =
+			    drumSynth ? drumShortcutParam(sound, x, y) : deluge::modulation::params::patchedParamShortcuts[x][y];
+			if (param == paramLookingFor) {
 				*isSecondLayerParamOut = false;
 				*xout = x;
 				*yout = y;

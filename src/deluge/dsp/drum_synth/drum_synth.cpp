@@ -269,6 +269,7 @@ DrumControls ginControlsFor(const gin::KitSound& sound) {
 	c.values[S::GIN_TONE_ATTACK] = S::fromKnob(ginKnob(sound.toneAttack));
 	c.values[S::COMMON_DECAY] = S::fromValue(64);
 	c.values[S::GIN_TONE_DECAY] = S::fromKnob(ginKnob(sound.toneDecay));
+	c.values[S::GIN_EQ_FREQ] = S::fromKnob(ginKnob(sound.eqFreq));
 	return c;
 }
 
@@ -384,6 +385,7 @@ uint8_t Patch::maxValue(Param p) {
 	case XIA_PUNCH:
 	case SNAPPY_DECAY:
 	case CONTROLS_VERSION:
+	case GIN_EQ_CONTROL:
 		return 1;
 	default:
 		return 127;
@@ -396,6 +398,7 @@ bool Patch::isUsedBy(Param p, Engine engine) {
 	case SNAPPY_DECAY:
 		return true;
 	case CONTROLS_VERSION:
+	case GIN_EQ_CONTROL:
 		return false;
 	case OSC_WAVE:
 	case TRANS_MODE:
@@ -430,10 +433,11 @@ bool Patch::isUsedBy(Param p, Engine engine) {
 	case GIN_WAVE:
 	case GIN_MOD_MODE:
 	case GIN_NOISE_ENV:
-	case GIN_EQ_FREQ:
 	case GIN_EQ_GAIN:
 	case GIN_LEVEL:
 		return isGin(engine);
+	case GIN_EQ_FREQ: // Now a control
+		return false;
 	default:
 		return isXia(engine);
 	}
@@ -1273,7 +1277,7 @@ void Voice::renderGin(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const Dru
 	s.noiseDecay = std::clamp(s.burstSpacing + decayOffset, 0.f, 1.f);
 	s.mix = knob(DrumControls::GIN_MIX);
 	s.drive = knob(DrumControls::GIN_DRIVE);
-	s.eqFreq = p[Patch::GIN_EQ_FREQ] / 127.f;
+	s.eqFreq = knob(DrumControls::GIN_EQ_FREQ);
 	s.eqGain = (eqGain <= 64) ? eqGain / 128.f : 0.5f + (eqGain - 64) / 126.f;
 	s.level = gin::levelGain(p[Patch::GIN_LEVEL] / 127.f);
 

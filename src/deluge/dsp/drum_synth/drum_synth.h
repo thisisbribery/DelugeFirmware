@@ -107,7 +107,8 @@ struct DrumControls {
 		GIN_NOISE_ATTACK = 7, ///< Noise envelope attack
 		GIN_TONE_ATTACK = 8,
 		GIN_TONE_DECAY = 10,
-		NUM_SLOTS = 11,
+		GIN_EQ_FREQ = 11, ///< Peak EQ frequency. Added after GIN, on a param only a sample oscillator reads.
+		NUM_SLOTS = 12,
 	};
 	/// Raw Deluge param values: the whole int32 range, centre 0
 	std::array<int32_t, NUM_SLOTS> values{};
@@ -260,12 +261,14 @@ public:
 		                  ///< default.
 		CONTROLS_VERSION, ///< 1 once the drive and decay controls exist. Sounds saved before have no byte for it.
 		// GIN. Its continuous settings are on Deluge params: see DrumControls. The noise filter is NOISE_FILTER_TYPE.
-		GIN_WAVE,      ///< gin::Wave
-		GIN_MOD_MODE,  ///< gin::ModMode
-		GIN_NOISE_ENV, ///< gin::NoiseEnv
-		GIN_EQ_FREQ,   ///< Peak EQ frequency, 20 Hz to 20 kHz
-		GIN_EQ_GAIN,   ///< Peak EQ gain, 64 = flat, 0 / 127 = 40 dB cut / boost
-		GIN_LEVEL,     ///< GIN's level before its clipper. 102 is about -2 dB.
+		// The EQ frequency has moved to DrumControls::GIN_EQ_FREQ: this byte is only read from sounds saved before.
+		GIN_WAVE,       ///< gin::Wave
+		GIN_MOD_MODE,   ///< gin::ModMode
+		GIN_NOISE_ENV,  ///< gin::NoiseEnv
+		GIN_EQ_FREQ,    ///< Peak EQ frequency, 20 Hz to 20 kHz
+		GIN_EQ_GAIN,    ///< Peak EQ gain, 64 = flat, 0 / 127 = 40 dB cut / boost
+		GIN_LEVEL,      ///< GIN's level before its clipper. 102 is about -2 dB.
+		GIN_EQ_CONTROL, ///< 1 once GIN's EQ frequency is a control. Sounds saved before have no byte for it.
 		NUM_PARAMS,
 	};
 
@@ -299,17 +302,23 @@ public:
 	void readLegacyDrumBytes(const uint8_t* bytes, int32_t length);
 
 	/// Called after reading a saved patch of length bytes. A sound saved before the drive and decay controls existed
-	/// has whatever its params held on their slots: needsControlDefaults() says to put them back to neutral.
+	/// has whatever its params held on their slots, and one saved before GIN's EQ frequency became a control has it in
+	/// the patch: needsControlDefaults() says to sort them out (savedBeforeControls(), savedBeforeGinEqControl()).
 	void loadedBytes(int32_t length) {
-		needsControlDefaults_ = length <= CONTROLS_VERSION;
+		savedBeforeControls_ = length <= CONTROLS_VERSION;
+		savedBeforeGinEqControl_ = length <= GIN_EQ_CONTROL;
 		params_[CONTROLS_VERSION] = 1;
+		params_[GIN_EQ_CONTROL] = 1;
 	}
-	[[nodiscard]] bool needsControlDefaults() const { return needsControlDefaults_; }
-	void clearNeedsControlDefaults() { needsControlDefaults_ = false; }
+	[[nodiscard]] bool needsControlDefaults() const { return savedBeforeControls_ || savedBeforeGinEqControl_; }
+	[[nodiscard]] bool savedBeforeControls() const { return savedBeforeControls_; }
+	[[nodiscard]] bool savedBeforeGinEqControl() const { return savedBeforeGinEqControl_; }
+	void clearNeedsControlDefaults() { savedBeforeControls_ = savedBeforeGinEqControl_ = false; }
 
 private:
 	std::array<uint8_t, NUM_PARAMS> params_{};
-	bool needsControlDefaults_ = false; ///< Not saved
+	bool savedBeforeControls_ = false;     ///< Not saved
+	bool savedBeforeGinEqControl_ = false; ///< Not saved
 };
 
 /// The control slot an LXR setting lives on, or -1 for the choices (waves, modes, filter type), which stay in the

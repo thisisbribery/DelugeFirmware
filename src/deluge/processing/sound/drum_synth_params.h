@@ -28,16 +28,16 @@
 namespace deluge::dsp::drum_synth {
 
 /// The Deluge patched params the drum synth controls live on: the FM operators' params, which a drum synth sound (never
-/// in FM mode) has no other use for, osc 1's pulse width, which the drum synth doesn't have, and the two wavetable
-/// positions, which only a wavetable oscillator reads. Being patched params, they save with the sound and can be
-/// automated, parameter locked and put on gold knobs.
+/// in FM mode) has no other use for, osc 1's pulse width, which the drum synth doesn't have, the two wavetable
+/// positions, which only a wavetable oscillator reads, and osc 1's sample start offset. Being patched params, they save
+/// with the sound and can be automated, parameter locked and put on gold knobs.
 inline constexpr std::array<int32_t, DrumControls::NUM_SLOTS> kDrumControlParams{
     modulation::params::LOCAL_MODULATOR_0_VOLUME,       modulation::params::LOCAL_MODULATOR_1_VOLUME,
     modulation::params::LOCAL_MODULATOR_0_FEEDBACK,     modulation::params::LOCAL_MODULATOR_1_FEEDBACK,
     modulation::params::LOCAL_CARRIER_0_FEEDBACK,       modulation::params::LOCAL_CARRIER_1_FEEDBACK,
     modulation::params::LOCAL_MODULATOR_0_PITCH_ADJUST, modulation::params::LOCAL_MODULATOR_1_PITCH_ADJUST,
     modulation::params::LOCAL_OSC_A_PHASE_WIDTH,        modulation::params::LOCAL_OSC_A_WAVE_INDEX,
-    modulation::params::LOCAL_OSC_B_WAVE_INDEX,
+    modulation::params::LOCAL_OSC_B_WAVE_INDEX,         modulation::params::LOCAL_OSC_A_START_OFFSET,
 };
 
 /// Envelope 2 on every drum synth sound: a short blip (attack 0, decay 5, sustain 0, release 0), ready to patch to
@@ -140,6 +140,8 @@ inline deluge::l10n::String ginKnobName(int32_t slot) {
 		return STRING_FOR_GIN_TONE_ATTACK;
 	case DrumControls::COMMON_DECAY:
 		return STRING_FOR_GIN_DECAY;
+	case DrumControls::GIN_EQ_FREQ:
+		return STRING_FOR_GIN_EQ_FREQ;
 	default:
 		return STRING_FOR_GIN_TONE_DECAY;
 	}

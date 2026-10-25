@@ -355,12 +355,23 @@ void Sound::resetOldDrumSynthControls(ParamManager* paramManager) {
 	    || !paramManager->containsAnyMainParamCollections()) {
 		return;
 	}
-	// Saved before the drive and decay controls existed: their params hold whatever they held, so start them neutral
 	PatchedParamSet* patchedParams = paramManager->getPatchedParamSet();
-	patchedParams->params[kDrumControlParams[DrumControls::COMMON_DECAY]].setCurrentValueBasicForSetup(
-	    DrumControls::fromValue(127));
-	patchedParams->params[kDrumControlParams[DrumControls::LXR_DRIVE]].setCurrentValueBasicForSetup(
-	    DrumControls::fromValue(0));
+	const deluge::dsp::drum_synth::Patch& patch = sources[0].drumPatch;
+	// Saved before the drive and decay controls existed: their params hold whatever they held, so start them neutral
+	if (patch.savedBeforeControls()) {
+		patchedParams->params[kDrumControlParams[DrumControls::COMMON_DECAY]].setCurrentValueBasicForSetup(
+		    DrumControls::fromValue(127));
+		patchedParams->params[kDrumControlParams[DrumControls::LXR_DRIVE]].setCurrentValueBasicForSetup(
+		    DrumControls::fromValue(0));
+	}
+	// Saved before GIN's EQ frequency became a control: it's in the patch, and its param (osc 1's sample start offset)
+	// holds whatever it held
+	if (patch.savedBeforeGinEqControl()) {
+		patchedParams->params[kDrumControlParams[DrumControls::GIN_EQ_FREQ]].setCurrentValueBasicForSetup(
+		    deluge::dsp::drum_synth::isGin(patch.engine())
+		        ? DrumControls::fromValue(patch.get(deluge::dsp::drum_synth::Patch::GIN_EQ_FREQ))
+		        : 0);
+	}
 }
 
 void Sound::possiblySetupDefaultExpressionPatching(ParamManager* paramManager) {
@@ -1663,6 +1674,13 @@ PatchCableAcceptance Sound::maySourcePatchToParam(PatchSource s, uint8_t p, Para
 
 	if (p != 255 && s != PatchSource::NOT_AVAILABLE && s >= kFirstLocalSource && p >= params::FIRST_GLOBAL) {
 		return PatchCableAcceptance::DISALLOWED; // Can't patch local source to global param
+	}
+
+	// A drum synth's controls live on params it has no other use for (the FM operators' among them, see
+	// drum_synth_params.h), so anything can patch to them, whatever this synth mode would otherwise allow there
+	if (synthMode != SynthMode::FM && sources[0].oscType == OscType::DRUM_SYNTH
+	    && deluge::dsp::drum_synth::drumSlotForParam(p) >= 0) {
+		return PatchCableAcceptance::ALLOWED;
 	}
 
 	PatchedParamSet* patchedParams = paramManager->getPatchedParamSet();
