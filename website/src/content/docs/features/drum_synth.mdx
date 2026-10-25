@@ -215,7 +215,7 @@ All drum engines share one layout, read the way the grid is printed. Only the fo
 | MOD FX RATE | Mod rate |
 | MOD FX DEPTH | Mod amount |
 
-Every engine's continuous settings are Deluge parameters, so they can be parameter locked, automated, MIDI learned and put on gold knobs. They run 0-127, as on the LXR and the Cycles. The choices (waves, transient type, noise filter, osc mode, Punch) are row settings. The full list is in the sound menu's **Drum synth** item.
+Every engine's continuous settings are Deluge parameters, so they can be parameter locked, automated, MIDI learned, put on gold knobs and modulated from the mod matrix. They run 0-127, as on the LXR and the Cycles. The choices (waves, transient type, noise filter, osc mode, Punch) are row settings. The full list is in the sound menu's **Drum synth** item.
 
 **Drive and decay.** Every engine has both, on the same pads and gold knobs. DXIA and DIIA use their own. On the LXR voices drive is a soft clipper that gets louder as it goes up and hard clips at the top, and decay is the voice's own fade (127 holds). Both start neutral, so older kits sound the same. The Cyc engines start with drive at 100.
 
@@ -246,7 +246,9 @@ The Cymbal / hat and DXIA have no pitch sweep, so their mod rate / depth pair go
 
 **Envelope 2.** Every drum synth row starts with envelope 2 as a short blip: attack 0, decay 5, sustain 0, release 0. Patch it to pitch (or osc 1 pitch) for a transient snap.
 
-The LXR settings share parameters between engines: each voice's settings are stored with the row and come back when you switch back. The settings can't be modulated from the mod matrix, because the Deluge only allows that for those parameters in FM mode.
+The LXR settings share parameters between engines: each voice's settings are stored with the row and come back when you switch back. **Modulation.** Any mod source can be patched to any of the settings: hold the source's pad with the setting open, as for any Deluge parameter. Each voice gets its own modulation, so velocity, random or an envelope can change every hit. A cable at 50 with its source at full moves a setting 64 steps, from the middle to either end.
+
+**Automation view.** On a drum synth row the OSC1, OSC2, MOD1 and MOD2 columns follow the drum synth's own pads, so each setting is where its shortcut is. Pads holding a choice are blank. The mod FX pads stay mod FX rate and depth (every sweep setting also has a pad in those columns).
 
 ## DXIA and DIIA
 
@@ -323,7 +325,7 @@ Its sixteen built in kits are new for the Deluge (GIN's own factory kits aren't 
 
 Cycle through them with **SHIFT + KIT** on a GIN kit (see [Kit presets](#kit-presets)), or put any one sound on a row with **GIN sound** in the Drum synth menu.
 
-**Settings.** The gold knobs follow the shared layout: attack / release = **Drive / Decay**, mod rate / depth = the pitch modulation's **Mod rate / Mod amount** (64 is none; above 64 the sweep starts high and falls, below it starts low and rises), Custom 1 = tune, Custom 2 / 3 = **Mix / Noise freq**, as on GIN's own front panel. **Decay** moves the tone and noise decays together: 64 leaves them as the sound has them, 0 is about 60 times shorter, 127 about 60 times longer. **Tone decay**, **Noise decay**, both attacks, **Noise reso**, the waves and modes, the EQ and **GIN level** are in the Drum synth menu, the pad editor and on the pads. The continuous ones are parameters (lockable, automatable); the waves, modes, filter type, EQ and level are row settings.
+**Settings.** The gold knobs follow the shared layout: attack / release = **Drive / Decay**, mod rate / depth = the pitch modulation's **Mod rate / Mod amount** (64 is none; above 64 the sweep starts high and falls, below it starts low and rises), Custom 1 = tune, Custom 2 / 3 = **Mix / Noise freq**, as on GIN's own front panel. **Decay** moves the tone and noise decays together: 64 leaves them as the sound has them, 0 is about 60 times shorter, 127 about 60 times longer. **Tone decay**, **Noise decay**, both attacks, **Noise reso**, the waves and modes, the EQ and **GIN level** are in the Drum synth menu, the pad editor and on the pads. The continuous ones are parameters (lockable, automatable, modulatable), EQ freq included from v1.14; the waves, modes, filter type, EQ gain and level are row settings.
 
 **Differences from GIN on the OP-1.**
 - The pitch is the note (and row transpose), not a setting: the kits tune each row to its sound.
