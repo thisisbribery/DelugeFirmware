@@ -140,6 +140,7 @@ void InstrumentClip::copyBasicsFrom(Clip const* otherClip) {
 	monoMode = otherInstrumentClip->monoMode;
 	monoCustom = otherInstrumentClip->monoCustom;
 	monoGatePercent = otherInstrumentClip->monoGatePercent;
+	monoGridOctave = otherInstrumentClip->monoGridOctave;
 	monoCustomMillivolts = otherInstrumentClip->monoCustomMillivolts;
 
 	affectEntire = otherInstrumentClip->affectEntire;
@@ -1401,6 +1402,10 @@ void InstrumentClip::transpose(int32_t semitones, ModelStackWithTimelineCounter*
 
 	yScroll += semitones;
 	colourOffset -= semitones;
+	// The mono grid moves with whole octaves, so the notes keep their rows
+	if (semitones % 12 == 0) {
+		monoGridOctave += semitones / 12;
+	}
 }
 
 bool InstrumentClip::nudgeNotesVertically(int32_t direction, VerticalNudgeType type,
@@ -1520,6 +1525,10 @@ bool InstrumentClip::nudgeNotesVertically(int32_t direction, VerticalNudgeType t
 	}
 
 	yScroll += change;
+	// The mono grid moves with whole octaves, so the notes keep their rows
+	if (type == VerticalNudgeType::OCTAVE) {
+		monoGridOctave += direction > 0 ? 1 : -1;
+	}
 	return true;
 }
 
@@ -3790,7 +3799,9 @@ int32_t InstrumentClip::getMonoYScroll(Song* song) {
 		yNote -= 12;
 	}
 
-	// Follow the notes an octave at a time, so they stay on the grid after the whole clip is transposed
+	// Follow the notes an octave at a time, so they stay on the grid after the whole clip is transposed. The grid
+	// stays where it is while the notes fit it: a note on the root is both the bottom row of one octave and the top row
+	// of the one below, so working it out from the notes alone moved the grid as notes were added and removed.
 	int32_t lowest = std::numeric_limits<int32_t>::max();
 	int32_t highest = std::numeric_limits<int32_t>::min();
 	for (int32_t i = 0; i < noteRows.getNumElements(); i++) {
@@ -3801,17 +3812,32 @@ int32_t InstrumentClip::getMonoYScroll(Song* song) {
 		}
 	}
 	if (lowest <= highest) {
-		// The octave whose root is at or below the lowest note...
-		int32_t octaves = (lowest - yNote) / 12 - (lowest < yNote && (yNote - lowest) % 12);
-		// ... unless the notes all sit on the octave below's top row, as a lone note on the default grid's top row
-		// does, which shouldn't move the grid
-		int32_t lowerTop =
-		    getYNoteFromYVisual(getYVisualFromYNote(yNote + 12 * (octaves - 1), song) + kMonoNumRows - 1, song);
-		if (highest <= lowerTop) {
-			octaves--;
+		auto bottomOf = [&](int32_t octave) { return yNote + 12 * octave; };
+		auto topOf = [&](int32_t octave) {
+			return getYNoteFromYVisual(getYVisualFromYNote(bottomOf(octave), song) + kMonoNumRows - 1, song);
+		};
+		auto fits = [&](int32_t octave) { return lowest >= bottomOf(octave) && highest <= topOf(octave); };
+
+		if (!fits(monoGridOctave)) {
+			// The nearest octave the notes fit, looking first the way they moved
+			int32_t step = (lowest < bottomOf(monoGridOctave)) ? -1 : 1;
+			bool found = false;
+			for (int32_t distance = 1; distance <= 11 && !found; distance++) {
+				for (int32_t octave : {monoGridOctave + step * distance, monoGridOctave - step * distance}) {
+					if (fits(octave)) {
+						monoGridOctave = octave;
+						found = true;
+						break;
+					}
+				}
+			}
+			// Too spread out for any octave: keep the lowest note on the grid
+			if (!found && (lowest < bottomOf(monoGridOctave) || lowest > topOf(monoGridOctave))) {
+				monoGridOctave = (lowest - yNote) / 12 - (lowest < yNote && (yNote - lowest) % 12);
+			}
 		}
-		yNote += 12 * octaves;
 	}
+	yNote += 12 * monoGridOctave;
 	return getYVisualFromYNote(yNote, song);
 }
 

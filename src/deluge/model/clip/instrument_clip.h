@@ -142,6 +142,9 @@ public:
 	bool monoShiftsNoteCode() const;
 	/// The yScroll that puts the scale's root on the bottom row
 	int32_t getMonoYScroll(Song* song);
+	/// Octaves the mono grid sits above the root's default one. Only moves when the notes no longer fit the grid, so
+	/// editing never shifts it.
+	int32_t monoGridOctave = 0;
 	/// The octave offset, -kMonoMaxOctave to kMonoMaxOctave, a note carries in a mono CV clip
 	static int32_t getMonoOctave(int32_t lift);
 	/// Whether a mono note slides into the next one. Slide notes keep their lift kMonoSlideLift higher.
