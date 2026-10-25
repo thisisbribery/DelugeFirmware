@@ -386,6 +386,10 @@ char const* getParamDisplayName(Kind kind, int32_t p, ModControllableAudio* modC
 			return l10n::get(STRING_FOR_TB303_WAVEFORM);
 		case LOCAL_MODULATOR_0_FEEDBACK:
 			return l10n::get(STRING_FOR_TB303_SLIDE);
+		case LOCAL_MODULATOR_1_FEEDBACK:
+			return l10n::get(STRING_FOR_TB303_DRIVE);
+		case LOCAL_OSC_A_WAVE_INDEX:
+			return l10n::get(STRING_FOR_TB303_AMP_DECAY);
 		default:
 			break;
 		}

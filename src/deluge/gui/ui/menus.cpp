@@ -1702,11 +1702,14 @@ PLACE_SDRAM_DATA std::array<DrumColumn, 10> drumEditorCycLayout{{
 // Columns: OSC1 = the main voice. OSC2 = the second layer (noise, rattle, snares, overtone, clap tail, or the first
 // operator). MOD1 = the modulator (FM depth and ratio). MOD2 = the pitch sweep, or a second modulator / third operator
 // on the engines without one.
-// Rows: LEVEL = amount. TRANSPOSE = tuning or ratio. TYPE = a choice. PULSE WIDTH = shape or fine tune. RETRIGGER = the
-// attack (punch, transients). FEEDBACK = drive, resonance, feedback or curve. WAVE INDEX = decay. OSC1 NOISE = noise.
-// Every engine has its drive on OSC1 FEEDBACK and its decay on OSC1 WAVE INDEX (also the attack / release gold knobs).
-// The Cyc engines also have Sweep and Contour on the mod FX rate and depth pads (also the mod rate / depth gold knobs).
-// OSC1 TYPE opens SYNTH MODE, where the engine is chosen. Pads an engine doesn't use keep their usual job.
+// Rows: LEVEL = amount. TRANSPOSE = tuning or ratio. TYPE = a choice. PULSE WIDTH = shape, the wave or fine tune.
+// RETRIGGER = the attack (transients, drive). FEEDBACK = drive, resonance, feedback or curve. WAVE INDEX = decay. OSC1
+// NOISE = noise.
+// Every engine has its decay on OSC1 WAVE INDEX. OSC1 FEEDBACK is the drive switch (Punch) on the engines with one,
+// with the drive amount on OSC1 RETRIGGER, or the drive amount on the LXR voices, which have no switch. Drive and decay
+// are also the attack / release gold knobs. The mod FX rate and depth pads are the sweep's speed and depth (Sweep and
+// Contour on the Cyc engines), as are the mod rate / depth gold knobs. OSC1 TYPE opens SYNTH MODE, where the engine is
+// chosen. Pads an engine doesn't use keep their usual job.
 extern SynthModeSelection synthModeMenu;
 namespace {
 using DrumEngine = deluge::dsp::drum_synth::Engine;
@@ -1720,6 +1723,7 @@ constexpr uint8_t kPadOsc1 = 2;
 constexpr uint8_t kPadOsc2 = 3;
 constexpr uint8_t kPadMod1 = 4;
 constexpr uint8_t kPadMod2 = 5;
+constexpr uint8_t kPadModFx = 12;
 enum PadRow : uint8_t { LEVEL, TRANSPOSE, TYPE, PULSE_WIDTH, RETRIGGER, FEEDBACK, WAVE_INDEX, NOISE };
 
 // Pads shared by all three LXR voices: the main wave, the transient, drive and decay
@@ -1738,28 +1742,32 @@ enum PadRow : uint8_t { LEVEL, TRANSPOSE, TYPE, PULSE_WIDTH, RETRIGGER, FEEDBACK
 	    {e, kPadMod1, TYPE, &drumModWaveMenu}, {                                                                       \
 		e, kPadMod1, PULSE_WIDTH, &drumModFineMenu                                                                     \
 	}
-// Drom1 / Drom2 share punch, drive and their own decay
+// The mod FX rate / depth pads: the sweep's speed and depth, as on the mod rate / depth gold knobs
+#define SWEEP_PADS(e, rate, depth)                                                                                     \
+	{e, kPadModFx, NOISE, rate}, {                                                                                     \
+		e, kPadModFx, WAVE_INDEX, depth                                                                                \
+	}
+// DXIA / DIIA share punch (their drive switch), drive and their own decay
 #define XIA_PADS(e)                                                                                                    \
-	{e, kPadOsc1, RETRIGGER, &xiaPunchMenu}, {e, kPadOsc1, FEEDBACK, &xiaDriveMenu}, {                                 \
+	{e, kPadOsc1, FEEDBACK, &xiaPunchMenu}, {e, kPadOsc1, RETRIGGER, &xiaDriveMenu}, {                                 \
 		e, kPadOsc1, WAVE_INDEX, &xiaDecayMenu                                                                         \
 	}
-// So do the Cyc engines, which also have Sweep and Contour on the mod FX rate and depth pads
-constexpr uint8_t kPadModFx = 12;
+// So do the Cyc engines, which have Sweep and Contour on the mod FX rate and depth pads
 #define CYC_PADS(e)                                                                                                    \
-	{e, kPadOsc1, RETRIGGER, &xiaPunchMenu}, {e, kPadOsc1, FEEDBACK, &cycDriveMenu},                                   \
-	    {e, kPadOsc1, WAVE_INDEX, &cycDecayMenu}, {e, kPadModFx, NOISE, &cycMacro3Menu}, {                             \
-		e, kPadModFx, WAVE_INDEX, &cycMacro4Menu                                                                       \
-	}
+	{e, kPadOsc1, FEEDBACK, &xiaPunchMenu}, {e, kPadOsc1, RETRIGGER, &cycDriveMenu},                                   \
+	    {e, kPadOsc1, WAVE_INDEX, &cycDecayMenu}, SWEEP_PADS(e, &cycMacro3Menu, &cycMacro4Menu)
 
 PLACE_SDRAM_DATA DrumPad drumPads[] = {
     // LXR kick / tom
     LXR_COMMON_PADS(DrumEngine::DRUM),
     LXR_MOD_PADS(DrumEngine::DRUM),
     LXR_PITCH_PADS(DrumEngine::DRUM),
+    SWEEP_PADS(DrumEngine::DRUM, &drumPitchDecayMenu, &drumPitchAmountMenu),
     {DrumEngine::DRUM, kPadOsc2, TYPE, &drumMixModeMenu}, // the mod osc modulating (FM) or heard as a layer (mix)
     // LXR snare: the noise is its second layer
     LXR_COMMON_PADS(DrumEngine::SNARE),
     LXR_PITCH_PADS(DrumEngine::SNARE),
+    SWEEP_PADS(DrumEngine::SNARE, &drumPitchDecayMenu, &drumPitchAmountMenu),
     {DrumEngine::SNARE, kPadOsc2, LEVEL, &drumNoiseMixMenu},
     {DrumEngine::SNARE, kPadOsc2, TRANSPOSE, &drumNoisePitchMenu},
     {DrumEngine::SNARE, kPadOsc2, TYPE, &drumNoiseFilterMenu},
@@ -1768,20 +1776,23 @@ PLACE_SDRAM_DATA DrumPad drumPads[] = {
     // LXR cymbal / hat: two modulators
     LXR_COMMON_PADS(DrumEngine::METAL),
     LXR_MOD_PADS(DrumEngine::METAL),
+    SWEEP_PADS(DrumEngine::METAL, &drumTransientPitchMenu, &drumTransientVolumeMenu), // no sweep: the transient
     {DrumEngine::METAL, kPadMod2, LEVEL, &drumFm2AmountMenu},
     {DrumEngine::METAL, kPadMod2, TRANSPOSE, &drumMod2CoarseMenu},
     {DrumEngine::METAL, kPadMod2, TYPE, &drumMod2WaveMenu},
     {DrumEngine::METAL, kPadMod2, PULSE_WIDTH, &drumMod2FineMenu},
-    // Drom1: three operators on OSC2, MOD1 and MOD2, LEVEL how far each modulates (Blendex), TRANSPOSE its tuning
+    // DXIA: three operators on OSC2, MOD1 and MOD2, LEVEL how far each modulates (Blendex), TRANSPOSE its tuning
     XIA_PADS(DrumEngine::TIA),
+    SWEEP_PADS(DrumEngine::TIA, &tiaBlendex2Menu, &tiaBlendex3Menu), // no sweep: operators 2 and 3's depths
     {DrumEngine::TIA, kPadOsc2, LEVEL, &tiaBlendex1Menu},
     {DrumEngine::TIA, kPadOsc2, TRANSPOSE, &tiaFreq1Menu},
     {DrumEngine::TIA, kPadMod1, LEVEL, &tiaBlendex2Menu},
     {DrumEngine::TIA, kPadMod1, TRANSPOSE, &tiaFreq2Menu},
     {DrumEngine::TIA, kPadMod2, LEVEL, &tiaBlendex3Menu},
     {DrumEngine::TIA, kPadMod2, TRANSPOSE, &tiaFreq3Menu},
-    // Drom2: partials as a modulator (Alloy their level, Weight their ratios), wave shape, noise strike
+    // DIIA: partials as a modulator (Alloy their level, Weight their ratios), wave shape, noise strike
     XIA_PADS(DrumEngine::IIA),
+    SWEEP_PADS(DrumEngine::IIA, &iiaShapeMenu, &iiaStrikeMenu),
     {DrumEngine::IIA, kPadOsc1, PULSE_WIDTH, &iiaShapeMenu},
     {DrumEngine::IIA, kPadOsc1, NOISE, &iiaStrikeMenu},
     {DrumEngine::IIA, kPadMod1, LEVEL, &iiaAlloyMenu},
@@ -1795,8 +1806,9 @@ PLACE_SDRAM_DATA DrumPad drumPads[] = {
     CYC_PADS(DrumEngine::CYC_SNR),
     {DrumEngine::CYC_SNR, kPadOsc2, TRANSPOSE, &cycMacro1Menu},   // Color: rattle tuning
     {DrumEngine::CYC_SNR, kPadOsc2, PULSE_WIDTH, &cycMacro2Menu}, // Shape: rattle, tonal to noise
-    {DrumEngine::CYC_SNR, kPadMod2, LEVEL, &cycMacro3Menu},       // Sweep: pitch sweep
-    {DrumEngine::CYC_SNR, kPadOsc2, WAVE_INDEX, &cycMacro4Menu},  // Contour: rattle noise decay
+    {DrumEngine::CYC_SNR, kPadOsc1, PULSE_WIDTH, &cycMacro2Menu},
+    {DrumEngine::CYC_SNR, kPadMod2, LEVEL, &cycMacro3Menu},      // Sweep: pitch sweep
+    {DrumEngine::CYC_SNR, kPadOsc2, WAVE_INDEX, &cycMacro4Menu}, // Contour: rattle noise decay
     CYC_PADS(DrumEngine::CYC_METAL),
     {DrumEngine::CYC_METAL, kPadMod1, TRANSPOSE, &cycMacro1Menu},  // Color: ratio spread
     {DrumEngine::CYC_METAL, kPadMod1, LEVEL, &cycMacro2Menu},      // Shape: modulation depth
@@ -1833,6 +1845,7 @@ PLACE_SDRAM_DATA DrumPad drumPads[] = {
 #undef LXR_MOD_PADS
 #undef XIA_PADS
 #undef CYC_PADS
+#undef SWEEP_PADS
 } // namespace
 
 MenuItem* drumShortcutFor(const Sound* sound, int32_t x, int32_t y) {
@@ -1880,23 +1893,30 @@ PLACE_SDRAM_BSS tb303::Param tb303AccentMenu{STRING_FOR_TB303_ACCENT, STRING_FOR
 PLACE_SDRAM_BSS tb303::Param tb303WaveformMenu{STRING_FOR_TB303_WAVEFORM, STRING_FOR_TB303_WAVEFORM,
                                                kTb303WaveformParam};
 PLACE_SDRAM_BSS tb303::Param tb303SlideMenu{STRING_FOR_TB303_SLIDE, STRING_FOR_TB303_SLIDE, kTb303SlideParam};
+PLACE_SDRAM_BSS tb303::Param tb303DriveMenu{STRING_FOR_TB303_DRIVE, STRING_FOR_TB303_DRIVE, kTb303DriveParam};
+PLACE_SDRAM_BSS tb303::Param tb303AmpDecayMenu{STRING_FOR_TB303_AMP_DECAY, STRING_FOR_TB303_AMP_DECAY,
+                                               kTb303AmpDecayParam};
 PLACE_SDRAM_BSS tb303::Filter tb303FilterMenu{STRING_FOR_TB303_FILTER};
 PLACE_SDRAM_BSS tb303::Menu tb303Menu{
     STRING_FOR_TB303_SETTINGS,
     {&tb303CutoffMenu, &tb303ResonanceMenu, &tb303EnvModMenu, &tb303DecayMenu, &tb303AccentMenu, &tb303WaveformMenu,
-     &tb303SlideMenu, &tb303FilterMenu},
+     &tb303SlideMenu, &tb303DriveMenu, &tb303AmpDecayMenu, &tb303FilterMenu},
 };
 
 // In 303 mode these pads take over from the FM operators' and the LPF's. The params sit where the automation view's
-// grid already puts them.
+// grid already puts them, and OSC1 and the mod FX pads follow the drum synth layout: RETRIGGER accent, PULSE WIDTH
+// saw-square, FEEDBACK drive, WAVE INDEX amp decay, mod FX rate / depth the filter envelope's decay / depth. The first
+// pad for an item is the one that blinks.
 struct Tb303Shortcut {
 	uint8_t x;
 	uint8_t y;
 	MenuItem* item;
 };
 PLACE_SDRAM_DATA Tb303Shortcut tb303Shortcuts[] = {
-    {8, 7, &tb303CutoffMenu}, {8, 6, &tb303ResonanceMenu}, {4, 0, &tb303EnvModMenu}, {5, 0, &tb303DecayMenu},
-    {2, 5, &tb303AccentMenu}, {3, 5, &tb303WaveformMenu},  {4, 5, &tb303SlideMenu},  {5, 5, &tb303FilterMenu},
+    {8, 7, &tb303CutoffMenu},   {8, 6, &tb303ResonanceMenu}, {4, 0, &tb303EnvModMenu}, {5, 0, &tb303DecayMenu},
+    {2, 4, &tb303AccentMenu},   {2, 3, &tb303WaveformMenu},  {2, 5, &tb303DriveMenu},  {2, 6, &tb303AmpDecayMenu},
+    {3, 5, &tb303WaveformMenu}, {4, 5, &tb303SlideMenu},     {5, 5, &tb303FilterMenu}, {12, 7, &tb303DecayMenu},
+    {12, 6, &tb303EnvModMenu},
 };
 
 MenuItem* tb303ShortcutAt(int32_t x, int32_t y) {

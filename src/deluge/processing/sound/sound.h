@@ -81,6 +81,10 @@ constexpr int32_t kTb303DecayParam = deluge::modulation::params::LOCAL_MODULATOR
 constexpr int32_t kTb303AccentParam = deluge::modulation::params::LOCAL_CARRIER_0_FEEDBACK;
 constexpr int32_t kTb303WaveformParam = deluge::modulation::params::LOCAL_CARRIER_1_FEEDBACK;
 constexpr int32_t kTb303SlideParam = deluge::modulation::params::LOCAL_MODULATOR_0_FEEDBACK;
+// Added in v1.11. Drive starts at 0 on the param's default (its minimum); amp decay at the knob's centre, Open303's own
+// 1230 ms, which an osc 1 wavetable position left at its default gives older 303 sounds.
+constexpr int32_t kTb303DriveParam = deluge::modulation::params::LOCAL_MODULATOR_1_FEEDBACK;
+constexpr int32_t kTb303AmpDecayParam = deluge::modulation::params::LOCAL_OSC_A_WAVE_INDEX;
 // Ranges, in Hz and ms. Cutoff and decay are the 303 panel's.
 constexpr float kTb303CutoffMin = 314.f;
 constexpr float kTb303CutoffMax = 2394.f;
@@ -88,6 +92,8 @@ constexpr float kTb303DecayMin = 200.f;
 constexpr float kTb303DecayMax = 2000.f;
 constexpr float kTb303SlideMin = 10.f;
 constexpr float kTb303SlideMax = 300.f;
+constexpr float kTb303AmpDecayMin = 60.f;
+constexpr float kTb303AmpDecayMid = 1230.f;
 
 class Sound : public ModControllableAudio, public virtual Voiced {
 public:
@@ -254,10 +260,17 @@ public:
 
 	virtual bool isDrum() { return false; }
 	void setupAsSample(ParamManagerForTimeline* paramManager);
-	void setupAsDrumSynth(ParamManagerForTimeline* paramManager, deluge::dsp::drum_synth::Preset preset);
-	/// Custom 2 / Custom 3 (the last gold knob pair) carry a drum synth engine's two key settings. Any other engine
-	/// value puts the Deluge's defaults back.
+	/// A kit row on an LXR voice from preset, or, given a Cyc engine, on that engine at the note as the Cycles plays it
+	void setupAsDrumSynth(ParamManagerForTimeline* paramManager, deluge::dsp::drum_synth::Preset preset,
+	                      deluge::dsp::drum_synth::Engine cycEngine = deluge::dsp::drum_synth::Engine::NUM_ENGINES);
+	/// The gold knobs every drum synth engine shares, laid out like the Cycles': attack / release = drive / decay, mod
+	/// rate / depth = the sweep's speed and depth, Custom 2 / Custom 3 = two voicing settings. Any other engine value
+	/// puts the Deluge's defaults back.
 	void setDrumSynthKnobs(deluge::dsp::drum_synth::Engine engine);
+	/// The 303's gold knobs, in the drum synth layout: attack / release = drive / amp decay, mod rate / depth = filter
+	/// envelope decay / env mod, portamento = slide, Custom 2 / Custom 3 = accent / waveform. false puts back the
+	/// Deluge's defaults wherever a 303 knob is.
+	void setTb303Knobs(bool tb303);
 	void recalculateAllVoicePhaseIncrements(ModelStackWithSoundFlags* modelStack);
 	void set_cents(int8_t new_cents);
 	Error loadAllAudioFiles(bool mayActuallyReadFiles);

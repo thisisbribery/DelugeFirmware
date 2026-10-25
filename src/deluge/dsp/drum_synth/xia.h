@@ -1,5 +1,5 @@
 /*
- * The TIA and IIA engines, shown on the Deluge as Drom1 and Drom2. They come from the XIA engine set for the
+ * The TIA and IIA engines, shown on the Deluge as DXIA and DIIA. They come from the XIA engine set for the
  * Model:Cycles, whose author released them as open source; they are distributed here under the GPL-3.0 with the
  * rest of this firmware.
  *

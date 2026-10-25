@@ -66,6 +66,7 @@ struct Controls {
 	float slideTime = 60.f;    // ms, the time constant of the glide, as Open303 sets it up
 	float ampDecay = 1230.f;   // ms
 	float ampSustain = 0.f;    // 0 to 1
+	float drive = 0.f;         // 0 to 1, into the drum synth engines' soft clipper. 0 is clean
 	bool classicFilter = true; // The TB-303 ladder model, or Open303's plain 18 dB lowpass
 };
 

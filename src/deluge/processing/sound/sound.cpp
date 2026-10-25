@@ -227,8 +227,10 @@ void Sound::setupAsSample(ParamManagerForTimeline* paramManager) {
 	doneReadingFromFile();
 }
 
-void Sound::setupAsDrumSynth(ParamManagerForTimeline* paramManager, deluge::dsp::drum_synth::Preset preset) {
+void Sound::setupAsDrumSynth(ParamManagerForTimeline* paramManager, deluge::dsp::drum_synth::Preset preset,
+                             deluge::dsp::drum_synth::Engine cycEngine) {
 	using deluge::dsp::drum_synth::Preset;
+	const bool cyc = deluge::dsp::drum_synth::isCyc(cycEngine);
 
 	struct RowSetup {
 		int16_t transpose; ///< Kit rows play at middle C, so drop or raise each drum to its usual range
@@ -262,11 +264,21 @@ void Sound::setupAsDrumSynth(ParamManagerForTimeline* paramManager, deluge::dsp:
 		break;
 	}
 
+	if (cyc) {
+		// The Cyc engines play at the note, as the Cycles does at its default tune
+		row = {0, 30, -1, false};
+	}
+
 	polyphonic = row.choke ? PolyphonyMode::CHOKE : PolyphonyMode::AUTO;
 	lpfMode = FilterMode::TRANSISTOR_24DB;
 
 	sources[0].oscType = OscType::DRUM_SYNTH;
-	sources[0].drumPatch.setPreset(preset);
+	if (cyc) {
+		sources[0].drumPatch.setCycPreset(cycEngine);
+	}
+	else {
+		sources[0].drumPatch.setPreset(preset);
+	}
 	sources[0].transpose = row.transpose;
 	sources[1].oscType = OscType::SINE;
 
@@ -277,11 +289,13 @@ void Sound::setupAsDrumSynth(ParamManagerForTimeline* paramManager, deluge::dsp:
 	    getParamFromUserValue(params::LOCAL_ENV_0_ATTACK, 0));
 	patchedParams->params[params::LOCAL_ENV_0_DECAY].setCurrentValueBasicForSetup(
 	    getParamFromUserValue(params::LOCAL_ENV_0_DECAY, row.decay));
+	// The Cyc engines have their own amp decay, so their envelope stays open while the note is held and lets the engine
+	// ring out after (as choosing one in SYNTH MODE sets it up)
 	patchedParams->params[params::LOCAL_ENV_0_SUSTAIN].setCurrentValueBasicForSetup(
-	    getParamFromUserValue(params::LOCAL_ENV_0_SUSTAIN, 0));
+	    getParamFromUserValue(params::LOCAL_ENV_0_SUSTAIN, cyc ? 50 : 0));
 	// Letting go early carries on the decay rather than cutting it
 	patchedParams->params[params::LOCAL_ENV_0_RELEASE].setCurrentValueBasicForSetup(
-	    getParamFromUserValue(params::LOCAL_ENV_0_RELEASE, row.decay));
+	    getParamFromUserValue(params::LOCAL_ENV_0_RELEASE, cyc ? 40 : row.decay));
 
 	patchedParams->params[params::LOCAL_LPF_RESONANCE].setCurrentValueBasicForSetup(-2147483648);
 	patchedParams->params[params::LOCAL_LPF_FREQ].setCurrentValueBasicForSetup(2147483647);
@@ -441,60 +455,99 @@ void Sound::setDrumSynthKnobs(deluge::dsp::drum_synth::Engine engine) {
 	using deluge::dsp::drum_synth::lxrControlSlot;
 	using deluge::dsp::drum_synth::Patch;
 
-	auto setPair = [this](int32_t upperSlot, int32_t lowerSlot) {
-		modKnobs[7][1].paramDescriptor.setToHaveParamOnly(kDrumControlParams[upperSlot]);
-		modKnobs[7][0].paramDescriptor.setToHaveParamOnly(kDrumControlParams[lowerSlot]);
-	};
-
-	const bool drumSynth = engine != Engine::NUM_ENGINES;
-	if (drumSynth) {
-		// Attack / release: every drum engine's drive and decay
-		modKnobs[2][1].paramDescriptor.setToHaveParamOnly(
-		    kDrumControlParams[deluge::dsp::drum_synth::driveSlot(engine)]);
-		modKnobs[2][0].paramDescriptor.setToHaveParamOnly(
-		    kDrumControlParams[deluge::dsp::drum_synth::decaySlot(engine)]);
-	}
-	else {
+	if (engine == Engine::NUM_ENGINES) {
+		// Not a drum synth: the Deluge's defaults
 		modKnobs[2][1].paramDescriptor.setToHaveParamOnly(params::LOCAL_ENV_0_ATTACK);
 		modKnobs[2][0].paramDescriptor.setToHaveParamOnly(params::LOCAL_ENV_0_RELEASE);
-	}
-	if (deluge::dsp::drum_synth::isCyc(engine)) {
-		// Mod rate / mod depth: the Cyc engines' Sweep and Contour
-		modKnobs[5][1].paramDescriptor.setToHaveParamOnly(kDrumControlParams[DrumControls::CYC_MACRO3]);
-		modKnobs[5][0].paramDescriptor.setToHaveParamOnly(kDrumControlParams[DrumControls::CYC_MACRO4]);
-	}
-	else {
 		modKnobs[5][1].paramDescriptor.setToHaveParamOnly(params::GLOBAL_LFO_FREQ_1);
 		modKnobs[5][0].paramDescriptor.setToHaveParamAndSource(params::LOCAL_PITCH_ADJUST, PatchSource::LFO_GLOBAL_1);
-	}
-	switch (engine) {
-	case Engine::DRUM:
-		setPair(lxrControlSlot(Patch::PITCH_AMOUNT), lxrControlSlot(Patch::FM_AMOUNT));
-		break;
-	case Engine::SNARE:
-		setPair(lxrControlSlot(Patch::NOISE_MIX), lxrControlSlot(Patch::PITCH_AMOUNT));
-		break;
-	case Engine::METAL:
-		setPair(lxrControlSlot(Patch::FM_AMOUNT), lxrControlSlot(Patch::FM2_AMOUNT));
-		break;
-	case Engine::TIA:
-		setPair(DrumControls::TIA_BLENDEX1, DrumControls::TIA_FREQ1);
-		break;
-	case Engine::IIA:
-		setPair(DrumControls::IIA_WEIGHT, DrumControls::IIA_ALLOY);
-		break;
-	default:
-		if (deluge::dsp::drum_synth::isCyc(engine)) {
-			// Custom 2 / Custom 3: the Cyc engines' Color and Shape
-			setPair(DrumControls::CYC_MACRO1, DrumControls::CYC_MACRO2);
-			break;
-		}
-		// Not a drum synth: the Deluge's defaults for that pair
 		modKnobs[7][1].paramDescriptor.setToHaveParamOnly(params::UNPATCHED_START
 		                                                  + params::UNPATCHED_SAMPLE_RATE_REDUCTION);
 		modKnobs[7][0].paramDescriptor.setToHaveParamOnly(params::UNPATCHED_START + params::UNPATCHED_BITCRUSHING);
+		return;
+	}
+
+	// The slots on mod rate / mod depth (the sweep: how fast, how deep, as the Cycles' Sweep and Contour) and Custom 2
+	// / Custom 3 (voicing)
+	struct Layout {
+		int32_t rate, depth, custom2, custom3;
+	};
+	Layout layout;
+	switch (engine) {
+	case Engine::DRUM:
+		layout = {lxrControlSlot(Patch::PITCH_DECAY), lxrControlSlot(Patch::PITCH_AMOUNT),
+		          lxrControlSlot(Patch::FM_AMOUNT), lxrControlSlot(Patch::MOD_COARSE)};
+		break;
+	case Engine::SNARE:
+		layout = {lxrControlSlot(Patch::PITCH_DECAY), lxrControlSlot(Patch::PITCH_AMOUNT),
+		          lxrControlSlot(Patch::NOISE_MIX), lxrControlSlot(Patch::NOISE_CUTOFF)};
+		break;
+	case Engine::METAL:
+		// No pitch sweep: the transient is its attack
+		layout = {lxrControlSlot(Patch::TRANS_PITCH), lxrControlSlot(Patch::TRANS_VOLUME),
+		          lxrControlSlot(Patch::FM_AMOUNT), lxrControlSlot(Patch::FM2_AMOUNT)};
+		break;
+	case Engine::TIA:
+		// No sweep: operators 2 and 3's modulation depths shape the hit instead
+		layout = {DrumControls::TIA_BLENDEX2, DrumControls::TIA_BLENDEX3, DrumControls::TIA_BLENDEX1,
+		          DrumControls::TIA_FREQ1};
+		break;
+	case Engine::IIA:
+		layout = {DrumControls::IIA_SHAPE, DrumControls::IIA_STRIKE, DrumControls::IIA_WEIGHT, DrumControls::IIA_ALLOY};
+		break;
+	default:
+		// The Cyc engines: Sweep / Contour, Color / Shape
+		layout = {DrumControls::CYC_MACRO3, DrumControls::CYC_MACRO4, DrumControls::CYC_MACRO1,
+		          DrumControls::CYC_MACRO2};
 		break;
 	}
+
+	modKnobs[2][1].paramDescriptor.setToHaveParamOnly(kDrumControlParams[deluge::dsp::drum_synth::driveSlot(engine)]);
+	modKnobs[2][0].paramDescriptor.setToHaveParamOnly(kDrumControlParams[deluge::dsp::drum_synth::decaySlot(engine)]);
+	modKnobs[5][1].paramDescriptor.setToHaveParamOnly(kDrumControlParams[layout.rate]);
+	modKnobs[5][0].paramDescriptor.setToHaveParamOnly(kDrumControlParams[layout.depth]);
+	modKnobs[7][1].paramDescriptor.setToHaveParamOnly(kDrumControlParams[layout.custom2]);
+	modKnobs[7][0].paramDescriptor.setToHaveParamOnly(kDrumControlParams[layout.custom3]);
+}
+
+void Sound::setTb303Knobs(bool tb303) {
+	constexpr int32_t kPortamento = params::UNPATCHED_START + params::UNPATCHED_PORTAMENTO;
+	constexpr int32_t kDecimation = params::UNPATCHED_START + params::UNPATCHED_SAMPLE_RATE_REDUCTION;
+	constexpr int32_t kBitcrush = params::UNPATCHED_START + params::UNPATCHED_BITCRUSHING;
+	if (tb303) {
+		modKnobs[2][1].paramDescriptor.setToHaveParamOnly(kTb303DriveParam);
+		modKnobs[2][0].paramDescriptor.setToHaveParamOnly(kTb303AmpDecayParam);
+		modKnobs[5][1].paramDescriptor.setToHaveParamOnly(kTb303DecayParam);
+		modKnobs[5][0].paramDescriptor.setToHaveParamOnly(kTb303EnvModParam);
+		modKnobs[6][0].paramDescriptor.setToHaveParamOnly(kTb303SlideParam);
+		modKnobs[7][1].paramDescriptor.setToHaveParamOnly(kTb303AccentParam);
+		modKnobs[7][0].paramDescriptor.setToHaveParamOnly(kTb303WaveformParam);
+		return;
+	}
+	// Each knob's Deluge default, put back where a 303 knob is (this layout's, or v1.7's)
+	auto holds303 = [](const ParamDescriptor& descriptor) {
+		for (int32_t p : {kTb303DriveParam, kTb303AmpDecayParam, kTb303DecayParam, kTb303EnvModParam, kTb303SlideParam,
+		                  kTb303AccentParam, kTb303WaveformParam}) {
+			if (descriptor.isSetToParamWithNoSource(p)) {
+				return true;
+			}
+		}
+		return false;
+	};
+	auto restore = [&](int32_t mode, int32_t upper, int32_t p) {
+		if (holds303(modKnobs[mode][upper].paramDescriptor)) {
+			modKnobs[mode][upper].paramDescriptor.setToHaveParamOnly(p);
+		}
+	};
+	restore(2, 1, params::LOCAL_ENV_0_ATTACK);
+	restore(2, 0, params::LOCAL_ENV_0_RELEASE);
+	restore(5, 1, params::GLOBAL_LFO_FREQ_1);
+	if (holds303(modKnobs[5][0].paramDescriptor)) {
+		modKnobs[5][0].paramDescriptor.setToHaveParamAndSource(params::LOCAL_PITCH_ADJUST, PatchSource::LFO_GLOBAL_1);
+	}
+	restore(6, 0, kPortamento);
+	restore(7, 1, kDecimation);
+	restore(7, 0, kBitcrush);
 }
 
 char const* Sound::getPatchedParamDisplayNameOverride(int32_t p) {
@@ -3326,6 +3379,10 @@ void Sound::doneReadingFromFile() {
 	if (sources[0].oscType == OscType::DRUM_SYNTH) {
 		setDrumSynthKnobs(sources[0].drumPatch.engine());
 	}
+	// So do 303s, including ones saved with v1.7's layout
+	else if (synthMode == SynthMode::TB303) {
+		setTb303Knobs(true);
+	}
 }
 
 // Set cents for master transpose
@@ -3400,27 +3457,12 @@ void Sound::setSynthMode(SynthMode value, Song* song) {
 	}
 	synthMode = value;
 
-	// The 303's knobs go on the gold knobs: env mod and decay on attack and release, accent on portamento
+	// The 303's knobs go on the gold knobs, laid out like the drum synth engines'
 	if (synthMode == SynthMode::TB303 && oldSynthMode != SynthMode::TB303) {
-		if (modKnobs[2][1].paramDescriptor.isSetToParamWithNoSource(params::LOCAL_ENV_0_ATTACK)
-		    && modKnobs[2][0].paramDescriptor.isSetToParamWithNoSource(params::LOCAL_ENV_0_RELEASE)) {
-			modKnobs[2][1].paramDescriptor.setToHaveParamOnly(kTb303EnvModParam);
-			modKnobs[2][0].paramDescriptor.setToHaveParamOnly(kTb303DecayParam);
-		}
-		if (modKnobs[6][0].paramDescriptor.isSetToParamWithNoSource(params::UNPATCHED_START
-		                                                            + params::UNPATCHED_PORTAMENTO)) {
-			modKnobs[6][0].paramDescriptor.setToHaveParamOnly(kTb303AccentParam);
-		}
+		setTb303Knobs(true);
 	}
 	else if (synthMode != SynthMode::TB303 && oldSynthMode == SynthMode::TB303) {
-		if (modKnobs[2][1].paramDescriptor.isSetToParamWithNoSource(kTb303EnvModParam)
-		    && modKnobs[2][0].paramDescriptor.isSetToParamWithNoSource(kTb303DecayParam)) {
-			modKnobs[2][1].paramDescriptor.setToHaveParamOnly(params::LOCAL_ENV_0_ATTACK);
-			modKnobs[2][0].paramDescriptor.setToHaveParamOnly(params::LOCAL_ENV_0_RELEASE);
-		}
-		if (modKnobs[6][0].paramDescriptor.isSetToParamWithNoSource(kTb303AccentParam)) {
-			modKnobs[6][0].paramDescriptor.setToHaveParamOnly(params::UNPATCHED_START + params::UNPATCHED_PORTAMENTO);
-		}
+		setTb303Knobs(false);
 	}
 
 	// Change mod knob functions over. Switching *to* FM...
@@ -3511,6 +3553,8 @@ void Sound::setupTb303Defaults(ParamManager* paramManager) {
 	set(kTb303AccentParam, 0.6f);
 	set(kTb303WaveformParam, 0.f);
 	set(kTb303SlideParam, tb303ExpKnobPosition(60.f, kTb303SlideMin, kTb303SlideMax));
+	set(kTb303DriveParam, 0.f);
+	set(kTb303AmpDecayParam, 0.5f);
 	tb303ClassicFilter = true;
 }
 
@@ -3527,6 +3571,11 @@ void Sound::renderTb303(ParamManagerForTimeline* paramManager, std::span<q31_t> 
 	controls.accent = 100.f * tb303Knob(patchedParams, kTb303AccentParam);
 	controls.waveform = tb303Knob(patchedParams, kTb303WaveformParam);
 	controls.slideTime = tb303ExpKnob(tb303Knob(patchedParams, kTb303SlideParam), kTb303SlideMin, kTb303SlideMax);
+	controls.drive = tb303Knob(patchedParams, kTb303DriveParam);
+	// Amp decay: 60 ms to Open303's 1230 ms at the centre, on up to holding for as long as the note does at the top
+	const float ampDecay = tb303Knob(patchedParams, kTb303AmpDecayParam);
+	controls.ampDecay = kTb303AmpDecayMin * std::pow(kTb303AmpDecayMid / kTb303AmpDecayMin, 2.f * ampDecay);
+	controls.ampSustain = (ampDecay >= 0.98f) ? 1.f : 0.f;
 	controls.classicFilter = tb303ClassicFilter;
 	tb303_->setControls(controls);
 	tb303_->setPitchOffset((float)transpose + (float)cents * 0.01f);

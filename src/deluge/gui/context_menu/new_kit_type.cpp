@@ -31,21 +31,27 @@ char const* NewKitType::getTitle() {
 
 std::span<char const*> NewKitType::getOptions() {
 	using enum l10n::String;
-	static char const* options[] = {l10n::get(STRING_FOR_SAMPLE_KIT), l10n::get(STRING_FOR_DRUM_SYNTH)};
-	return {options, 2};
+	static char const* options[] = {l10n::get(STRING_FOR_SAMPLE_KIT), l10n::get(STRING_FOR_LXR_KIT),
+	                                l10n::get(STRING_FOR_CYCLES_KIT)};
+	return {options, 3};
 }
 
 bool NewKitType::acceptCurrentOption() {
-	const bool drumSynth = (currentOption == 1);
+	const int32_t option = currentOption;
 
 	display->setNextTransitionDirection(-1);
 	close();
 
-	if (drumSynth) {
-		instrumentClipView.createNewDrumSynthKit();
-	}
-	else {
+	switch (option) {
+	case 1:
+		instrumentClipView.createNewDrumSynthKit(InstrumentClipView::DrumSynthKit::LXR);
+		break;
+	case 2:
+		instrumentClipView.createNewDrumSynthKit(InstrumentClipView::DrumSynthKit::CYCLES);
+		break;
+	default:
 		instrumentClipView.createNewInstrument(OutputType::KIT);
+		break;
 	}
 	return true;
 }

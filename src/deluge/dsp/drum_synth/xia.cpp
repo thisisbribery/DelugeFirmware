@@ -1,5 +1,5 @@
 /*
- * The TIA and IIA engines (Drom1 and Drom2 on the Deluge), from the XIA engine set for the Model:Cycles. See xia.h.
+ * The TIA and IIA engines (DXIA and DIIA on the Deluge), from the XIA engine set for the Model:Cycles. See xia.h.
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  *

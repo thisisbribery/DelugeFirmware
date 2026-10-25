@@ -1895,7 +1895,8 @@ bool InstrumentClipView::createNewInstrument(OutputType newOutputType, bool is_d
 	return false;
 }
 
-bool InstrumentClipView::createNewDrumSynthKit() {
+bool InstrumentClipView::createNewDrumSynthKit(DrumSynthKit type) {
+	using deluge::dsp::drum_synth::Engine;
 	using deluge::dsp::drum_synth::Preset;
 
 	if (!InstrumentClipMinder::createNewInstrument(OutputType::KIT, false)) {
@@ -1905,18 +1906,30 @@ bool InstrumentClipView::createNewDrumSynthKit() {
 
 	struct Row {
 		Preset preset;
+		Engine cycEngine; ///< NUM_ENGINES for an LXR voice
 		char const* name;
 	};
 	// Bottom row first
-	constexpr std::array<Row, 7> kRows{{
-	    {Preset::KICK, "KICK"},
-	    {Preset::SNARE, "SNARE"},
-	    {Preset::CLOSED_HAT, "CH"},
-	    {Preset::OPEN_HAT, "OH"},
-	    {Preset::LOW_TOM, "LTOM"},
-	    {Preset::HIGH_TOM, "HTOM"},
-	    {Preset::CYMBAL, "CYM"},
+	constexpr std::array<Row, 7> kLxrRows{{
+	    {Preset::KICK, Engine::NUM_ENGINES, "KICK"},
+	    {Preset::SNARE, Engine::NUM_ENGINES, "SNARE"},
+	    {Preset::CLOSED_HAT, Engine::NUM_ENGINES, "CH"},
+	    {Preset::OPEN_HAT, Engine::NUM_ENGINES, "OH"},
+	    {Preset::LOW_TOM, Engine::NUM_ENGINES, "LTOM"},
+	    {Preset::HIGH_TOM, Engine::NUM_ENGINES, "HTOM"},
+	    {Preset::CYMBAL, Engine::NUM_ENGINES, "CYM"},
 	}};
+	// The Cycles' usual six tracks
+	constexpr std::array<Row, 6> kCyclesRows{{
+	    {Preset::KICK, Engine::CYC_KIK, "KIK"},
+	    {Preset::KICK, Engine::CYC_SNR, "SNR"},
+	    {Preset::KICK, Engine::CYC_METAL, "METAL"},
+	    {Preset::KICK, Engine::CYC_TONE, "TONE"},
+	    {Preset::KICK, Engine::CYC_PERC, "PERC"},
+	    {Preset::KICK, Engine::CYC_CHORD, "CHORD"},
+	}};
+	const std::span<const Row> rows =
+	    (type == DrumSynthKit::CYCLES) ? std::span<const Row>{kCyclesRows} : std::span<const Row>{kLxrRows};
 
 	char modelStackMemory[MODEL_STACK_MAX_SIZE];
 	ModelStackWithTimelineCounter* modelStack = currentSong->setupModelStackWithCurrentClip(modelStackMemory);
@@ -1924,7 +1937,7 @@ bool InstrumentClipView::createNewDrumSynthKit() {
 	Kit* kit = getCurrentKit();
 	SoundDrum* firstDrum = nullptr;
 
-	for (int32_t i = 0; i < kRows.size(); i++) {
+	for (int32_t i = 0; i < rows.size(); i++) {
 		int32_t noteRowIndex = i;
 		NoteRow* noteRow = (i < clip->noteRows.getNumElements()) ? clip->noteRows.getElement(i) : nullptr;
 		if (noteRow == nullptr || noteRow->drum != nullptr) {
@@ -1943,9 +1956,9 @@ bool InstrumentClipView::createNewDrumSynthKit() {
 
 		Sound::initParams(&paramManager);
 		SoundDrum* newDrum = new (memory) SoundDrum();
-		newDrum->setupAsDrumSynth(&paramManager, kRows[i].preset);
+		newDrum->setupAsDrumSynth(&paramManager, rows[i].preset, rows[i].cycEngine);
 		currentSong->backUpParamManager(newDrum, clip, &paramManager, true);
-		newDrum->drumName = kRows[i].name;
+		newDrum->drumName = rows[i].name;
 
 		kit->addDrum(newDrum);
 		ModelStackWithNoteRow* modelStackWithNoteRow = modelStack->addNoteRow(noteRowIndex, noteRow);
@@ -1960,7 +1973,9 @@ bool InstrumentClipView::createNewDrumSynthKit() {
 	if (firstDrum != nullptr) {
 		setSelectedDrum(firstDrum, true);
 	}
-	display->consoleText(deluge::l10n::get(deluge::l10n::String::STRING_FOR_NEW_DRUM_SYNTH_KIT_CREATED));
+	display->consoleText(deluge::l10n::get((type == DrumSynthKit::CYCLES)
+	                                           ? deluge::l10n::String::STRING_FOR_NEW_CYCLES_KIT_CREATED
+	                                           : deluge::l10n::String::STRING_FOR_NEW_DRUM_SYNTH_KIT_CREATED));
 	uiNeedsRendering(this);
 	return true;
 }

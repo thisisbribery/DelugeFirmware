@@ -21,7 +21,8 @@
 
 namespace deluge::gui::context_menu {
 
-/// Shown by SHIFT + KIT in clip view: make a normal (sample) kit, or a kit of drum synth rows.
+/// Shown by SHIFT + KIT in clip view: make a normal (sample) kit, a kit of the seven LXR voices, or a kit of the six
+/// Cyc engines in the Cycles' usual layout. Every other drum engine is a SYNTH MODE choice on any row.
 /// SELECT or KIT accepts, BACK cancels.
 class NewKitType final : public ContextMenu {
 public:

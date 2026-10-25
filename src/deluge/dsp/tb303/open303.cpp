@@ -18,6 +18,7 @@
  */
 #include "dsp/tb303/open303.h"
 #include "definitions.h"
+#include "dsp/drum_synth/cyc.h"
 #include <algorithm>
 #include <cmath>
 #include <complex>
@@ -508,9 +509,22 @@ void Open303::render(std::span<int32_t> buffer, float gain) {
 	float cutoffStart = cutoffNow;
 	float cutoffStep = (controls.cutoff - cutoffStart) / (float)buffer.size();
 
+	// Drive, the drum synth engines' curve. A plain note peaks near 1 and an accent near 3, so a quarter of that into
+	// the clipper keeps plain notes clean at low settings and lets accents bite first. Half the drive gain is taken
+	// back off, so it gets dirtier much faster than it gets louder.
+	constexpr float kDriveIn = 0.25f;
+	const bool driven = controls.drive > 0.f;
+	const float driveGain = drum_synth::cyc::driveGainFor(controls.drive);
+	const float driveIn = kDriveIn * driveGain;
+	const float driveOut = 1.f / (kDriveIn * std::sqrt(driveGain));
+
 	for (int32_t& sample : buffer) {
 		cutoffNow += cutoffStep;
-		float out = renderSample() * gain;
+		float out = renderSample();
+		if (driven) {
+			out = drum_synth::cyc::driveCurve(out * driveIn) * driveOut;
+		}
+		out *= gain;
 		sample += (int32_t)std::clamp(out, -2147483520.f, 2147483520.f);
 	}
 	cutoffNow = controls.cutoff;

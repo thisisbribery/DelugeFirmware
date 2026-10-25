@@ -38,7 +38,7 @@ public:
 		Kind kind;
 		::SynthMode mode;
 		dsp::drum_synth::Engine engine;
-		uint8_t variant; ///< Drom1 / Drom2 variant
+		uint8_t variant; ///< DXIA / DIIA variant
 		l10n::String name;
 	};
 
