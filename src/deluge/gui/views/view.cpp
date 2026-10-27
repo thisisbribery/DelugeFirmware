@@ -29,6 +29,7 @@
 #include "gui/ui/keyboard/keyboard_screen.h"
 #include "gui/ui/load/load_instrument_preset_ui.h"
 #include "gui/ui/load/load_song_ui.h"
+#include "gui/ui/menus.h"
 #include "gui/ui/root_ui.h"
 #include "gui/ui/save/save_song_ui.h"
 #include "gui/ui/sound_editor.h"
@@ -1613,6 +1614,7 @@ void View::modButtonAction(uint8_t whichButton, bool on) {
 
 				setKnobIndicatorLevels();
 				setModLedStates();
+				startModButtonBlink(whichButton);
 			}
 		}
 		else {
@@ -1620,6 +1622,114 @@ void View::modButtonAction(uint8_t whichButton, bool on) {
 			    whichButton, false, (ParamManagerForTimeline*)activeModControllableModelStack.paramManager);
 		}
 	}
+	if (!on && whichButton == blinkingModButton) {
+		stopModButtonBlink();
+	}
+}
+
+namespace {
+/// The shortcut pad of a gold knob's param, as SHIFT + pad would edit it in the current context. False if it has none.
+bool shortcutPadForParam(ModelStackWithAutoParam const* modelStack, int32_t* xOut, int32_t* yOut) {
+	if (modelStack == nullptr || modelStack->autoParam == nullptr || modelStack->paramCollection == nullptr) {
+		return false;
+	}
+	const params::Kind kind = modelStack->paramCollection->getParamKind();
+	const uint32_t paramId = modelStack->paramId;
+	// Patched and sound unpatched params, and patch cables, only exist on sounds
+	Sound const* sound =
+	    (kind == params::Kind::PATCHED || kind == params::Kind::UNPATCHED_SOUND || kind == params::Kind::PATCH_CABLE)
+	        ? static_cast<Sound const*>(modelStack->modControllable)
+	        : nullptr;
+	ParamDescriptor vibrato;
+	vibrato.setToHaveParamAndSource(params::LOCAL_PITCH_ADJUST, PatchSource::LFO_GLOBAL_1);
+
+	for (int32_t x = 0; x < kDisplayWidth; x++) {
+		for (int32_t y = 0; y < kDisplayHeight; y++) {
+			bool match = false;
+			switch (kind) {
+			case params::Kind::PATCHED:
+				if (sound->isTb303()) {
+					if (MenuItem* item = tb303ShortcutAt(x, y)) {
+						match = item->getParamKind() == params::Kind::PATCHED && item->getParamIndex() == paramId;
+						break;
+					}
+				}
+				if (isDrumSynth(sound)) {
+					match = drumShortcutParam(sound, x, y) == paramId;
+				}
+				else {
+					match = params::patchedParamShortcuts[x][y] == paramId
+					        || params::patchedParamShortcutsSecondLayer[x][y] == paramId;
+				}
+				break;
+			case params::Kind::UNPATCHED_SOUND:
+				match = params::unpatchedNonGlobalParamShortcuts[x][y] == paramId && !isDrumLayoutPad(sound, x, y);
+				break;
+			case params::Kind::UNPATCHED_GLOBAL:
+				match = params::unpatchedGlobalParamShortcuts[x][y] == paramId;
+				break;
+			case params::Kind::PATCH_CABLE:
+				// The vibrato pad: LFO 1 to pitch, the mod depth knob on most sounds
+				match = paramId == vibrato.data && isVibratoShortcut(soundShortcutFor(sound, x, y));
+				break;
+			default:
+				break;
+			}
+			if (match) {
+				*xOut = x;
+				*yOut = y;
+				return true;
+			}
+		}
+	}
+	return false;
+}
+} // namespace
+
+void View::startModButtonBlink(uint8_t whichButton) {
+	stopModButtonBlink();
+	RootUI* rootUI = getRootUI();
+	// Not while recording the arrangement: finding the params would clone the clip into it
+	if (!runtimeFeatureSettings.isOn(RuntimeFeatureSettingType::PadGuides) || getCurrentUI() != rootUI
+	    || rootUI == &performanceView || playbackHandler.recording == RecordingMode::ARRANGEMENT) {
+		return;
+	}
+	bool found = false;
+	for (int32_t knob = 0; knob < 2; knob++) {
+		bool noteTailsAllowedBefore;
+		modButtonPadX[knob] = modButtonPadY[knob] = kNoSelection;
+		found |= shortcutPadForParam(getModelStackWithParam(knob, noteTailsAllowedBefore), &modButtonPadX[knob],
+		                             &modButtonPadY[knob]);
+	}
+	if (found) {
+		blinkingModButton = static_cast<int8_t>(whichButton);
+		modButtonBlinkTop = true;
+		blinkModButtonPads();
+	}
+}
+
+void View::stopModButtonBlink() {
+	blinkingModButton = -1;
+	uiTimerManager.unsetTimer(TimerName::MOD_BUTTON_BLINK);
+}
+
+void View::blinkModButtonPads() {
+	if (blinkingModButton < 0
+	    || !Buttons::isButtonPressed(
+	        deluge::hid::button::fromXY(modButtonX[blinkingModButton], modButtonY[blinkingModButton]))
+	    || getCurrentUI() != getRootUI()) {
+		stopModButtonBlink();
+		return;
+	}
+	// One pad at a time, top then bottom: two pads in a row can't flash together
+	constexpr int32_t kRed = 0b01;
+	constexpr int32_t kYellow = 0b11;
+	const int32_t knob = modButtonBlinkTop ? 1 : 0;
+	if (modButtonPadX[knob] != kNoSelection) {
+		PadLEDs::flashMainPad(modButtonPadX[knob], modButtonPadY[knob], modButtonBlinkTop ? kRed : kYellow);
+	}
+	modButtonBlinkTop = !modButtonBlinkTop;
+	uiTimerManager.setTimer(TimerName::MOD_BUTTON_BLINK, 120);
 }
 
 void View::setModLedStates() {

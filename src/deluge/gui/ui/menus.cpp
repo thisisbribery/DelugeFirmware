@@ -1884,6 +1884,10 @@ PLACE_SDRAM_BSS MasterTranspose masterTransposeMenu{STRING_FOR_MASTER_TRANSPOSE,
 PLACE_SDRAM_BSS patch_cable_strength::Fixed vibratoMenu{STRING_FOR_VIBRATO, params::LOCAL_PITCH_ADJUST,
                                                         PatchSource::LFO_GLOBAL_1};
 
+bool isVibratoShortcut(MenuItem const* item) {
+	return item == &vibratoMenu;
+}
+
 // Synth only
 PLACE_SDRAM_BSS SynthModeSelection synthModeMenu{STRING_FOR_SYNTH_MODE};
 

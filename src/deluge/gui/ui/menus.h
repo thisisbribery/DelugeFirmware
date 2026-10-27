@@ -118,6 +118,8 @@ extern MenuItem* gateDrumParamShortcuts[kDisplayHeight];
 extern MenuItem* paramShortcutsForSounds[kDisplayWidth][kDisplayHeight];
 /// In 303 mode, the menu item that takes over a shortcut pad, or nullptr
 MenuItem* tb303ShortcutAt(int32_t x, int32_t y);
+/// Whether a shortcut pad item is the vibrato pad (LFO 1 to pitch)
+bool isVibratoShortcut(MenuItem const* item);
 /// The shortcut pad of a 303 mode menu item, if it has one
 bool tb303ShortcutFor(MenuItem* item, int32_t* x, int32_t* y);
 extern MenuItem* paramShortcutsForSoundsSecondLayer[kDisplayWidth][kDisplayHeight];

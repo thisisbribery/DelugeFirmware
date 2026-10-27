@@ -71,6 +71,9 @@ public:
 	void modEncoderAction(int32_t whichModEncoder, int32_t offset);
 	void modEncoderButtonAction(uint8_t whichModEncoder, bool on);
 	void modButtonAction(uint8_t whichButton, bool on);
+	/// Pad Guides: flash the shortcut pads of the held gold knob button's params, red for the top knob's, yellow for
+	/// the bottom's. From the timer.
+	void blinkModButtonPads();
 	void setKnobIndicatorLevels();
 	void setKnobIndicatorLevel(uint8_t whichModEncoder);
 	int32_t convertPatchCableKnobPosToIndicatorLevel(int32_t knobPos);
@@ -171,6 +174,14 @@ private:
 	void modEncoderAction_existentParam(int32_t whichModEncoder, int32_t offset,
 	                                    ModelStackWithAutoParam* modelStackWithParam, bool noteTailsAllowedBefore);
 	ModelStackWithAutoParam* getModelStackWithParam(int32_t whichModEncoder, bool& noteTailsAllowedBefore);
+
+	// Pad Guides: the held gold knob button, and its knobs' pads (bottom knob, then top), kNoSelection for none
+	void startModButtonBlink(uint8_t whichButton);
+	void stopModButtonBlink();
+	int8_t blinkingModButton = -1;
+	int32_t modButtonPadX[2] = {kNoSelection, kNoSelection};
+	int32_t modButtonPadY[2] = {kNoSelection, kNoSelection};
+	bool modButtonBlinkTop = true; ///< Which knob's pad flashes next
 
 	// mod encoder button action
 	void modEncoderButtonAction_deleteAutomation(uint8_t whichModEncoder);

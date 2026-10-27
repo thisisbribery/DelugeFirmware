@@ -148,6 +148,10 @@ void UITimerManager::routine() {
 					instrumentClipView.pulseSelectedNote();
 					break;
 
+				case TimerName::MOD_BUTTON_BLINK:
+					view.blinkModButtonPads();
+					break;
+
 				case TimerName::MATRIX_DRIVER:
 					PadLEDs::timerRoutine();
 					break;
