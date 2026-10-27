@@ -53,6 +53,7 @@ GlobalEffectableForClip::GlobalEffectableForClip() {
                                                         bool shouldLimitDelayFeedback, bool isClipActive,
                                                         OutputType outputType, SampleRecorder* recorder) {
 	UnpatchedParamSet* unpatchedParams = paramManagerForClip->getUnpatchedParamSet();
+	setSaturationDriveFromParams(paramManagerForClip);
 
 	// Process FX and stuff. For kits, stutter happens before reverb send
 	// The >>1 is to make up for the fact that we've got the preset default to effect a multiplication of 2 already (the
@@ -118,7 +119,7 @@ GlobalEffectableForClip::GlobalEffectableForClip() {
 	    shouldLimitDelayFeedback, isClipActive, pitchAdjust, 134217728, 134217728);
 
 	// Render saturation
-	if (saturation.drive != 0u) {
+	if (saturation.drive != 0.f) {
 		if (saturation.type == deluge::dsp::SaturationType::CLASSIC) {
 			int32_t shiftAmount = getShiftAmountForSaturation();
 			for (StereoSample& sample : global_effectable_audio) {

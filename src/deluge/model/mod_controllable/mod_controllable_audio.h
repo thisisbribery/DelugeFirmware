@@ -113,12 +113,17 @@ public:
 	StutterConfig stutterConfig;
 
 	bool sampleRateReductionOnLastTime;
-	// Saturation. Song doesn't use this, only sounds, kits and audio clips.
+	// Saturation. Song doesn't use this, only sounds, kits and audio clips. The drive is the UNPATCHED_SATURATION
+	// param, copied in by setSaturationDriveFromParams() before each render.
 	deluge::dsp::SaturationSettings saturation;
-	/// The old 1..15 amount, for the CLASSIC type and for files read by older firmware
-	int32_t getLegacyClippingAmount() const {
-		return deluge::dsp::SaturationSettings::legacyFromDrive(saturation.drive);
-	}
+	void setSaturationDriveFromParams(ParamManager* paramManager);
+	/// The old 1..15 amount, for the CLASSIC type. Worked out with the drive, as it's read per sample.
+	int32_t getLegacyClippingAmount() const { return legacyClippingAmount_; }
+	int32_t legacyClippingAmount_ = 0;
+	/// Drive read from a file saved before saturation was a param (-1 = none). Song::applyLoadedSaturationDrives()
+	/// puts it in every param manager this was loaded with, then clears it.
+	int32_t loadedSaturationDrive = -1;
+	void applyLoadedSaturationDrive(ParamManager* paramManager);
 	/// Saturator set up for the current settings, only recalculated when they change.
 	/// unit is Saturator::kVoiceUnit for a synth voice, kClipUnit for a whole kit or audio clip.
 	const deluge::dsp::Saturator& getSaturator(float unit) {
@@ -130,7 +135,7 @@ public:
 		return saturator_;
 	}
 	deluge::dsp::Saturator saturator_;
-	deluge::dsp::SaturationSettings saturatorConfiguredFor_{.drive = 255}; // forces the first configure
+	deluge::dsp::SaturationSettings saturatorConfiguredFor_{.drive = -1.f}; // forces the first configure
 	float saturatorConfiguredUnit_ = 0.f;
 	FilterMode lpfMode;
 	FilterMode hpfMode;

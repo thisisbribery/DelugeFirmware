@@ -83,7 +83,6 @@
 #include "gui/menu_item/filter_route.h"
 #include "gui/menu_item/firmware/version.h"
 #include "gui/menu_item/flash/status.h"
-#include "gui/menu_item/fx/clipping.h"
 #include "gui/menu_item/fx/saturation.h"
 #include "gui/menu_item/gate/mode.h"
 #include "gui/menu_item/gate/off_time.h"
@@ -647,7 +646,7 @@ PLACE_SDRAM_BSS HorizontalMenu routingHorizontal{STRING_FOR_FILTER_ROUTE, {&filt
 PLACE_SDRAM_BSS HorizontalMenuGroup filtersMenuGroup{{&lpfMenu, &hpfMenu, &routingHorizontal}};
 
 // FX ----------------------------------------------------------------------------------------
-PLACE_SDRAM_BSS fx::Clipping clippingMenu{STRING_FOR_SATURATION};
+PLACE_SDRAM_BSS UnpatchedParam clippingMenu{STRING_FOR_SATURATION, params::UNPATCHED_SATURATION, RenderingStyle::BAR};
 PLACE_SDRAM_BSS fx::SaturationType saturationTypeMenu{STRING_FOR_TYPE, STRING_FOR_SAT_TYPE};
 PLACE_SDRAM_BSS UnpatchedParam srrMenu{STRING_FOR_DECIMATION, params::UNPATCHED_SAMPLE_RATE_REDUCTION,
                                        RenderingStyle::BAR};

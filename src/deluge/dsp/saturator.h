@@ -54,7 +54,8 @@ inline SaturationType stringToSaturationType(const char* string) {
 /// User-facing settings, as shown in the menus.
 struct SaturationSettings {
 	SaturationType type = SaturationType::TAPE;
-	uint8_t drive = 0; // 0 = off, 1..50
+	/// 0 = off, up to kMaxDrive. Comes from the UNPATCHED_SATURATION param, set before each render.
+	float drive = 0.f;
 
 	static constexpr int32_t kMaxDrive = 50;
 
@@ -64,6 +65,19 @@ struct SaturationSettings {
 	static constexpr uint8_t driveFromLegacy(int32_t legacy) { return (legacy * 10 + 1) / 3; }
 	static constexpr uint8_t legacyFromDrive(int32_t drive) {
 		return drive ? std::clamp<int32_t>((drive * 3 + 5) / 10, 1, 15) : 0;
+	}
+
+	/// The param as a drive: the bottom is off, and in between it's continuous so knob turns and automation are smooth.
+	/// Lines up with the 0..50 the menu shows.
+	static float driveFromParam(int32_t value) {
+		return static_cast<float>(static_cast<uint32_t>(value) ^ 0x80000000u) * (kMaxDrive / 4294967296.f);
+	}
+	/// A whole-number drive (files from before saturation was a param) as the param value the menu shows it at.
+	static constexpr int32_t paramFromDrive(int32_t drive) {
+		if (drive >= kMaxDrive) {
+			return 2147483647;
+		}
+		return static_cast<int32_t>(static_cast<uint32_t>(std::max<int32_t>(drive, 0)) * 85899345u - 2147483648u);
 	}
 };
 
@@ -85,7 +99,7 @@ public:
 	/// unit is the q31 level where the curve's knee sits at drive 1: about where normal signals peak.
 	void configure(const SaturationSettings& s, float unit) {
 		type_ = s.type;
-		float t = static_cast<float>(std::max<int32_t>(s.drive, 1) - 1) * (1.f / (SaturationSettings::kMaxDrive - 1));
+		float t = (std::max(s.drive, 1.f) - 1.f) * (1.f / (SaturationSettings::kMaxDrive - 1));
 		float drive = std::pow(10.f, kMaxDriveDb * std::pow(t, 1.7f) * (1.f / 20.f));
 		inGain_ = drive / unit;
 		outGain_ = unit;

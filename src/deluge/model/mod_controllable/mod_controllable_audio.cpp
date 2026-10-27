@@ -88,6 +88,7 @@ void ModControllableAudio::cloneFrom(ModControllableAudio* other) {
 	lpfMode = other->lpfMode;
 	hpfMode = other->hpfMode;
 	saturation = other->saturation;
+	loadedSaturationDrive = other->loadedSaturationDrive;
 	modFXType_ = other->modFXType_;
 	bassFreq = other->bassFreq; // Eventually, these shouldn't be variables like this
 	trebleFreq = other->trebleFreq;
@@ -138,6 +139,20 @@ void ModControllableAudio::initParams(ParamManager* paramManager) {
 	// Half gain (13 of 50): a few repeats. 25 is unity, endless repeats.
 	unpatchedParams->params[params::UNPATCHED_DELAY_FEEDBACK].setCurrentValueBasicForSetup(-1073741824);
 	unpatchedParams->params[params::UNPATCHED_DELAY_TONE].setCurrentValueBasicForSetup(0); // Flat
+	unpatchedParams->params[params::UNPATCHED_SATURATION].setCurrentValueBasicForSetup(-2147483648); // Off
+}
+
+void ModControllableAudio::setSaturationDriveFromParams(ParamManager* paramManager) {
+	saturation.drive = deluge::dsp::SaturationSettings::driveFromParam(
+	    paramManager->getUnpatchedParamSet()->getValue(params::UNPATCHED_SATURATION));
+	legacyClippingAmount_ = deluge::dsp::SaturationSettings::legacyFromDrive(std::ceil(saturation.drive));
+}
+
+void ModControllableAudio::applyLoadedSaturationDrive(ParamManager* paramManager) {
+	if (loadedSaturationDrive >= 0 && paramManager && paramManager->containsAnyMainParamCollections()) {
+		paramManager->getUnpatchedParamSet()->params[params::UNPATCHED_SATURATION].setCurrentValueBasicForSetup(
+		    deluge::dsp::SaturationSettings::paramFromDrive(loadedSaturationDrive));
+	}
 }
 
 void ModControllableAudio::setDelayFeedbackFromOldAmount(ParamManager* paramManager, int32_t amount) {
@@ -417,13 +432,9 @@ void ModControllableAudio::writeAttributesToFile(Serializer& writer) {
 	// Community Firmware parameters (always write them after the official ones, just before closing the parent tag)
 	writer.writeAttribute("hpfMode", (char*)lpfTypeToString(hpfMode));
 	writer.writeAttribute("filterRoute", (char*)filterRouteToString(filterRoute));
-	if (saturation.drive) {
-		// Older firmware only knows this one, and plays it with the classic curve
-		writer.writeAttribute("clippingAmount", getLegacyClippingAmount());
-	}
-	if (!(saturation == deluge::dsp::SaturationSettings{})) {
+	// The drive is a param now, written with the others
+	if (saturation.type != deluge::dsp::SaturationSettings{}.type) {
 		writer.writeAttribute("satType", deluge::dsp::saturationTypeToString(saturation.type));
-		writer.writeAttribute("satDrive", (int32_t)saturation.drive);
 	}
 }
 
@@ -516,6 +527,8 @@ void ModControllableAudio::writeParamAttributesToFile(Serializer& writer, ParamM
 	// Community Firmware parameters (always write them after the official ones, just before closing the parent tag)
 	unpatchedParams->writeParamAsAttribute(writer, "compressorThreshold", params::UNPATCHED_COMPRESSOR_THRESHOLD,
 	                                       writeAutomation, false, valuesForOverride);
+	unpatchedParams->writeParamAsAttribute(writer, "saturation", params::UNPATCHED_SATURATION, writeAutomation, false,
+	                                       valuesForOverride);
 
 	unpatchedParams->writeParamAsAttribute(writer, "arpeggiatorGate", params::UNPATCHED_ARP_GATE, writeAutomation);
 	unpatchedParams->writeParamAsAttribute(writer, "noteProbability", params::UNPATCHED_NOTE_PROBABILITY,
@@ -627,6 +640,10 @@ bool ModControllableAudio::readParamTagFromFile(Deserializer& reader, char const
 		unpatchedParams->readParam(reader, unpatchedParamsSummary, params::UNPATCHED_COMPRESSOR_THRESHOLD,
 		                           readAutomationUpToPos);
 		reader.exitTag("compressorThreshold");
+	}
+	else if (!strcmp(tagName, "saturation")) {
+		unpatchedParams->readParam(reader, unpatchedParamsSummary, params::UNPATCHED_SATURATION, readAutomationUpToPos);
+		reader.exitTag("saturation");
 	}
 
 	// Arpeggiator stuff
@@ -748,9 +765,9 @@ Error ModControllableAudio::readTagFromFile(Deserializer& reader, char const* ta
 
 	else if (!strcmp(tagName, "clippingAmount")) {
 		// Files from older firmware: keep the classic curve so they sound the same. The sat* tags below,
-		// written after this one, override it for files saved by this firmware.
+		// written after this one by Bribes v1.5 to v1.15, override it.
 		int32_t legacy = std::clamp<int32_t>(reader.readTagOrAttributeValueInt(), 0, 15);
-		saturation.drive = deluge::dsp::SaturationSettings::driveFromLegacy(legacy);
+		loadedSaturationDrive = deluge::dsp::SaturationSettings::driveFromLegacy(legacy);
 		saturation.type = deluge::dsp::SaturationType::CLASSIC;
 		reader.exitTag("clippingAmount");
 	}
@@ -759,7 +776,7 @@ Error ModControllableAudio::readTagFromFile(Deserializer& reader, char const* ta
 		reader.exitTag("satType");
 	}
 	else if (!strcmp(tagName, "satDrive")) {
-		saturation.drive =
+		loadedSaturationDrive =
 		    std::clamp<int32_t>(reader.readTagOrAttributeValueInt(), 0, deluge::dsp::SaturationSettings::kMaxDrive);
 		reader.exitTag("satDrive");
 	}

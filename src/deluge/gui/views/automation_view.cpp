@@ -151,8 +151,8 @@ const uint32_t mutePadActionUIModes[] = {UI_MODE_NOTES_PRESSED, UI_MODE_AUDITION
 
 const uint32_t verticalScrollUIModes[] = {UI_MODE_NOTES_PRESSED, UI_MODE_AUDITIONING, UI_MODE_RECORD_COUNT_IN, 0};
 
-constexpr int32_t kNumNonGlobalParamsForAutomation = 87;
-constexpr int32_t kNumGlobalParamsForAutomation = 41;
+constexpr int32_t kNumNonGlobalParamsForAutomation = 88;
+constexpr int32_t kNumGlobalParamsForAutomation = 42;
 
 // synth and kit rows FX - sorted in the order that Parameters are scrolled through on the display
 const std::array<std::pair<params::Kind, ParamType>, kNumNonGlobalParamsForAutomation> nonGlobalParamsForAutomation{{
@@ -183,9 +183,10 @@ const std::array<std::pair<params::Kind, ParamType>, kNumNonGlobalParamsForAutom
     {params::Kind::UNPATCHED_SOUND, params::UNPATCHED_DELAY_TONE},
     // Sidechain Shape
     {params::Kind::UNPATCHED_SOUND, params::UNPATCHED_SIDECHAIN_SHAPE},
-    // Decimation, Bitcrush, Wavefolder
+    // Decimation, Bitcrush, Saturation, Wavefolder
     {params::Kind::UNPATCHED_SOUND, params::UNPATCHED_SAMPLE_RATE_REDUCTION},
     {params::Kind::UNPATCHED_SOUND, params::UNPATCHED_BITCRUSHING},
+    {params::Kind::UNPATCHED_SOUND, params::UNPATCHED_SATURATION},
     {params::Kind::PATCHED, params::LOCAL_FOLD},
     // OSC 1 Volume, Pitch, Pulse Width, Carrier Feedback, Wave Index
     {params::Kind::PATCHED, params::LOCAL_OSC_A_VOLUME},
@@ -308,9 +309,10 @@ const std::array<std::pair<params::Kind, ParamType>, kNumGlobalParamsForAutomati
     // Sidechain Send, Shape
     {params::Kind::UNPATCHED_GLOBAL, params::UNPATCHED_SIDECHAIN_VOLUME},
     {params::Kind::UNPATCHED_GLOBAL, params::UNPATCHED_SIDECHAIN_SHAPE},
-    // Decimation, Bitcrush
+    // Decimation, Bitcrush, Saturation (not in the song)
     {params::Kind::UNPATCHED_GLOBAL, params::UNPATCHED_SAMPLE_RATE_REDUCTION},
     {params::Kind::UNPATCHED_GLOBAL, params::UNPATCHED_BITCRUSHING},
+    {params::Kind::UNPATCHED_GLOBAL, params::UNPATCHED_SATURATION},
     // Mod FX Offset, Feedback, Depth, Rate
     {params::Kind::UNPATCHED_GLOBAL, params::UNPATCHED_MOD_FX_OFFSET},
     {params::Kind::UNPATCHED_GLOBAL, params::UNPATCHED_MOD_FX_FEEDBACK},
@@ -862,6 +864,7 @@ void AutomationView::renderAutomationOverview(ModelStackWithTimelineCounter* mod
 						if ((paramID == params::UNPATCHED_PITCH_ADJUST)
 						    || (paramID == params::UNPATCHED_SIDECHAIN_SHAPE)
 						    || (paramID == params::UNPATCHED_SIDECHAIN_VOLUME)
+						    || (paramID == params::UNPATCHED_SATURATION)
 						    || (paramID >= params::UNPATCHED_FIRST_ARP_PARAM
 						        && paramID <= params::UNPATCHED_LAST_ARP_PARAM)
 						    || (paramID == params::UNPATCHED_ARP_RATE)) {
@@ -1974,7 +1977,7 @@ void AutomationView::handleParameterSelection(Clip* clip, Output* output, Output
 		// don't allow automation of pitch adjust, or sidechain in arranger
 		if (onArrangerView
 		    && ((paramID == params::UNPATCHED_PITCH_ADJUST) || (paramID == params::UNPATCHED_SIDECHAIN_SHAPE)
-		        || (paramID == params::UNPATCHED_SIDECHAIN_VOLUME)
+		        || (paramID == params::UNPATCHED_SIDECHAIN_VOLUME) || (paramID == params::UNPATCHED_SATURATION)
 		        || (paramID >= params::UNPATCHED_FIRST_ARP_PARAM && paramID <= params::UNPATCHED_LAST_ARP_PARAM)
 		        || (paramID == params::UNPATCHED_ARP_RATE))) {
 			return; // no parameter selected, don't re-render grid;
@@ -2727,6 +2730,7 @@ void AutomationView::selectGlobalParam(int32_t offset, Clip* clip) {
 		{
 			while ((id == params::UNPATCHED_PITCH_ADJUST || id == params::UNPATCHED_SIDECHAIN_SHAPE
 			        || id == params::UNPATCHED_SIDECHAIN_VOLUME || id == params::UNPATCHED_COMPRESSOR_THRESHOLD
+			        || id == params::UNPATCHED_SATURATION
 			        || (id >= params::UNPATCHED_FIRST_ARP_PARAM && id <= params::UNPATCHED_LAST_ARP_PARAM)
 			        || id == params::UNPATCHED_ARP_RATE)) {
 

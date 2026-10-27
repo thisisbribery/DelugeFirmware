@@ -41,8 +41,10 @@
 #include "model/clip/instrument_clip.h"
 #include "model/consequence/consequence_clip_existence.h"
 #include "model/instrument/cv_instrument.h"
+#include "model/instrument/kit.h"
 #include "model/instrument/midi_instrument.h"
 #include "model/mod_controllable/mod_controllable_audio.h"
+#include "model/note/note_row.h"
 #include "model/sample/sample_recorder.h"
 #include "model/scale/preset_scales.h"
 #include "model/scale/scale_change.h"
@@ -57,6 +59,7 @@
 #include "processing/audio_output.h"
 #include "processing/engines/audio_engine.h"
 #include "processing/engines/cv_engine.h"
+#include "processing/sound/sound_drum.h"
 #include "processing/sound/sound_instrument.h"
 #include "processing/stem_export/stem_export.h"
 #include "storage/flash_storage.h"
@@ -2361,6 +2364,7 @@ skipInstance:
 
 	AudioEngine::logAction("aaa4.2");
 
+	applyLoadedSaturationDrives();
 	setupPatchingForAllParamManagers();
 	AudioEngine::logAction("aaa4.3");
 
@@ -3833,6 +3837,62 @@ void Song::setupPatchingForAllParamManagers() {
 		AudioEngine::logAction("aaa4.26");
 		((Instrument*)instrumentClip->output)->setupPatching(modelStackWithTimelineCounter);
 		AudioEngine::logAction("aaa4.27");
+	}
+}
+
+// Files from before saturation was a param keep its drive on the sound, kit or audio output. Put it in every param
+// manager that goes with it (each Clip's, each kit row's and the backed up ones), then forget it so it's only done once.
+// With only, just that one: a preset that was just read, whose param managers are all backed up.
+void Song::applyLoadedSaturationDrives(ModControllableAudio* only) {
+	for (int32_t i = 0; i < backedUpParamManagers.getNumElements(); i++) {
+		auto* backedUp = (BackedUpParamManager*)backedUpParamManagers.getElementAddress(i);
+		if (!only || backedUp->modControllable == only) {
+			backedUp->modControllable->applyLoadedSaturationDrive(&backedUp->paramManager);
+		}
+	}
+	if (only) {
+		only->loadedSaturationDrive = -1;
+		return;
+	}
+
+	for (Clip* clip : AllClips::everywhere(this)) {
+		Output* output = clip->output;
+		if (output->type != OutputType::SYNTH && output->type != OutputType::KIT
+		    && output->type != OutputType::AUDIO) {
+			continue;
+		}
+		((ModControllableAudio*)output->toModControllable())->applyLoadedSaturationDrive(&clip->paramManager);
+
+		if (output->type == OutputType::KIT) {
+			InstrumentClip* instrumentClip = (InstrumentClip*)clip;
+			for (int32_t i = 0; i < instrumentClip->noteRows.getNumElements(); i++) {
+				NoteRow* noteRow = instrumentClip->noteRows.getElement(i);
+				if (noteRow->drum && noteRow->drum->type == DrumType::SOUND) {
+					((SoundDrum*)noteRow->drum)->applyLoadedSaturationDrive(&noteRow->paramManager);
+				}
+			}
+		}
+	}
+
+	for (Output* output = firstOutput; output; output = output->next) {
+		forgetLoadedSaturationDrives(output);
+	}
+	for (Output* output = firstHibernatingInstrument; output; output = output->next) {
+		forgetLoadedSaturationDrives(output);
+	}
+}
+
+void Song::forgetLoadedSaturationDrives(Output* output) {
+	if (output->type != OutputType::SYNTH && output->type != OutputType::KIT && output->type != OutputType::AUDIO) {
+		return;
+	}
+	((ModControllableAudio*)output->toModControllable())->loadedSaturationDrive = -1;
+	if (output->type == OutputType::KIT) {
+		for (Drum* drum = ((Kit*)output)->firstDrum; drum; drum = drum->next) {
+			if (drum->type == DrumType::SOUND) {
+				((SoundDrum*)drum)->loadedSaturationDrive = -1;
+			}
+		}
 	}
 }
 

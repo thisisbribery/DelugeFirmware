@@ -410,6 +410,18 @@ paramManagersMissing:
 		}
 	}
 
+	// Saturation drive from presets saved before it was a param
+	if (newInstrument->type == OutputType::KIT) {
+		for (Drum* thisDrum = ((Kit*)newInstrument)->firstDrum; thisDrum; thisDrum = thisDrum->next) {
+			if (thisDrum->type == DrumType::SOUND) {
+				song->applyLoadedSaturationDrives((SoundDrum*)thisDrum);
+			}
+		}
+	}
+	if (newInstrument->type == OutputType::KIT || newInstrument->type == OutputType::SYNTH) {
+		song->applyLoadedSaturationDrives((ModControllableAudio*)newInstrument->toModControllable());
+	}
+
 	newInstrument->name.set(name);
 	newInstrument->dirPath.set(dirPath);
 	newInstrument->mightExistOnCard = true;
@@ -606,6 +618,8 @@ Error StorageManager::loadSynthToDrum(Song* song, InstrumentClip* clip, bool may
 			return error;
 		}
 	}
+	song->applyLoadedSaturationDrives(newDrum); // From presets saved before saturation was a param
+
 	// The caller owns whatever drum this replaces - it may still be referenced by NoteRows in several Clips, so it's up
 	// to the caller to move those over before deleting it
 	*getInstrument = newDrum;

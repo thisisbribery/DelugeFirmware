@@ -172,6 +172,8 @@ public:
 	                                        bool searchNonHibernating = true);
 	AudioOutput* getAudioOutputFromName(std::string_view name);
 	void setupPatchingForAllParamManagers();
+	void applyLoadedSaturationDrives(ModControllableAudio* only = nullptr);
+	static void forgetLoadedSaturationDrives(Output* output);
 	void replaceInstrument(Instrument* oldInstrument, Instrument* newInstrument, bool keepNoteRowsWithMIDIInput = true);
 	void stopAllMIDIAndGateNotesPlaying();
 	void stopAllAuditioning();
