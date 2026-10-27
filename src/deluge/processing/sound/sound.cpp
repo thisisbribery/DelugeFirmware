@@ -459,8 +459,8 @@ void Sound::setDrumSynthKnobs(deluge::dsp::drum_synth::Engine engine) {
 		return;
 	}
 
-	// The slots on mod rate / mod depth (the sweep: how fast, how deep, as the Cycles' Sweep and Contour) and Custom 2
-	// / Custom 3 (voicing)
+	// The slots on mod rate / mod depth (the sweep: how fast, how deep) and Custom 2 / Custom 3 (voicing), as v1.11
+	// laid them out. Kept when Pad Guides is off.
 	struct Layout {
 		int32_t rate, depth, custom2, custom3;
 	};
@@ -499,10 +499,35 @@ void Sound::setDrumSynthKnobs(deluge::dsp::drum_synth::Engine engine) {
 		break;
 	}
 
+	// Pad Guides: the knobs follow the standard drum layout. Mod rate / depth are the pitch envelope's speed / amount
+	// (Contour / Sweep on the Cyc engines), Custom 2 / 3 the characters. An engine without a pitch envelope leaves mod
+	// rate / depth as on any sound.
+	if (runtimeFeatureSettings.isOn(RuntimeFeatureSettingType::PadGuides)) {
+		using deluge::dsp::drum_synth::sharedControlSlot;
+		using deluge::dsp::drum_synth::StandardSlot;
+		const int32_t speed = sharedControlSlot(engine, StandardSlot::PITCH_ENV_SPEED);
+		const int32_t amount = sharedControlSlot(engine, StandardSlot::PITCH_ENV_AMOUNT);
+		if (speed >= 0 && amount >= 0) {
+			layout.rate = speed;
+			layout.depth = amount;
+		}
+		else {
+			layout.rate = layout.depth = -1;
+		}
+		layout.custom2 = sharedControlSlot(engine, StandardSlot::CHARACTER_A);
+		layout.custom3 = sharedControlSlot(engine, StandardSlot::CHARACTER_B);
+	}
+
 	modKnobs[2][1].paramDescriptor.setToHaveParamOnly(kDrumControlParams[deluge::dsp::drum_synth::driveSlot(engine)]);
 	modKnobs[2][0].paramDescriptor.setToHaveParamOnly(kDrumControlParams[deluge::dsp::drum_synth::decaySlot(engine)]);
-	modKnobs[5][1].paramDescriptor.setToHaveParamOnly(kDrumControlParams[layout.rate]);
-	modKnobs[5][0].paramDescriptor.setToHaveParamOnly(kDrumControlParams[layout.depth]);
+	if (layout.rate >= 0) {
+		modKnobs[5][1].paramDescriptor.setToHaveParamOnly(kDrumControlParams[layout.rate]);
+		modKnobs[5][0].paramDescriptor.setToHaveParamOnly(kDrumControlParams[layout.depth]);
+	}
+	else {
+		modKnobs[5][1].paramDescriptor.setToHaveParamOnly(params::GLOBAL_LFO_FREQ_1);
+		modKnobs[5][0].paramDescriptor.setToHaveParamAndSource(params::LOCAL_PITCH_ADJUST, PatchSource::LFO_GLOBAL_1);
+	}
 	modKnobs[7][1].paramDescriptor.setToHaveParamOnly(kDrumControlParams[layout.custom2]);
 	modKnobs[7][0].paramDescriptor.setToHaveParamOnly(kDrumControlParams[layout.custom3]);
 	// Custom 1 tunes the drum. Set here, not only in a new kit, as kit files saved without a knob layout load with a
