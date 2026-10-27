@@ -2465,7 +2465,7 @@ void View::navigateThroughAudioOutputsForAudioClip(int32_t offset, AudioClip* cl
 }
 
 void View::navigateThroughPresetsForInstrumentClip(int32_t offset, ModelStackWithTimelineCounter* modelStack,
-                                                   bool doBlink) {
+                                                   bool doBlink, char const* fromFolderStart) {
 
 	AudioEngine::logAction("navigateThroughPresets");
 
@@ -2711,8 +2711,8 @@ gotAnInstrument:
 	// Or if we're on a Kit or Synth...
 	else {
 
-		PresetNavigationResult results =
-		    loadInstrumentPresetUI.doPresetNavigation(offset, oldInstrument, availabilityRequirement, false);
+		PresetNavigationResult results = loadInstrumentPresetUI.doPresetNavigation(
+		    offset, oldInstrument, availabilityRequirement, false, fromFolderStart);
 		if (results.error == Error::NO_ERROR_BUT_GET_OUT) {
 getOut:
 			display->removeWorkingAnimation();

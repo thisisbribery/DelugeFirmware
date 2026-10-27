@@ -1462,11 +1462,17 @@ needToGrabLeftmostButHaveToReadFirst:
 /// Caller must call emptyFileItems() at some point after calling this function - unless an error is returned
 /// Caller must remove OLED working animation after calling this too.
 PresetNavigationResult LoadInstrumentPresetUI::doPresetNavigation(int32_t offset, Instrument* oldInstrument,
-                                                                  Availability availabilityRequirement, bool doBlink) {
+                                                                  Availability availabilityRequirement, bool doBlink,
+                                                                  char const* fromFolderStart) {
 
 	AudioEngine::logAction("doPresetNavigation");
 
-	currentDir.set(&oldInstrument->dirPath);
+	if (fromFolderStart != nullptr) {
+		currentDir.set(fromFolderStart);
+	}
+	else {
+		currentDir.set(&oldInstrument->dirPath);
+	}
 	OutputType outputType = oldInstrument->type;
 
 	PresetNavigationResult toReturn;
@@ -1474,10 +1480,13 @@ PresetNavigationResult LoadInstrumentPresetUI::doPresetNavigation(int32_t offset
 	String oldNameString; // We only might use this later for temporary storage
 	String newName;
 
-	oldNameString.set(&oldInstrument->name);
-	toReturn.error = oldNameString.concatenate(".XML");
-	if (toReturn.error != Error::NONE) {
-		return toReturn;
+	// From a folder's start: no name to search from, so the first preset comes up
+	if (fromFolderStart == nullptr) {
+		oldNameString.set(&oldInstrument->name);
+		toReturn.error = oldNameString.concatenate(".XML");
+		if (toReturn.error != Error::NONE) {
+			return toReturn;
+		}
 	}
 
 readAgain:
@@ -1601,6 +1610,10 @@ doneMoving:
 	bool isAlreadyInSong = toReturn.fileItem->instrument && toReturn.fileItem->instrumentAlreadyInSong;
 	// wrapped is here to prevent an infinite loop
 	if (availabilityRequirement == Availability::INSTRUMENT_UNUSED && isAlreadyInSong && wrapped < 2) {
+		goto moveAgain;
+	}
+	// From a folder's start, the instrument already playing is skipped: it can't be swapped for itself
+	if (fromFolderStart != nullptr && toReturn.fileItem->instrument == oldInstrument && wrapped < 2) {
 		goto moveAgain;
 	}
 

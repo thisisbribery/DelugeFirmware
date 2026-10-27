@@ -53,8 +53,10 @@ public:
 	                                                Availability availabilityRequirement);
 	std::expected<FileItem*, Error> confirmPresetOrNextUnlaunchedOne(OutputType outputType, String* searchName,
 	                                                                 Availability availabilityRequirement);
+	/// With fromFolderStart, from the start of that folder instead of the old instrument's place in its own
 	PresetNavigationResult doPresetNavigation(int32_t offset, Instrument* oldInstrument,
-	                                          Availability availabilityRequirement, bool doBlink);
+	                                          Availability availabilityRequirement, bool doBlink,
+	                                          char const* fromFolderStart = nullptr);
 	void setupLoadInstrument(OutputType newOutputType, Instrument* instrumentToReplace_,
 	                         InstrumentClip* instrumentClipToLoadFor_) {
 		Browser::outputTypeToLoad = newOutputType;

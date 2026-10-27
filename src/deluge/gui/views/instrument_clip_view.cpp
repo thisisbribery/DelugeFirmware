@@ -23,6 +23,7 @@
 #include "gui/context_menu/kit_presets.h"
 #include "gui/context_menu/new_kit_type.h"
 #include "gui/context_menu/stem_export/cancel_stem_export.h"
+#include "gui/context_menu/synth_instrument.h"
 #include "gui/l10n/l10n.h"
 #include "gui/menu_item/colour.h"
 #include "gui/menu_item/drum_synth/editor.h"
@@ -1014,6 +1015,15 @@ bool InstrumentClipView::handleInstrumentChange(OutputType outputType) {
 		// Otherwise ask what kind of kit to make. The menu does the creating.
 		if (context_menu::newKitType.setupAndCheckAvailability()) {
 			openUI(&context_menu::newKitType);
+		}
+		return false;
+	}
+
+	// SHIFT + SYNTH on a synth track: pick an instrument (Deluge, DLFM, DX7...). The menu does the loading.
+	if (outputType == OutputType::SYNTH && !is_fm && Buttons::isShiftButtonPressed()
+	    && getCurrentOutputType() == OutputType::SYNTH && getCurrentUI() == getRootUI()) {
+		if (context_menu::synthInstrumentMenu.setupAndCheckAvailability()) {
+			openUI(&context_menu::synthInstrumentMenu);
 		}
 		return false;
 	}

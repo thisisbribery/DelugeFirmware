@@ -88,8 +88,9 @@ public:
 	void displayAutomation();
 	void displayOutputName(Output* output, bool doBlink = true, Clip* clip = nullptr);
 	void instrumentChanged(ModelStackWithTimelineCounter* modelStack, Instrument* newInstrument);
+	/// Step through the current instrument's folder, or with fromFolderStart, go to that folder's first preset
 	void navigateThroughPresetsForInstrumentClip(int32_t offset, ModelStackWithTimelineCounter* modelStack,
-	                                             bool doBlink = false);
+	                                             bool doBlink = false, char const* fromFolderStart = nullptr);
 	void navigateThroughAudioOutputsForAudioClip(int32_t offset, AudioClip* clip, bool doBlink = false);
 	bool changeOutputType(OutputType newOutputType, ModelStackWithTimelineCounter* modelStack, bool doBlink = false);
 	void drawOutputNameFromDetails(OutputType outputType, int32_t slot, int32_t subSlot, char const* name,
