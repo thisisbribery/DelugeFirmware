@@ -274,6 +274,8 @@ bool SoundEditor::renderMainPads(uint32_t whichRows, RGB image[][kDisplayWidth +
 	D_PRINTLN("rendering pad colours");
 
 	renderMainShortcutsOnly(currentModControllable, image, occupancyMask, editingKitAffectEntire());
+	// Pad Guides: SHIFT held in the menu shows the shortcuts, with the drum synth pads still glowing
+	InstrumentClipView::renderPadGuidesGlow(whichRows, image);
 
 
 	MenuItem* item = getCurrentMenuItem();

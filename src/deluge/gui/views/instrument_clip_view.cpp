@@ -2037,6 +2037,10 @@ void renderDrumSynthShiftGlow(uint32_t whichRows, RGB image[][kDisplayWidth + kS
 }
 } // namespace
 
+void InstrumentClipView::renderPadGuidesGlow(uint32_t whichRows, RGB image[][kDisplayWidth + kSideBarWidth]) {
+	renderDrumSynthShiftGlow(whichRows, image);
+}
+
 const Sound* InstrumentClipView::padGuidesGlowSound() {
 	if (!runtimeFeatureSettings.isOn(RuntimeFeatureSettingType::PadGuides) || getRootUI() != &instrumentClipView) {
 		return nullptr;

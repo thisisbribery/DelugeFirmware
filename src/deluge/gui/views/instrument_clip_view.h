@@ -230,6 +230,8 @@ public:
 	static bool presetKitHasAddedRows(Kit* kit);
 	/// Pad Guides: the drum synth whose standard layout pads glow right now, or nullptr
 	static const Sound* padGuidesGlowSound();
+	/// Pad Guides: tint the glowing pads in an image the sound editor drew (its SHIFT shortcut overlay)
+	static void renderPadGuidesGlow(uint32_t whichRows, RGB image[][kDisplayWidth + kSideBarWidth]);
 	/// Add a row to a preset kit at the empty row being auditioned, starting on the kit's first engine, and open SYNTH
 	/// MODE on it to choose what it is
 	void addRowToPresetKit(ModelStackWithTimelineCounter* modelStack, Kit* kit);
