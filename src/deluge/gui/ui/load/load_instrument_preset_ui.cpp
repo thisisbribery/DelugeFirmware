@@ -39,6 +39,7 @@
 #include "model/song/clip_iterators.h"
 #include "model/song/song.h"
 #include "processing/engines/audio_engine.h"
+#include "processing/sound/sound_instrument.h"
 #include "storage/audio/audio_file_manager.h"
 #include "storage/file_item.h"
 #include "storage/storage_manager.h"
@@ -1237,6 +1238,15 @@ void LoadInstrumentPresetUI::instrumentEdited(Instrument* instrument) {
 	}
 }
 
+namespace {
+/// A 303 that was never saved, left in memory when its clip moved to another synth. It's no preset for a new synth: it
+/// would bring the 303 and its mono sequencer along.
+bool isUnsaved303(Instrument const* instrument) {
+	return instrument != nullptr && instrument->type == OutputType::SYNTH && !instrument->mightExistOnCard
+	       && static_cast<SoundInstrument const*>(instrument)->isTb303();
+}
+} // namespace
+
 // Caller must set currentDir before calling this.
 // Caller must call emptyFileItems() at some point after calling this function.
 // song may be supplied as NULL, in which case it won't be searched for Instruments; sometimes this will get called when
@@ -1298,7 +1308,7 @@ startDoingFolders:
 		// Look through our list of FileItems, for a preset.
 		for (int32_t i = 0; i < fileItems.getNumElements(); i++) {
 			auto* fileItem = (FileItem*)fileItems.getElementAddress(i);
-			if (!fileItem->isFolder) {
+			if (!fileItem->isFolder && !isUnsaved303(fileItem->instrument)) {
 				return fileItem; // We found a preset / file.
 			}
 		}
@@ -1612,9 +1622,16 @@ doneMoving:
 	if (availabilityRequirement == Availability::INSTRUMENT_UNUSED && isAlreadyInSong && wrapped < 2) {
 		goto moveAgain;
 	}
-	// From a folder's start, the instrument already playing is skipped: it can't be swapped for itself
-	if (fromFolderStart != nullptr && toReturn.fileItem->instrument == oldInstrument && wrapped < 2) {
-		goto moveAgain;
+	// From a folder's start, only saved presets: not the instrument already playing (it can't be swapped for itself),
+	// nor synths that were never saved and are only waiting in memory
+	if (fromFolderStart != nullptr && toReturn.fileItem->instrument
+	    && (toReturn.fileItem->instrument == oldInstrument || !toReturn.fileItem->instrument->mightExistOnCard)) {
+		if (wrapped < 2) {
+			goto moveAgain;
+		}
+		toReturn.error = Error::NO_ERROR_BUT_GET_OUT;
+		emptyFileItems();
+		return toReturn;
 	}
 
 	toReturn.loadedFromFile = false;
