@@ -228,6 +228,8 @@ public:
 	/// Whether kit was made as a preset kit (LXR or Cycles) and has had other rows added since. Swapping it for a new
 	/// kit would leave those rows without their sounds, so SHIFT + KIT refuses.
 	static bool presetKitHasAddedRows(Kit* kit);
+	/// Pad Guides: the drum synth whose standard layout pads glow right now, or nullptr
+	static const Sound* padGuidesGlowSound();
 	/// Add a row to a preset kit at the empty row being auditioned, starting on the kit's first engine, and open SYNTH
 	/// MODE on it to choose what it is
 	void addRowToPresetKit(ModelStackWithTimelineCounter* modelStack, Kit* kit);

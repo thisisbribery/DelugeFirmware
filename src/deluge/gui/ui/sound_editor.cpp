@@ -510,6 +510,16 @@ bool SoundEditor::getGreyoutColsAndRows(uint32_t* cols, uint32_t* rows) {
 		}
 		else {
 			*cols = 0xFFFFFFFE;
+			// Pad Guides: the drum synth layout's columns stay lit, the glow greys their empty pads itself
+			if (InstrumentClipView::padGuidesGlowSound() != nullptr) {
+				for (int32_t slot : {int32_t{0}, int32_t{kDisplayHeight}}) { // the bottom of each column
+					int32_t x;
+					int32_t y;
+					if (drumLayoutPadFor(slot, &x, &y)) {
+						*cols &= ~(1u << (kDisplayWidth + kSideBarWidth - 1 - x));
+					}
+				}
+			}
 		}
 		break;
 	case UIType::PERFORMANCE:

@@ -25,6 +25,7 @@
 #include "gui/context_menu/stem_export/cancel_stem_export.h"
 #include "gui/l10n/l10n.h"
 #include "gui/menu_item/colour.h"
+#include "gui/menu_item/drum_synth/editor.h"
 #include "gui/menu_item/file_selector.h"
 #include "gui/menu_item/horizontal_menu.h"
 #include "gui/menu_item/multi_range.h"
@@ -258,6 +259,12 @@ ActionResult InstrumentClipView::buttonAction(deluge::hid::Button b, bool on, bo
 	using namespace deluge::hid::button;
 
 	maybeStartShortcutOverview(b, on);
+
+	// Pad Guides: the drum synth pads glow while SHIFT is held. Redrawn on every SHIFT edge, as the sound may have
+	// changed while it was held.
+	if (b == SHIFT && runtimeFeatureSettings.isOn(RuntimeFeatureSettingType::PadGuides)) {
+		uiNeedsRendering(this, 0xFFFFFFFF, 0);
+	}
 
 	// Scale mode button
 	if (b == SCALE_MODE && currentUIMode != UI_MODE_HOLDING_LOAD_BUTTON) {
@@ -1984,7 +1991,61 @@ bool presetRowTint(Drum* drum, RGB* tint) {
 	}
 	return true;
 }
+
+/// Pad Guides: while SHIFT is held on a drum synth (the synth, or the kit's selected row), the pads of its standard
+/// layout settings glow soft pink, blended over whatever is on them so notes still show
+void renderDrumSynthShiftGlow(uint32_t whichRows, RGB image[][kDisplayWidth + kSideBarWidth]) {
+	using deluge::dsp::drum_synth::StandardSlot;
+	const Sound* sound = InstrumentClipView::padGuidesGlowSound();
+	if (sound == nullptr) {
+		return;
+	}
+	// In the sound editor the two columns are left out of its greyout (see SoundEditor::getGreyoutColsAndRows), so
+	// grey the pads without a setting here, as the rest of the grid is
+	const bool inSoundEditor = getCurrentUI() == &soundEditor;
+	constexpr int32_t kFullGreyout = 6500000;
+	constexpr RGB kGlow{255, 40, 90};
+	const auto engine = sound->sources[0].drumPatch.engine();
+	for (int32_t slot = 0; slot < static_cast<int32_t>(StandardSlot::NUM_SLOTS); slot++) {
+		int32_t x;
+		int32_t y;
+		if (!drumLayoutPadFor(slot, &x, &y) || !(whichRows & (1 << y))) {
+			continue;
+		}
+		if (drumLayoutItem(engine, slot) != nullptr) {
+			image[y][x] = RGB::blend(kGlow, image[y][x], 32768);
+		}
+		else if (inSoundEditor) {
+			image[y][x] = image[y][x].greyOut(kFullGreyout);
+		}
+	}
+}
 } // namespace
+
+const Sound* InstrumentClipView::padGuidesGlowSound() {
+	if (!runtimeFeatureSettings.isOn(RuntimeFeatureSettingType::PadGuides) || getRootUI() != &instrumentClipView) {
+		return nullptr;
+	}
+	// While SHIFT is held on the clip, and on through the sound menu SHIFT + pad opens, so the pads stay lit while a
+	// setting is edited. Not over the drum synth pad editor, which draws its own grid.
+	UI* currentUI = getCurrentUI();
+	if (currentUI == &instrumentClipView) {
+		if (!Buttons::isButtonPressed(deluge::hid::button::SHIFT)) {
+			return nullptr;
+		}
+	}
+	else if (currentUI != &soundEditor || !soundEditor.in_sound_editor()
+	         || soundEditor.getCurrentMenuItem() == &deluge::gui::menu_item::drum_synth::drumSynthEditor) {
+		return nullptr;
+	}
+	// With affect entire on in a kit, SHIFT + pad edits the kit's FX, not the row
+	InstrumentClip* clip = getCurrentInstrumentClip();
+	if (clip == nullptr || (getCurrentOutputType() == OutputType::KIT && clip->affectEntire)) {
+		return nullptr;
+	}
+	const Sound* sound = soundEditor.shortcutSound();
+	return isDrumSynth(sound) ? sound : nullptr;
+}
 
 bool InstrumentClipView::createNewDrumSynthKit(deluge::dsp::drum_synth::PresetKit type) {
 	using deluge::dsp::drum_synth::PresetKit;
@@ -5502,6 +5563,12 @@ void InstrumentClipView::setSelectedDrum(Drum* drum, bool shouldRedrawStuff, Kit
 		}
 	}
 
+	// Pad Guides: SHIFT held, so the glow follows the newly selected row
+	if (drumSelectionChanged && Buttons::isButtonPressed(deluge::hid::button::SHIFT)
+	    && runtimeFeatureSettings.isOn(RuntimeFeatureSettingType::PadGuides)) {
+		uiNeedsRendering(this, 0xFFFFFFFF, 0);
+	}
+
 	if (shouldRedrawStuff) {
 		// make sure the clip we're displaying actually belongs to this kit
 		// if you selected a clip and then sent a midi note to a kit that is part of a different clip, well
@@ -7919,6 +7986,7 @@ bool InstrumentClipView::renderMainPads(uint32_t whichRows, RGB image[][kDisplay
 	                    currentSong->xZoom[NAVIGATION_CLIP], kDisplayWidth, kDisplayWidth + kSideBarWidth,
 	                    drawUndefinedArea);
 	render_selected_note_pulse(whichRows, image);
+	renderDrumSynthShiftGlow(whichRows, image);
 	PadLEDs::renderingLock = false;
 
 	return true;

@@ -212,6 +212,11 @@ void RuntimeFeatureSettings::init() {
 	SetupOnOffSetting(settings[RuntimeFeatureSettingType::EndlessRecord], STRING_FOR_COMMUNITY_FEATURE_ENDLESS_RECORD,
 	                  "endlessRecord", RuntimeFeatureStateToggle::Off);
 
+	// PadGuides: drum synth pads glow while SHIFT is held, drum synth gold knobs follow the standard drum layout,
+	// holding a gold knob button blinks its params' pads
+	SetupOnOffSetting(settings[RuntimeFeatureSettingType::PadGuides], STRING_FOR_COMMUNITY_FEATURE_PAD_GUIDES,
+	                  "padGuides", RuntimeFeatureStateToggle::On);
+
 	// AlternativeTapTempoBehaviour
 	SetupOnOffSetting(settings[RuntimeFeatureSettingType::AlternativeTapTempoBehaviour],
 	                  STRING_FOR_COMMUNITY_FEATURE_ALTERNATIVE_TAP_TEMPO_BEHAVIOUR, "alternativeTapTempoBehaviour",

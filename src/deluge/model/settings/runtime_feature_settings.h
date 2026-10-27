@@ -73,6 +73,7 @@ enum RuntimeFeatureSettingType : uint32_t {
 	ShortcutOverlay,
 	TapTempoAction,
 	EndlessRecord,
+	PadGuides,
 	MaxElement // Keep as boundary
 };
 
