@@ -470,7 +470,11 @@ ActionResult KeyboardScreen::buttonAction(deluge::hid::Button b, bool on, bool i
 
 			if (toggleScaleModeOnButtonRelease && isShortPress(scaleButtonPressTime)) {
 				toggleScaleModeOnButtonRelease = false;
-				if (inScaleMode) {
+				if (inScaleMode && getCurrentInstrumentClip()->isMono()) {
+					// A mono clip's rows are the scale's steps, so it stays in scale mode
+					display->displayPopup(l10n::get(l10n::String::STRING_FOR_MONO_NEEDS_SCALE));
+				}
+				else if (inScaleMode) {
 					display->cancelPopup();
 					exitScaleMode();
 				}

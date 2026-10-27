@@ -252,6 +252,11 @@ ActionResult InstrumentClipView::commandEnterScaleMode() {
 }
 
 ActionResult InstrumentClipView::commandExitScaleMode() {
+	// A mono clip's rows are the scale's steps, so it stays in scale mode
+	if (getCurrentInstrumentClip()->isMono()) {
+		display->displayPopup(deluge::l10n::get(deluge::l10n::String::STRING_FOR_MONO_NEEDS_SCALE));
+		return ActionResult::DEALT_WITH;
+	}
 	exitScaleMode();
 	return ActionResult::DEALT_WITH;
 }
@@ -7972,6 +7977,11 @@ bool InstrumentClipView::renderMainPads(uint32_t whichRows, RGB image[][kDisplay
 	// Mono CV: the 8 rows always start at the scale's root, whatever moved the scroll
 	InstrumentClip* monoClip = getCurrentInstrumentClip();
 	if (monoClip && monoClip->isMono()) {
+		// However the clip got here (loaded, made a 303, scale switched off in keyboard view), it plays in scale
+		if (monoClip->ensureMonoScaleMode(currentSong)) {
+			indicator_leds::setLedState(IndicatorLED::SCALE_MODE, true);
+			recalculateColours();
+		}
 		int32_t monoYScroll = monoClip->getMonoYScroll(currentSong);
 		if (monoClip->yScroll != monoYScroll) {
 			monoClip->yScroll = monoYScroll;

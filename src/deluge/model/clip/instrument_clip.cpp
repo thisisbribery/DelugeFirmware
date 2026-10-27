@@ -35,6 +35,7 @@
 #include "model/drum/drum_name.h"
 #include "model/instrument/cv_instrument.h"
 #include "model/instrument/midi_instrument.h"
+#include "io/midi/midi_transpose.h"
 #include "model/iterance/iterance.h"
 #include "model/note/note.h"
 #include "model/output.h"
@@ -3839,6 +3840,21 @@ int32_t InstrumentClip::getMonoYScroll(Song* song) {
 	}
 	yNote += 12 * monoGridOctave;
 	return getYVisualFromYNote(yNote, song);
+}
+
+bool InstrumentClip::ensureMonoScaleMode(Song* song) {
+	if (inScaleMode || !isMono()) {
+		return false;
+	}
+	if (output->type == OutputType::MIDI_OUT && MIDITranspose::controlMethod == MIDITransposeControlMethod::CHROMATIC
+	    && static_cast<NonAudioInstrument*>(output)->getChannel() == MIDI_CHANNEL_TRANSPOSE) {
+		return false;
+	}
+	inScaleMode = true;
+	// Keeps the song's scale if the clip's notes fit it, or picks one they do
+	song->setRootNote(song->key.rootNote, this);
+	yScroll = getMonoYScroll(song);
+	return true;
 }
 
 int32_t InstrumentClip::getMonoOctave(int32_t lift) {

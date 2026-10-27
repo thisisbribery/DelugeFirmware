@@ -20,10 +20,12 @@
 #include "gui/menu_item/selection.h"
 #include "gui/ui/sound_editor.h"
 #include "gui/views/view.h"
+#include "model/clip/instrument_clip.h"
 #include "model/instrument/kit.h"
 #include "model/song/song.h"
 #include "processing/sound/sound.h"
 #include "processing/sound/sound_drum.h"
+#include "processing/sound/sound_instrument.h"
 
 namespace deluge::gui::menu_item {
 /// Every sound engine in one list: the Deluge's synth modes, the 303 (on synths), then each drum synth engine and
@@ -175,6 +177,11 @@ private:
 			// A fresh 303 starts on an acid sound. Its clips play from the mono sequencer while it's a 303.
 			if (becoming303 && sound->isTb303()) {
 				sound->setupTb303Defaults(soundEditor.currentParamManager);
+				InstrumentClip* clip = getCurrentInstrumentClip();
+				if (clip && clip->output->type == OutputType::SYNTH
+				    && static_cast<Sound*>(static_cast<SoundInstrument*>(clip->output)) == sound) {
+					clip->ensureMonoScaleMode(currentSong);
+				}
 			}
 		}
 	}

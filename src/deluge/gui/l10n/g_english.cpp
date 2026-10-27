@@ -862,6 +862,7 @@ PLACE_SDRAM_DATA Language english{
         {STRING_FOR_MONO_SEQUENCER, "Mono Seq"},
         {STRING_FOR_MONO_SCALE, "Mono Scale"},
         {STRING_FOR_MONO_GATE, "Gate %"},
+        {STRING_FOR_MONO_NEEDS_SCALE, "Mono seq stays in scale mode"},
         {STRING_FOR_DEFAULT_SWING, "Default swing"},
         {STRING_FOR_KEY, "Key"},
         {STRING_FOR_DEFAULT_KEY, "Default key"},

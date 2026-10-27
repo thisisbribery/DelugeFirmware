@@ -42,7 +42,8 @@ public:
 		InstrumentClip* clip = getCurrentInstrumentClip();
 		clip->monoMode = this->getValue();
 		if (clip->monoMode) {
-			// The 8 rows start at the scale's root
+			// The 8 rows are the scale's steps from its root
+			clip->ensureMonoScaleMode(currentSong);
 			clip->yScroll = clip->getMonoYScroll(currentSong);
 		}
 	}

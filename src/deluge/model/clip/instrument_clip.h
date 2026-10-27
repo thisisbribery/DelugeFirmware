@@ -142,6 +142,9 @@ public:
 	bool monoShiftsNoteCode() const;
 	/// The yScroll that puts the scale's root on the bottom row
 	int32_t getMonoYScroll(Song* song);
+	/// A mono clip's 8 rows are steps of the scale, so a mono clip out of scale mode goes into it, the way pressing
+	/// SCALE does. Returns whether it changed. Clips sending chromatic MIDI transpose can't be in scale mode.
+	bool ensureMonoScaleMode(Song* song);
 	/// Octaves the mono grid sits above the root's default one. Only moves when the notes no longer fit the grid, so
 	/// editing never shifts it.
 	int32_t monoGridOctave = 0;
