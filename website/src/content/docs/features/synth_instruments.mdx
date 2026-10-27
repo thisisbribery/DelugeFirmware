@@ -1,0 +1,21 @@
+---
+title: Synth Instruments
+---
+
+On a synth track, **SHIFT + SYNTH** picks which synth instrument the track plays, the way SHIFT + KIT picks a kit type (new in v1.16). Each instrument has its own preset folder.
+
+| Instrument | 7-segment | Preset folder | An empty folder gives |
+|---|---|---|---|
+| Deluge | DELU | `SYNTHS` (its own files, not the folders inside) | A blank subtractive synth |
+| DLFM | DLFM | `SYNTHS/DLFM` | A blank FM synth |
+| DX7 | DX7 | `SYNTHS/DX7` | A blank DX7 synth (only listed with the DX7 engine on in Community Features) |
+
+1. On a synth track, press **SHIFT + SYNTH**. The **Instrument** (**INST**) list opens on the instrument the track plays.
+2. Press **SHIFT + SYNTH** again, or turn **SELECT**, to move to the next instrument.
+3. Press **SELECT** or **SYNTH** to load that instrument's first preset. Turning **SELECT** in the clip then steps through that folder's presets as usual. **BACK** closes the list and changes nothing.
+
+- A missing folder is made the first time you pick its instrument, ready to save into. A blank synth made this way saves into its instrument's folder.
+- Presets already playing on another track are skipped. If every preset in the folder is in use, the screen shows **No free presets** (**NONE**).
+- On kit, MIDI and CV tracks, and with a menu open, **SHIFT + SYNTH** still makes a new blank synth. **MOD7 + SYNTH** still makes a new DX7 synth.
+- Ringmod, the 303 and the drum synth engines aren't in the list: pick those in **SYNTH MODE**.
+- The list is one table in the source (`model/instrument/synth_instruments.h`): a new instrument is one entry, its name, and its preset folder.
