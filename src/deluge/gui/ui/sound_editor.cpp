@@ -466,10 +466,7 @@ Sound* SoundEditor::shortcutSound() {
 }
 
 MenuItem* SoundEditor::soundShortcut(int32_t x, int32_t y) {
-	if (MenuItem* item = drumShortcutFor(shortcutSound(), x, y)) {
-		return item;
-	}
-	return paramShortcutsForSounds[x][y];
+	return soundShortcutFor(shortcutSound(), x, y);
 }
 
 bool SoundEditor::isDrumSynthEditorOnGrid() {
@@ -1174,7 +1171,8 @@ void SoundEditor::updatePadLightsFor(MenuItem* currentItem) {
 			}
 			for (int32_t x = 0; x < kDisplayWidth; x++) {
 				for (int32_t y = 0; y < kDisplayHeight; y++) {
-					if (paramShortcutsForSoundsSecondLayer[x][y] == currentItem) {
+					if (paramShortcutsForSoundsSecondLayer[x][y] == currentItem
+					    && !isDrumLayoutPad(shortcutSound(), x, y)) {
 						setupShortcutBlink(x, y, 0, 0b00000011 /* yellow */);
 						goto stopThat;
 					}
@@ -1688,7 +1686,7 @@ ActionResult SoundEditor::potentialShortcutPadAction(int32_t x, int32_t y, bool 
 							? !secondLayerShortcutsToggled
 							: false;
 
-					if (secondLayerShortcutsToggled) {
+					if (secondLayerShortcutsToggled && !isDrumLayoutPad(shortcutSound(), x, y)) {
 						if (const auto secondLayerItem = paramShortcutsForSoundsSecondLayer[x][y];
 							secondLayerItem != nullptr) {
 							item = secondLayerItem;
@@ -1734,7 +1732,11 @@ ActionResult SoundEditor::potentialShortcutPadAction(int32_t x, int32_t y, bool 
 
 			// Special shortcut for Note Row Editor menu: [audition pad] + [sequence direction pad]
 			Clip* currentClip = getCurrentClip();
-			if (currentClip->type == ClipType::INSTRUMENT && item == &sequenceDirectionMenu
+			// (a drum synth row has its own setting on the sequence direction pad, but keeps this)
+			const bool sequenceDirectionPad =
+			    item == &sequenceDirectionMenu
+			    || (isDrumLayoutPad(shortcutSound(), x, y) && paramShortcutsForSounds[x][y] == &sequenceDirectionMenu);
+			if (currentClip->type == ClipType::INSTRUMENT && sequenceDirectionPad
 			    && display->haveOLED() && runtimeFeatureSettings.get(HorizontalMenus) == On
 			    && instrumentClipView.getNumNoteRowsAuditioning() == 1) {
 

@@ -111,8 +111,8 @@ using deluge::modulation::params::unpatchedNonGlobalParamShortcuts;
 using namespace deluge::gui;
 
 // The patched param on a shortcut pad, or kNoParamID. On a sample oscillator, the pulse width pad (unused for samples)
-// gives the sample start offset instead. On a drum synth, the oscillator and FM columns follow the drum synth's own
-// pads, as in the sound editor.
+// gives the sample start offset instead. On a drum synth, the MOD1 and MOD2 columns are its standard layout and the
+// drum controls' usual pads are blank, as in the sound editor.
 static uint32_t patchedParamForShortcut(Output* output, int32_t x, int32_t y) {
 	Sound* sound = nullptr;
 	if (output->type == OutputType::SYNTH) {

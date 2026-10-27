@@ -129,16 +129,21 @@ class Sound;
 namespace deluge::dsp::drum_synth {
 enum class Engine : uint8_t;
 }
+/// Whether a sound's osc 1 is a drum synth
+bool isDrumSynth(const Sound* sound);
 /// The menu item on a standard drum synth slot (dsp::drum_synth::StandardSlot) for an engine, or nullptr where the
 /// engine has none
 MenuItem* drumLayoutItem(deluge::dsp::drum_synth::Engine engine, int32_t slot);
-/// On drum synth sounds, some sound shortcut pads open the engine's settings instead (see menus.cpp). nullptr = the
-/// normal shortcut.
-MenuItem* drumShortcutFor(const Sound* sound, int32_t x, int32_t y);
-/// The patched param on a drum synth sound's shortcut pad, for the automation view and patch cable blinks. In the
-/// oscillator and FM columns, the drum synth's own pads: the engine's control there, else the Deluge's own param, or
-/// kNoParamID where that would be another of the engine's controls. Elsewhere (the mod FX pads too, as every sweep
-/// setting also has a pad in those columns), the Deluge's own.
+/// The pad a standard drum synth slot is on
+bool drumLayoutPadFor(int32_t slot, int32_t* x, int32_t* y);
+/// Whether a pad is one of a drum synth sound's standard layout pads (the MOD1 and MOD2 columns)
+bool isDrumLayoutPad(const Sound* sound, int32_t x, int32_t y);
+/// A sound's shortcut pad item. On a drum synth sound, the MOD1 and MOD2 columns are the standard drum layout and OSC1
+/// TYPE opens SYNTH MODE (see menus.cpp). nullptr = nothing.
+MenuItem* soundShortcutFor(const Sound* sound, int32_t x, int32_t y);
+/// The patched param on a drum synth sound's shortcut pad, for the automation view and patch cable blinks: the
+/// control on a drum layout pad (kNoParamID for a choice or the tuning), elsewhere the Deluge's own param, or
+/// kNoParamID where that is one of the drum controls.
 uint32_t drumShortcutParam(const Sound* sound, int32_t x, int32_t y);
 extern MenuItem* paramShortcutsForAudioClips[kDisplayWidth][kDisplayHeight];
 extern MenuItem* paramShortcutsForSongView[kDisplayWidth][kDisplayHeight];
