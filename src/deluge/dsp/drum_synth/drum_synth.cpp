@@ -498,6 +498,56 @@ int32_t lxrControlSlot(Patch::Param param) {
 	}
 }
 
+int32_t sharedControlSlot(Engine engine, StandardSlot slot) {
+	struct Shared {
+		int32_t pitchEnvAmount, pitchEnvSpeed, characterA, characterB;
+	};
+	Shared shared;
+	switch (engine) {
+	case Engine::DRUM:
+		shared = {lxrControlSlot(Patch::PITCH_AMOUNT), lxrControlSlot(Patch::PITCH_DECAY),
+		          lxrControlSlot(Patch::FM_AMOUNT), lxrControlSlot(Patch::MOD_COARSE)};
+		break;
+	case Engine::SNARE:
+		shared = {lxrControlSlot(Patch::PITCH_AMOUNT), lxrControlSlot(Patch::PITCH_DECAY),
+		          lxrControlSlot(Patch::NOISE_MIX), lxrControlSlot(Patch::NOISE_CUTOFF)};
+		break;
+	case Engine::METAL:
+		shared = {-1, -1, lxrControlSlot(Patch::FM_AMOUNT), lxrControlSlot(Patch::FM2_AMOUNT)};
+		break;
+	case Engine::TIA:
+		shared = {-1, -1, DrumControls::TIA_BLENDEX1, DrumControls::TIA_FREQ1};
+		break;
+	case Engine::IIA:
+		shared = {-1, -1, DrumControls::IIA_WEIGHT, DrumControls::IIA_ALLOY};
+		break;
+	case Engine::GIN:
+		shared = {DrumControls::GIN_MOD_AMOUNT, DrumControls::GIN_MOD_RATE, DrumControls::GIN_MIX,
+		          DrumControls::GIN_NOISE_FREQ};
+		break;
+	default: // The Cyc engines: Sweep, Contour, Color, Shape
+		shared = {DrumControls::CYC_MACRO3, DrumControls::CYC_MACRO4, DrumControls::CYC_MACRO1,
+		          DrumControls::CYC_MACRO2};
+		break;
+	}
+	switch (slot) {
+	case StandardSlot::DECAY:
+		return decaySlot(engine);
+	case StandardSlot::DRIVE:
+		return driveSlot(engine);
+	case StandardSlot::PITCH_ENV_AMOUNT:
+		return shared.pitchEnvAmount;
+	case StandardSlot::PITCH_ENV_SPEED:
+		return shared.pitchEnvSpeed;
+	case StandardSlot::CHARACTER_A:
+		return shared.characterA;
+	case StandardSlot::CHARACTER_B:
+		return shared.characterB;
+	default:
+		return -1;
+	}
+}
+
 namespace {
 /// How long an envelope release takes at a user value, in seconds, as the Deluge works it out: the preset value through
 /// the release rate table (lookupReleaseRate in util/functions), scaled by the release's neutral rate, then stepped

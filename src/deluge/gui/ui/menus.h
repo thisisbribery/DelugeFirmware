@@ -126,6 +126,12 @@ MenuItem* globalDelaySecondLayer(MenuItem const* item);
 /// The delay amount / rate pad item that delay feedback / tone sit under, or nullptr
 MenuItem* globalDelayFirstLayer(MenuItem const* item);
 class Sound;
+namespace deluge::dsp::drum_synth {
+enum class Engine : uint8_t;
+}
+/// The menu item on a standard drum synth slot (dsp::drum_synth::StandardSlot) for an engine, or nullptr where the
+/// engine has none
+MenuItem* drumLayoutItem(deluge::dsp::drum_synth::Engine engine, int32_t slot);
 /// On drum synth sounds, some sound shortcut pads open the engine's settings instead (see menus.cpp). nullptr = the
 /// normal shortcut.
 MenuItem* drumShortcutFor(const Sound* sound, int32_t x, int32_t y);

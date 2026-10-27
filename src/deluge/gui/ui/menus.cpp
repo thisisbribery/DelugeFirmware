@@ -1912,7 +1912,70 @@ PLACE_SDRAM_DATA DrumPad drumPads[] = {
 #undef XIA_PADS
 #undef CYC_PADS
 #undef SWEEP_PADS
+
+// The standard drum synth layout (see dsp::drum_synth::StandardSlot): the shared slots, the same job on every engine,
+// then each engine's own extras. nullptr = an engine without that setting. The shared slots' items must be the
+// controls dsp::drum_synth::sharedControlSlot() names, as the gold knobs read that. Settings an engine has beyond its
+// nine extras are only in its menu: LXR Metal's mod 2 fine, GIN's EQ and level.
+using StandardSlot = deluge::dsp::drum_synth::StandardSlot;
+constexpr int32_t kNumStandardSlots = static_cast<int32_t>(StandardSlot::NUM_SLOTS);
+struct DrumLayout {
+	DrumEngine first; ///< The engines it's for, first to last
+	DrumEngine last;
+	std::array<MenuItem*, kNumStandardSlots> items; ///< Decay, drive, pitch, pitch envelope amount and speed,
+	                                                ///< character A and B, then extras 1 to 9
+};
+PLACE_SDRAM_DATA DrumLayout drumLayouts[] = {
+    {DrumEngine::DRUM,
+     DrumEngine::DRUM,
+     {&lxrDecayMenu, &lxrDriveMenu, &source0TransposeMenu, &drumPitchAmountMenu, &drumPitchDecayMenu, &drumFmAmountMenu,
+      &drumModCoarseMenu, &drumPitchSlopeMenu, &drumOscWaveMenu, &drumMixModeMenu, &drumModWaveMenu, &drumModFineMenu,
+      &drumTransientMenu, &drumTransientVolumeMenu, &drumTransientPitchMenu, nullptr}},
+    {DrumEngine::SNARE,
+     DrumEngine::SNARE,
+     {&lxrDecayMenu, &lxrDriveMenu, &source0TransposeMenu, &drumPitchAmountMenu, &drumPitchDecayMenu, &drumNoiseMixMenu,
+      &drumNoiseCutoffMenu, &drumPitchSlopeMenu, &drumOscWaveMenu, &drumNoisePitchMenu, &drumNoiseFilterMenu,
+      &drumNoiseResonanceMenu, &drumTransientMenu, &drumTransientVolumeMenu, &drumTransientPitchMenu, nullptr}},
+    {DrumEngine::METAL,
+     DrumEngine::METAL,
+     {&lxrDecayMenu, &lxrDriveMenu, &source0TransposeMenu, nullptr, nullptr, &drumFmAmountMenu, &drumFm2AmountMenu,
+      &drumMod2CoarseMenu, &drumOscWaveMenu, &drumModWaveMenu, &drumModCoarseMenu, &drumModFineMenu, &drumTransientMenu,
+      &drumTransientVolumeMenu, &drumTransientPitchMenu, &drumMod2WaveMenu}},
+    {DrumEngine::TIA,
+     DrumEngine::TIA,
+     {&xiaDecayMenu, &xiaDriveMenu, &source0TransposeMenu, nullptr, nullptr, &tiaBlendex1Menu, &tiaFreq1Menu,
+      &xiaPunchMenu, &tiaBlendex2Menu, &tiaFreq2Menu, &tiaBlendex3Menu, &tiaFreq3Menu, nullptr, nullptr, nullptr,
+      nullptr}},
+    {DrumEngine::IIA,
+     DrumEngine::IIA,
+     {&xiaDecayMenu, &xiaDriveMenu, &source0TransposeMenu, nullptr, nullptr, &iiaWeightMenu, &iiaAlloyMenu,
+      &xiaPunchMenu, &iiaShapeMenu, &iiaStrikeMenu, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr}},
+    // Every Cyc engine: Sweep and Contour on the pitch envelope's slots, Color and Shape on the characters (each
+    // engine's own names show in the menus). Drive is the engine's drive, not Punch, which is an extra.
+    {DrumEngine::CYC_KIK,
+     DrumEngine::CLAP_ENG,
+     {&cycDecayMenu, &cycDriveMenu, &source0TransposeMenu, &cycMacro3Menu, &cycMacro4Menu, &cycMacro1Menu,
+      &cycMacro2Menu, &xiaPunchMenu, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr}},
+    // GIN: its pitch modulation as the pitch envelope, the tone / noise mix and the noise filter as the characters
+    {DrumEngine::GIN,
+     DrumEngine::GIN,
+     {&ginDecayMenu, &ginDriveMenu, &source0TransposeMenu, &ginModAmountMenu, &ginModRateMenu, &ginMixMenu,
+      &ginNoiseFreqMenu, &ginModModeMenu, &ginWaveMenu, &ginToneAttackMenu, &ginToneDecayMenu, &drumNoiseFilterMenu,
+      &ginNoiseResMenu, &ginNoiseEnvMenu, &ginNoiseAttackMenu, &ginNoiseDecayMenu}},
+};
 } // namespace
+
+MenuItem* drumLayoutItem(deluge::dsp::drum_synth::Engine engine, int32_t slot) {
+	if (slot < 0 || slot >= kNumStandardSlots) {
+		return nullptr;
+	}
+	for (const DrumLayout& layout : drumLayouts) {
+		if (engine >= layout.first && engine <= layout.last) {
+			return layout.items[slot];
+		}
+	}
+	return nullptr;
+}
 
 MenuItem* drumShortcutFor(const Sound* sound, int32_t x, int32_t y) {
 	if (sound == nullptr || sound->sources[0].oscType != OscType::DRUM_SYNTH) {

@@ -147,6 +147,22 @@ constexpr int32_t decaySlot(Engine engine) {
 	return isXia(engine) ? DrumControls::ENGINE_DECAY : DrumControls::COMMON_DECAY;
 }
 
+/// The standard drum synth layout every engine follows, as far as it can: the shared slots, the same job on every
+/// engine, then each engine's own extras. The shortcut pads, the gold knobs and the shift glow all read it. It only
+/// arranges the controls: where each one is saved (DrumControls) doesn't change.
+enum class StandardSlot : uint8_t {
+	DECAY,
+	DRIVE,
+	PITCH,            ///< The Deluge's own tuning (osc 1 transpose), on every engine
+	PITCH_ENV_AMOUNT, ///< The Cyc engines' Sweep
+	PITCH_ENV_SPEED,  ///< The Cyc engines' Contour
+	CHARACTER_A,      ///< The Cyc engines' Color
+	CHARACTER_B,      ///< The Cyc engines' Shape
+	NUM_SHARED,
+	EXTRA_1 = NUM_SHARED, ///< Extras 1 to 9: each engine's own settings
+	NUM_SLOTS = 16,
+};
+
 enum class Wave : uint8_t { SINE, TRIANGLE, SAW, SQUARE, NOISE, NUM_WAVES };
 
 enum class NoiseFilter : uint8_t { LOW_PASS, HIGH_PASS, BAND_PASS, OFF, NUM_FILTERS };
@@ -324,6 +340,16 @@ private:
 /// The control slot an LXR setting lives on, or -1 for the choices (waves, modes, filter type), which stay in the
 /// Patch. The slots are shared between the LXR engines: each engine uses its own settings' slots.
 int32_t lxrControlSlot(Patch::Param param);
+
+/// The control (DrumControls slot) an engine has on a shared standard slot, or -1 where it has none (and always for
+/// PITCH, which is the Deluge's tuning). LXR Metal, DXIA and DIIA have no pitch envelope.
+///
+/// The Cyc engines put Sweep and Contour on the pitch envelope's slots on every machine, though they don't sweep pitch
+/// on all of them. Sweep / Contour per machine: Kik pitch sweep / sweep length (and the knock), Snr pitch sweep /
+/// rattle noise decay, Metal pitch sweep / top end decay, Perc pitch sweep / overtone decay and sweep length, Tone
+/// index burst / index fade, Chord wave shape / wave decay, Vtg Snr pitch sweep / body FM depth, Clap spacing crunch /
+/// tail decay.
+int32_t sharedControlSlot(Engine engine, StandardSlot slot);
 
 /// The controls a patch starts from: its LXR settings, or an XIA engine's defaults
 DrumControls controlsFromPatch(const Patch& patch);
