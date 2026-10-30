@@ -116,6 +116,7 @@ private:
 	void startTimer() { uiTimerManager.setTimer(TimerName::UI_SPECIFIC, kRefreshIntervalMs); }
 
 	void takeSnapshot() {
+		cpu_meter::rendersToTimeVoices = cpu_meter::kRendersPerRefresh;
 		last_audio_ = cpu_meter::audio;
 		last_voices_ = cpu_meter::voices;
 		last_drum_ = cpu_meter::drumSynth;

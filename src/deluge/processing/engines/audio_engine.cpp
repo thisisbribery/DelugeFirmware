@@ -800,6 +800,9 @@ bool calledFromScheduler = false;
 	uint32_t renderStartTicks = getSystemTicks();
 	renderAudio(numSamples);
 	cpu_meter::audio.add(renderStartTicks, getSystemTicks(), numSamples);
+	if (cpu_meter::rendersToTimeVoices > 0) {
+		cpu_meter::rendersToTimeVoices--;
+	}
 
 	scheduleMidiGateOutISR(numSamples);
 

@@ -309,7 +309,7 @@ Cycle through them with **SHIFT + KIT** on a GIN kit (see [Kit presets](#kit-pre
 - Velocity sets level through the Deluge's usual velocity patch, not GIN's per-layer velocity settings.
 - There's no A / B morph: parameter locks and automation do that job.
 - Settings follow the knobs while a hit plays, where GIN fixes them at the hit.
-- A hit ends once both layers are 80 dB down.
+- A hit ends once both layers are 72 dB down (80 dB before v1.17).
 
 ## CPU load
 
@@ -321,6 +321,10 @@ Cycle through them with **SHIFT + KIT** on a GIN kit (see [Kit presets](#kit-pre
 - **Drum**: average nanoseconds per sample for the drum synth oscillator alone.
 
 One sample lasts 22,676 ns, so a Voice reading of 900 means each playing voice uses about 4% of the CPU. Measured on hardware, a kick / tom drum synth voice costs about as much as a sample voice.
+
+Voice and Drum are only measured while this page is open, so timing them costs nothing the rest of the time.
+
+**How long a hit lasts (from v1.17).** A drum synth voice keeps running until its own decay is 72 dB down, then stops (Cyc engines fade out over the last 64 samples). Before v1.17 they ran to 100 dB down, so long tails (cymbals, open hats, toms, Chord, Tone) kept a voice busy for about a third longer than you could hear. Once a hit is 40 dB down, the Deluge treats it like a releasing note when it runs short of CPU, so it cuts that tail before notes you can still hear. A Decay of 127 still holds for as long as the note does.
 
 ## Compatibility
 

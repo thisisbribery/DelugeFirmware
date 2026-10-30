@@ -29,6 +29,8 @@
 #include "processing/source.h"
 #include "storage/multi_range/multisample_range.h"
 
+using DrumVoicePool = deluge::memory::ObjectPool<deluge::dsp::drum_synth::Voice, deluge::memory::fast_allocator>;
+
 VoiceUnisonPartSource::~VoiceUnisonPartSource() {
 	unassign(false);
 }
@@ -89,7 +91,14 @@ bool VoiceUnisonPartSource::noteOn(Voice* voice, Source* source, VoiceSamplePlay
 		dxVoice->init(*patch, voice->noteCodeAfterArpeggiation, velocity);
 	}
 	else if (synthMode != SynthMode::FM && source->oscType == OscType::DRUM_SYNTH) {
-		drumVoice.trigger(source->drumPatch);
+		if (drumVoice == nullptr) { // We might already have one, and just be restarting this voice
+			try {
+				drumVoice = DrumVoicePool::get().acquire().release();
+			} catch (deluge::exception e) {
+				return false;
+			}
+		}
+		drumVoice->trigger(source->drumPatch);
 	}
 	else {
 		if (oscRetriggerPhase != 0xFFFFFFFF) {
@@ -115,6 +124,11 @@ void VoiceUnisonPartSource::unassign(bool deletingSong) {
 	if (dxVoice != nullptr) {
 		dxEngine->dxVoiceUnassigned(dxVoice);
 		dxVoice = nullptr;
+	}
+
+	if (drumVoice != nullptr) {
+		DrumVoicePool::recycle(drumVoice);
+		drumVoice = nullptr;
 	}
 
 	if (livePitchShifter != nullptr) {

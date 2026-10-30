@@ -20,6 +20,7 @@
 #include "definitions.h"
 #include "dsp/drum_synth/cyc.h"
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <complex>
 
@@ -37,6 +38,26 @@ float leakyCoeff(float tauMs, float sampleRate) {
 /// Open303's AnalogEnvelope coefficient for a stage time in ms
 float envelopeCoeff(float timeMs, float sampleRate) {
 	return (timeMs > 0.f) ? 1.f - std::exp(-1.f / (sampleRate * 0.001f * timeMs)) : 1.f;
+}
+
+/// 2 to the x, to within 2e-7: the whole part straight into the exponent, and a polynomial for the fraction
+[[gnu::always_inline]] inline float fastExp2(float x) {
+	x = std::clamp(x, -126.f, 126.f);
+	int32_t whole = (int32_t)x;
+	whole -= (x < (float)whole) ? 1 : 0; // Round down rather than towards zero
+	float f = x - (float)whole;
+	float p = 1.8775767e-3f;
+	p = p * f + 8.9893406e-3f;
+	p = p * f + 5.5826318e-2f;
+	p = p * f + 2.4015361e-1f;
+	p = p * f + 6.9315308e-1f;
+	p = p * f + 9.9999994e-1f;
+	return p * std::bit_cast<float>((whole + 127) << 23);
+}
+
+/// Linear interpolation into a wavetable
+[[gnu::always_inline]] inline float readTable(const float* table, int32_t index, float frac) {
+	return table[index] + frac * (table[index + 1] - table[index]);
 }
 } // namespace
 
@@ -199,65 +220,30 @@ void Biquad::setupNotch(float frequency, float bandwidthOctaves, float sampleRat
 	b2 = (float)scale;
 }
 
-float AntiAliasFilter::process(float in) {
-	// b0, b1, b2, -a1, -a2 for each section. The product of these is Open303's filter to within 3e-7.
-	static constexpr float kSections[6][5] = {
-	    {0.016780659926151895f, 0.022947305659324117f, 0.016780659926151933f, 1.5863116558748012f,
-	     -0.6428202813864291f},
-	    {0.09459763035184697f, -0.035133895460929543f, 0.09459763035184561f, 1.5620957226926269f, -0.7161570879353899f},
-	    {0.29069484193705036f, -0.29936460675402321f, 0.290694841937152f, 1.5310700890181974f, -0.81309516613837662f},
-	    {0.52578571778729133f, -0.66650721431468896f, 0.52578571778628858f, 1.5080939966772393f, -0.89315821793613026f},
-	    {0.70505069759938288f, -0.96089912665161337f, 0.70505069760221728f, 1.4983265489464017f, -0.9475288174963884f},
-	    {0.79922266095877925f, -1.117333033909587f, 0.79922266095683048f, 1.5032624520096824f, -0.98437474001570513f},
-	};
-	float x = in;
-	for (int32_t s = 0; s < 6; s++) {
-		// Transposed direct form II
-		const float* c = kSections[s];
-		std::array<float, 2>& z = state[s];
-		float y = c[0] * x + z[0];
-		z[0] = c[1] * x + c[3] * y + z[1];
-		z[1] = c[2] * x + c[4] * y;
-		x = y;
-	}
-	return x;
-}
-
 void TeeBeeFilter::setSampleRate(float sampleRate) {
 	twoPiOverSampleRate = 2.f * kPiF / sampleRate;
 	feedbackHighpass.setup(OnePole::HIGHPASS, 150.f, sampleRate);
-	calculateCoefficients();
 }
 
 void TeeBeeFilter::setResonance(float percent) {
 	float r = 0.01f * percent;
 	resonanceSkewed = (1.f - std::exp(-3.f * r)) / (1.f - std::exp(-3.f));
-	calculateCoefficients();
 }
 
-void TeeBeeFilter::setCutoff(float cutoff) {
-	cutoff = std::clamp(cutoff, 200.f, 20000.f);
-	if (cutoff != cutoff_) {
-		cutoff_ = cutoff;
-		calculateCoefficients();
-	}
-}
-
-void TeeBeeFilter::calculateCoefficients() {
-	float wc = twoPiOverSampleRate * cutoff_;
+TeeBeeFilter::Coefficients TeeBeeFilter::coefficientsFor(float cutoff) const {
+	float wc = twoPiOverSampleRate * std::clamp(cutoff, 200.f, 20000.f);
 	float r = resonanceSkewed;
 
 	if (classic_) {
 		// Ala mystran and kunn, from the KVR thread
 		float fx = wc * (0.70710678f / (2.f * kPiF));
-		b0 = (0.00045522346f + 6.1922189f * fx) / (1.f + 12.358354f * fx + 4.4156345f * (fx * fx));
-		k = fx * (fx * (fx * (fx * (fx * (fx + 7198.6997f) - 5837.7917f) - 476.47308f) + 614.95611f) + 213.87126f)
-		    + 16.998792f;
-		g = k * (1.f / 17.f);
+		float b0 = (0.00045522346f + 6.1922189f * fx) / (1.f + 12.358354f * fx + 4.4156345f * (fx * fx));
+		float k = fx * (fx * (fx * (fx * (fx * (fx + 7198.6997f) - 5837.7917f) - 476.47308f) + 614.95611f) + 213.87126f)
+		          + 16.998792f;
+		float g = k * (1.f / 17.f);
 		g = (g - 1.f) * r + 1.f;
 		g = g * (1.f + r);
-		k = k * r;
-		return;
+		return {b0, 0.f, k * r, g};
 	}
 
 	// 12th order polynomial for the one-pole coefficient, and 8th order for the resonance scale
@@ -267,15 +253,13 @@ void TeeBeeFilter::calculateCoefficients() {
 	tmp = wc2 * tmp + 7.529691648678890e-01f * wc + -8.249882473764324e-01f;
 	tmp = wc2 * tmp + 8.736418933533319e-01f * wc + -9.164580250284832e-01f;
 	tmp = wc2 * tmp + 9.583192455599817e-01f * wc + -9.999994950291231e-01f;
-	a1 = wc2 * tmp + 9.999999927726119e-01f * wc + -9.999999999857464e-01f;
-	b0 = 1.f + a1;
+	float a1 = wc2 * tmp + 9.999999927726119e-01f * wc + -9.999999999857464e-01f;
 
 	tmp = wc2 * -4.554677015609929e-05f + -2.022131730719448e-05f * wc + 2.784706718370008e-03f;
 	tmp = wc2 * tmp + 2.079921151733780e-03f * wc + -8.333236384240325e-02f;
 	tmp = wc2 * tmp + -1.666668203490468e-01f * wc + 1.000000012124230e+00f;
 	tmp = wc2 * tmp + 3.999999999650040e+00f * wc + 4.000000000000113e+00f;
-	k = r * tmp;
-	g = 1.f;
+	return {1.f + a1, a1, r * tmp, 1.f};
 }
 
 void TeeBeeFilter::reset() {
@@ -301,6 +285,12 @@ Open303::Open303() {
 
 void Open303::setControls(Controls const& newControls) {
 	bool resonanceChanged = newControls.resonance != controls.resonance;
+	// Open303 applies these at once, so the filter jumps to them rather than gliding. The cutoff knob counts too, as it
+	// moves the envelope's scaling and offset.
+	if (resonanceChanged || newControls.cutoff != controls.cutoff || newControls.envMod != controls.envMod
+	    || newControls.classicFilter != controls.classicFilter) {
+		filterJump = true;
+	}
 	controls = newControls;
 	if (resonanceChanged || !sounding) {
 		filter.setResonance(controls.resonance);
@@ -339,6 +329,8 @@ void Open303::setAccentState(bool accent) {
 	// Accented notes have a fixed 200 ms filter decay
 	mainEnvCoeff = std::exp(-1.f / (0.001f * (accent ? 200.f : controls.decay) * kSampleRate));
 	ampReleaseCoeff = envelopeCoeff(accent ? 50.f : 1.f, kSampleRate);
+	// The accent's jump in envelope, or a new note's, lands at once, as on Open303
+	filterJump = true;
 }
 
 void Open303::triggerNote(int32_t note, bool accent) {
@@ -437,77 +429,11 @@ void Open303::reset() {
 	ampDeClicker.reset();
 }
 
-inline float Open303::oscillator() {
-	// Like Open303: choose the table from the increment, two octaves of headroom
-	int32_t octave = (31 - __builtin_clz(phaseIncrement | 1)) - (32 - wavetables::kLengthMagnitude);
-	int32_t table = std::clamp<int32_t>(octave + 2, 0, wavetables::kNumTables - 1);
-
-	constexpr int32_t fracBits = 32 - wavetables::kLengthMagnitude;
-	int32_t index = phase >> fracBits;
-	float frac = (float)(phase & ((1u << fracBits) - 1)) * (1.f / (1u << fracBits));
-	phase += phaseIncrement;
-
-	float blend = controls.waveform;
-	const float* saw = wavetables::get(wavetables::SAW, table) + index;
-	const float* square = wavetables::get(wavetables::SQUARE, table) + index;
-	float sawValue = saw[0] + frac * (saw[1] - saw[0]);
-	float squareValue = square[0] + frac * (square[1] - square[0]);
-	return (1.f - blend) * sawValue + blend * 0.5f * squareValue;
-}
-
-float Open303::renderSample() {
-	// Oscillator pitch, through the slide
-	pitchSlew = oscFreq + pitchSlewCoeff * (pitchSlew - oscFreq);
-	if (pitchSlew > 0.f && pitchSlew < 20000.f) {
-		phaseIncrement = (uint32_t)(pitchSlew * (4294967296.f / (kSampleRate * kOversampling)));
-	}
-
-	// Cutoff, from the main envelope and, on accents, its smoothed copy
-	mainEnv *= mainEnvCoeff;
-	float mainEnvOut = mainEnv;
-	rc2 = ((accentGain > 0.f) ? mainEnvOut : 0.f) * (1.f - rc2Coeff) + rc2Coeff * rc2;
-	float envAmount = envScaler * (mainEnvOut - envOffset) + accentGain * rc2;
-	filter.setCutoff(cutoffNow * std::exp2(envAmount));
-
-	// Amplitude
-	if (ampAttackPending) {
-		ampEnv = 1.f;
-		ampAttackPending = false;
-	}
-	else if (ampNoteOn) {
-		ampEnv += ampDecayCoeff * (controls.ampSustain - ampEnv);
-	}
-	else {
-		ampEnv -= ampReleaseCoeff * ampEnv;
-	}
-	float amp = ampEnv;
-	if (ampNoteOn) {
-		amp += (0.45f + 4.f * accentGain) * mainEnvOut;
-	}
-	amp = ampDeClicker.process(amp);
-	lastAmp = amp;
-
-	float out = 0.f;
-	for (int32_t i = 0; i < kOversampling; i++) {
-		out = -oscillator();
-		out = highpass1.process(out);
-		out = filter.process(out);
-		out = antiAlias.process(out);
-	}
-	out = allpass.process(out);
-	out = highpass2.process(out);
-	out = notch.process(out);
-	return out * amp;
-}
-
-void Open303::render(std::span<int32_t> buffer, float gain) {
-	if (!sounding || !wavetables::built()) {
-		return;
-	}
-
+template <bool classic>
+void Open303::renderVoice(std::span<int32_t> buffer, float gain) {
 	// Glide the cutoff across the buffer so turning the knob doesn't zipper
-	float cutoffStart = cutoffNow;
-	float cutoffStep = (controls.cutoff - cutoffStart) / (float)buffer.size();
+	const int32_t size = (int32_t)buffer.size();
+	const float cutoffStep = (controls.cutoff - cutoffNow) / (float)size;
 
 	// Drive, the drum synth engines' curve. A plain note peaks near 1 and an accent near 3, so a quarter of that into
 	// the clipper keeps plain notes clean at low settings and lets accents bite first. Half the drive gain is taken
@@ -518,16 +444,135 @@ void Open303::render(std::span<int32_t> buffer, float gain) {
 	const float driveIn = kDriveIn * driveGain;
 	const float driveOut = 1.f / (kDriveIn * std::sqrt(driveGain));
 
-	for (int32_t& sample : buffer) {
-		cutoffNow += cutoffStep;
-		float out = renderSample();
-		if (driven) {
-			out = drum_synth::cyc::driveCurve(out * driveIn) * driveOut;
+	// Fully saw or fully square only needs the one wavetable
+	const float blend = controls.waveform;
+	const bool sawOnly = blend == 0.f;
+	const bool squareOnly = blend == 1.f;
+	const float sawLevel = 1.f - blend;
+	const float squareLevel = 0.5f * blend;
+
+	// The state the oversampled loop works on, in locals so it can stay in registers. It goes back at the end.
+	uint32_t phaseNow = phase;
+	uint32_t increment = phaseIncrement;
+	OnePole inputHighpass = highpass1;
+	TeeBeeFilter ladder = filter;
+	AntiAliasFilter decimator = antiAlias;
+	float amp = lastAmp;
+
+	constexpr int32_t fracBits = 32 - wavetables::kLengthMagnitude;
+	int32_t* sample = buffer.data();
+	for (int32_t done = 0; done < size;) {
+		const int32_t n = std::min(kControlInterval, size - done);
+
+		// The cutoff, from the main envelope and, on accents, its smoothed copy, through the block. It moves slowly, so
+		// the filter coefficients are worked out for the block's last sample only, and glide there from the last
+		// block's.
+		std::array<float, kControlInterval> envelope;
+		float firstCutoff = 0.f;
+		for (int32_t i = 0; i < n; i++) {
+			cutoffNow += cutoffStep;
+			mainEnv *= mainEnvCoeff;
+			rc2 = ((accentGain > 0.f) ? mainEnv : 0.f) * (1.f - rc2Coeff) + rc2Coeff * rc2;
+			envelope[i] = mainEnv;
+			if (i == 0 && filterJump) {
+				firstCutoff = cutoffNow * fastExp2(envScaler * (mainEnv - envOffset) + accentGain * rc2);
+			}
 		}
-		out *= gain;
-		sample += (int32_t)std::clamp(out, -2147483520.f, 2147483520.f);
+		done += n;
+		const float lastCutoff = cutoffNow * fastExp2(envScaler * (mainEnv - envOffset) + accentGain * rc2);
+
+		// Asked of filter rather than ladder, which has the same settings, so ladder never has its address taken
+		TeeBeeFilter::Coefficients target = filter.coefficientsFor(lastCutoff);
+		if (filterJump) {
+			ladder.jumpTo(filter.coefficientsFor(firstCutoff), target, n);
+			filterJump = false;
+		}
+		else {
+			ladder.glideTo(target, n);
+		}
+
+		for (int32_t i = 0; i < n; i++) {
+			// Oscillator pitch, through the slide
+			pitchSlew = oscFreq + pitchSlewCoeff * (pitchSlew - oscFreq);
+			if (pitchSlew > 0.f && pitchSlew < 20000.f) {
+				increment = (uint32_t)(pitchSlew * (4294967296.f / (kSampleRate * kOversampling)));
+			}
+
+			// Amplitude
+			if (ampAttackPending) {
+				ampEnv = 1.f;
+				ampAttackPending = false;
+			}
+			else if (ampNoteOn) {
+				ampEnv += ampDecayCoeff * (controls.ampSustain - ampEnv);
+			}
+			else {
+				ampEnv -= ampReleaseCoeff * ampEnv;
+			}
+			amp = ampEnv;
+			if (ampNoteOn) {
+				amp += (0.45f + 4.f * accentGain) * envelope[i];
+			}
+			amp = ampDeClicker.process(amp);
+
+			// Like Open303: choose the table from the increment, two octaves of headroom
+			int32_t octave = (31 - __builtin_clz(increment | 1)) - (32 - wavetables::kLengthMagnitude);
+			int32_t table = std::clamp<int32_t>(octave + 2, 0, wavetables::kNumTables - 1);
+			const float* saw = wavetables::tables[wavetables::SAW][table];
+			const float* square = wavetables::tables[wavetables::SQUARE][table];
+
+			ladder.step();
+			float out = 0.f;
+			for (int32_t j = 0; j < kOversampling; j++) {
+				int32_t index = phaseNow >> fracBits;
+				float frac = (float)(phaseNow & ((1u << fracBits) - 1)) * (1.f / (1u << fracBits));
+				phaseNow += increment;
+				if (sawOnly) {
+					out = readTable(saw, index, frac);
+				}
+				else if (squareOnly) {
+					out = 0.5f * readTable(square, index, frac);
+				}
+				else {
+					out = sawLevel * readTable(saw, index, frac) + squareLevel * readTable(square, index, frac);
+				}
+				out = inputHighpass.process(-out);
+				out = ladder.process<classic>(out);
+				out = decimator.process(out);
+			}
+			out = allpass.process(out);
+			out = highpass2.process(out);
+			out = notch.process(out);
+			out *= amp;
+
+			if (driven) {
+				out = drum_synth::cyc::driveCurve(out * driveIn) * driveOut;
+			}
+			out *= gain;
+			*sample++ += (int32_t)std::clamp(out, -2147483520.f, 2147483520.f);
+		}
 	}
+
+	phase = phaseNow;
+	phaseIncrement = increment;
+	highpass1 = inputHighpass;
+	filter = ladder;
+	antiAlias = decimator;
+	lastAmp = amp;
 	cutoffNow = controls.cutoff;
+}
+
+void Open303::render(std::span<int32_t> buffer, float gain) {
+	if (!sounding || !wavetables::built()) {
+		return;
+	}
+
+	if (filter.isClassic()) {
+		renderVoice<true>(buffer, gain);
+	}
+	else {
+		renderVoice<false>(buffer, gain);
+	}
 
 	// Gone quiet, so stop rendering until the next note
 	if (!ampNoteOn && ampEnv < 1e-5f && std::abs(lastAmp) < 1e-5f) {

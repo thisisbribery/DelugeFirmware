@@ -8,6 +8,9 @@
 #include "dsp/drum_synth/cyc.h"
 #include <algorithm>
 #include <cmath>
+#if defined(__ARM_NEON)
+#include <arm_neon.h>
+#endif
 
 namespace deluge::dsp::drum_synth::cyc {
 
@@ -61,10 +64,17 @@ inline float noise(uint32_t& state) {
 	return static_cast<float>(static_cast<int32_t>(state)) * (1.f / 2147483648.f);
 }
 
+/// Step the noise on n samples without using them, so the noise after is as if they had been
+inline void skipNoise(uint32_t& state, int32_t n) {
+	for (int32_t i = 0; i < n; i++) {
+		state ^= state << 13;
+		state ^= state >> 17;
+		state ^= state << 5;
+	}
+}
+
 /// A TPT state variable filter, after Andrew Simper's
-struct SvfCoefs {
-	float a1, a2, a3, k;
-};
+using SvfCoefs = Voice::SvfCoefs;
 
 inline SvfCoefs svfCoefs(float hz, float q, float sampleRate) {
 	const float g = tanf(3.14159265f * std::clamp(hz, 10.f, 0.45f * sampleRate) / sampleRate);
@@ -98,12 +108,26 @@ inline float softClip(float x) {
 
 constexpr float kHoldKnob = 0.995f;
 
+/// Samples per chunk. Which layers still sound is looked at once a chunk, the chunks counted from the start of the
+/// note, so it sounds the same at any host block size.
+constexpr int32_t kChunk = 64;
+/// A voice ends once its level is below -72 dB, fading out over a chunk so it doesn't click
+constexpr float kEndLevel = 2.5118864e-4f;
+/// An envelope times the deepest sweep below this leaves 1 + depth * envelope exactly 1: the sweep is over to the bit
+constexpr float kSweepOver = 0x1p-24f;
+/// A layer whose part of the output has fallen below this, at full scale, is left out: -110 dB, so a few left out
+/// together still come to less than -100 dB
+constexpr float kInaudible = 3e-6f;
+/// The most the output stage can raise an engine's output: full drive, and punch at its start
+constexpr float kMaxOutputGain = 5.6234133f * 1.5f;
+
 } // namespace cyc_detail
 
 using namespace cyc_detail;
 
 // Engines -------------------------------------------------------------------------------------------------------------
-// Each renders mono float samples, about -1 to 1, before the common amp envelope.
+// Each renders mono float samples, about -1 to 1, before the common amp envelope. prepare*() works out what the
+// settings make, only when they change; render*() runs a chunk or part of one, chunkStart at the start of a chunk.
 
 namespace {
 
@@ -164,6 +188,11 @@ constexpr std::array<float, static_cast<size_t>(Kind::NUM_KINDS)> kLevelTrim{
     2.02f, // clap eng
 };
 
+/// A part of an engine's output below this, before the level trim, is inaudible (see kInaudible)
+constexpr float goneFor(Kind kind) {
+	return kInaudible / (kLevelTrim[static_cast<size_t>(kind)] * kMaxOutputGain);
+}
+
 const DecayCurve& decayCurveFor(Kind kind) {
 	switch (kind) {
 	case Kind::SNR:
@@ -201,6 +230,9 @@ constexpr std::array<float, 6> kKikSweepTime{0.010f, 0.011f, 0.022f, 0.046f, 0.0
 constexpr std::array<float, 6> kKikShapeKnob{0.f, 16.f, 32.f, 64.f, 96.f, 127.f};
 constexpr std::array<float, 6> kKikSpike{-0.05f, 0.f, 0.1f, 0.45f, 0.5f, 0.2f};
 constexpr std::array<float, 6> kKikSpikeNoise{0.f, 0.f, 0.f, 0.f, 2.5f, 0.5f};
+constexpr float kKikLevel = 0.23f;
+constexpr float kKikMaxDepth = 22.f; ///< Deeper than the deepest sweep, e^3.09 - 1
+constexpr float kKikMaxKnock = 0.54f;
 
 /// sign(x) |x|^20: a narrow spike at each peak of a sine
 inline float spike(float x) {
@@ -228,48 +260,81 @@ void startKik(Voice& v, const Ctx& c) {
 	k.body.phase = 0;
 }
 
-void renderKik(Voice& v, const Ctx& c, float* out, int32_t n) {
-	auto& k = v.s_.kik;
+void prepareKik(Voice& v, const Ctx& c) {
+	auto& p = v.p_.e.kik;
 	const float color = c.st.macro[0];
 	const float shape = c.st.macro[1];
 	const float sweepKnob = c.st.macro[2] * 127.f;
 	const float contour = c.st.macro[3];
 
-	const float fEnd = c.hz * 0.25f;
-	const float depth = expf(interp(kKikSweepKnob, kKikSweepDepth, sweepKnob)) - 1.f;
-	const float pitchCoef = decayFor(interp(kKikSweepKnob, kKikSweepTime, sweepKnob) * 6.907755f
-	                                     * sweepTimeScale(contour, kKikContourDefault),
-	                                 c.sr);
-	const float incPerHz = 4294967296.f / c.sr;
+	p.fEnd = c.hz * 0.25f;
+	p.depth = expf(interp(kKikSweepKnob, kKikSweepDepth, sweepKnob)) - 1.f;
+	p.pitchCoef = decayFor(interp(kKikSweepKnob, kKikSweepTime, sweepKnob) * 6.907755f
+	                           * sweepTimeScale(contour, kKikContourDefault),
+	                       c.sr);
+	p.incPerHz = 4294967296.f / c.sr;
+	p.maxHz = 0.45f * c.sr;
+	p.restInc = static_cast<uint32_t>(std::min(p.fEnd, p.maxHz) * p.incPerHz);
 
 	// Shape: spikes, then feedback
-	const float spikeAmount = interp(kKikShapeKnob, kKikSpike, shape * 127.f);
-	const float spikeNorm = 1.f / (1.f + spikeAmount);
-	const float spikeNoise = interp(kKikShapeKnob, kKikSpikeNoise, shape * 127.f);
+	p.spikeAmount = interp(kKikShapeKnob, kKikSpike, shape * 127.f);
+	p.spikeNorm = 1.f / (1.f + p.spikeAmount);
+	p.spikeNoise = interp(kKikShapeKnob, kKikSpikeNoise, shape * 127.f);
+	// The spikes reach the output through Color's drive (up to 6 times) and the level
+	p.spikes = (std::abs(p.spikeAmount) + std::abs(p.spikeNoise)) * 1.05f * 6.f * kKikLevel >= goneFor(Kind::KIK);
 	// Color: a blend from clean into a soft clipper driven harder as it comes in
-	const float drive = 1.f + 5.f * color;
-	const float driveNorm = color / softClip(drive);
-	const float dry = 1.f - color;
+	p.drive = 1.f + 5.f * color;
+	p.driveNorm = color / softClip(p.drive);
+	p.dry = 1.f - color;
+	p.colored = color != 0.f;
 	// Contour: knock level
-	const float knock = 0.04f + 0.5f * contour * contour;
-	const float clickCoef = decayFor(0.004f, c.sr);
-	constexpr float kLevel = 0.23f;
+	p.knock = 0.04f + 0.5f * contour * contour;
+	p.clickCoef = decayFor(0.004f, c.sr);
+}
+
+void renderKik(Voice& v, float* out, int32_t n, bool chunkStart) {
+	auto& k = v.s_.kik;
+	const auto& p = v.p_.e.kik;
+	if (k.pitchEnv * kKikMaxDepth < kSweepOver) {
+		k.pitchEnv = 0.f; // Over, at any Sweep
+	}
+	if (chunkStart && kKikMaxKnock * 2.f * k.clickEnv < goneFor(Kind::KIK)) {
+		k.clickEnv = 0.f; // The knock is gone
+	}
+	const bool sweeping = k.pitchEnv != 0.f;
+	const bool full = p.spikes || k.clickEnv != 0.f; // Spikes or knock, both riding on the noise
 
 	for (int32_t i = 0; i < n; i++) {
-		const float hz = fEnd * (1.f + depth * k.pitchEnv);
-		k.pitchEnv *= pitchCoef;
-		k.body.phase += static_cast<uint32_t>(std::min(hz, 0.45f * c.sr) * incPerHz);
+		if (sweeping) {
+			const float hz = p.fEnd * (1.f + p.depth * k.pitchEnv);
+			k.pitchEnv *= p.pitchCoef;
+			k.body.phase += static_cast<uint32_t>(std::min(hz, p.maxHz) * p.incPerHz);
+		}
+		else {
+			k.body.phase += p.restInc;
+		}
 		float x = sine(k.body.phase);
-		const float nz = noise(v.common_.rng);
-		const float sp = spike(x);
-		x = (x + (spikeAmount + spikeNoise * nz) * sp) * spikeNorm;
-		x = dry * x + softClip(drive * x) * driveNorm;
-		// The knock: noise through a one-pole high pass, dying in a few ms
-		const float hp = nz - k.fold;
-		k.fold = nz;
-		const float click = knock * k.clickEnv * hp;
-		k.clickEnv *= clickCoef;
-		out[i] = kLevel * x + click;
+		float click = 0.f;
+		if (full) {
+			const float nz = noise(v.common_.rng);
+			const float sp = spike(x);
+			x = (x + (p.spikeAmount + p.spikeNoise * nz) * sp) * p.spikeNorm;
+			// The knock: noise through a one-pole high pass, dying in a few ms
+			const float hp = nz - k.fold;
+			k.fold = nz;
+			click = p.knock * k.clickEnv * hp;
+			k.clickEnv *= p.clickCoef;
+		}
+		else {
+			x *= p.spikeNorm;
+		}
+		if (p.colored) {
+			x = p.dry * x + softClip(p.drive * x) * p.driveNorm;
+		}
+		out[i] = kKikLevel * x + click;
+	}
+	if (!full) {
+		skipNoise(v.common_.rng, n);
 	}
 }
 
@@ -282,6 +347,14 @@ void renderKik(Voice& v, const Ctx& c, float* out, int32_t n) {
 // - Sweep: depth and length of the body's pitch drop
 // - Contour: how fast the rattle's noise dies away, leaving its tone ringing
 
+constexpr float kSnrBody = 0.3f;
+constexpr float kSnrRattle = 0.035f;
+constexpr float kSnrNoise = 0.05f;
+constexpr float kSnrBurst = 0.045f;
+constexpr float kSnrMaxDepth = 2.5f;
+constexpr float kSnrMaxIndex = 1.2f;
+constexpr float kSnrMaxNoise = 3.f; ///< The most the high passed noise reaches
+
 void startSnr(Voice& v, const Ctx& c) {
 	auto& d = v.s_.snr;
 	d = {};
@@ -291,48 +364,87 @@ void startSnr(Voice& v, const Ctx& c) {
 	d.bodyEnv = 1.f;
 }
 
-void renderSnr(Voice& v, const Ctx& c, float* out, int32_t n) {
-	auto& d = v.s_.snr;
+void prepareSnr(Voice& v, const Ctx& c) {
+	auto& p = v.p_.e.snr;
 	const float color = c.st.macro[0];
 	const float shape = c.st.macro[1];
 	const float sweep = c.st.macro[2];
 	const float contour = c.st.macro[3];
-	const float incPerHz = 4294967296.f / c.sr;
+	p.incPerHz = 4294967296.f / c.sr;
+	p.maxHz = 0.45f * c.sr;
 
-	const float depth = 2.2f * powf(sweep, 0.8f);
-	const float pitchCoef = decayFor(0.004f + 0.05f * sweep, c.sr);
-	const uint32_t modInc = static_cast<uint32_t>(std::min(2.f * c.hz, 0.45f * c.sr) * incPerHz);
+	p.depth = 2.2f * powf(sweep, 0.8f);
+	p.pitchCoef = decayFor(0.004f + 0.05f * sweep, c.sr);
+	p.restInc = static_cast<uint32_t>(std::min(c.hz, p.maxHz) * p.incPerHz);
+	p.modInc = static_cast<uint32_t>(std::min(2.f * c.hz, p.maxHz) * p.incPerHz);
 	const float ratio = 3.f * powf(2.f, powf(color, 1.4f));
-	const uint32_t carInc = static_cast<uint32_t>(std::min(ratio * c.hz, 0.45f * c.sr) * incPerHz);
-	const float index = 0.1f + 1.1f * shape * shape;
-	const float noiseAmount = powf(shape, 1.5f);
+	p.carInc = static_cast<uint32_t>(std::min(ratio * c.hz, p.maxHz) * p.incPerHz);
+	p.index = 0.1f + 1.1f * shape * shape;
+	p.noiseAmount = powf(shape, 1.5f);
 	// Contour: the rattle's index and noise fall away, from lasting the whole hit (0) to 70 ms (127)
-	const float rattleCoef = (contour < 0.01f) ? 1.f : decayFor(0.07f / (contour * contour * 0.99f + 0.01f), c.sr);
+	p.rattleCoef = (contour < 0.01f) ? 1.f : decayFor(0.07f / (contour * contour * 0.99f + 0.01f), c.sr);
 	// The body cracks and dies quickly; the rattle carries the tail
-	const float bodyCoef = decayFor(0.045f + 0.05f * sweep, c.sr);
-	const float attackStep = 1.f / (0.0015f * c.sr);
-	const SvfCoefs hp = svfCoefs(500.f, 0.7f, c.sr);
-	constexpr float kBody = 0.3f;
-	constexpr float kRattle = 0.035f;
-	constexpr float kNoise = 0.05f;
-	constexpr float kBurst = 0.045f;
+	p.bodyCoef = decayFor(0.045f + 0.05f * sweep, c.sr);
+	p.attackStep = 1.f / (0.0015f * c.sr);
+	p.hp = svfCoefs(500.f, 0.7f, c.sr);
+}
+
+void renderSnr(Voice& v, float* out, int32_t n, bool chunkStart) {
+	auto& d = v.s_.snr;
+	const auto& p = v.p_.e.snr;
+	const float noteHz = v.p_.hz;
+	if (d.pitchEnv * kSnrMaxDepth < kSweepOver) {
+		d.pitchEnv = 0.f;
+	}
+	if (chunkStart) {
+		const float gone = goneFor(Kind::SNR);
+		if (kSnrBody * d.bodyEnv < gone) {
+			d.bodyEnv = 0.f; // The body is gone
+		}
+		// The rattle's modulation moves its phase by up to index * rattleEnv cycles; the noise on it is quieter still
+		if (kSnrRattle * 6.2831853f * kSnrMaxIndex * d.rattleEnv < gone) {
+			d.rattleEnv = 0.f;
+		}
+		if (kSnrBurst * kSnrMaxNoise * d.noiseEnv < gone) {
+			d.noiseEnv = 0.f;
+		}
+	}
+	const bool bodyOn = d.bodyEnv != 0.f;
+	const bool sweeping = d.pitchEnv != 0.f;
+	const bool rattleMod = d.rattleEnv != 0.f;
+	const bool noiseOn = (rattleMod && p.noiseAmount != 0.f) || d.noiseEnv != 0.f;
 
 	for (int32_t i = 0; i < n; i++) {
-		const float hz = c.hz * (1.f + depth * d.pitchEnv);
-		d.pitchEnv *= pitchCoef;
-		d.body.phase += static_cast<uint32_t>(std::min(hz, 0.45f * c.sr) * incPerHz);
-		d.attack = std::min(d.attack + attackStep, 1.f);
-		const float body = sine(d.body.phase) * d.bodyEnv * d.attack;
-		d.bodyEnv *= bodyCoef;
+		d.attack = std::min(d.attack + p.attackStep, 1.f);
+		float body = 0.f;
+		if (bodyOn) {
+			if (sweeping) {
+				const float hz = noteHz * (1.f + p.depth * d.pitchEnv);
+				d.pitchEnv *= p.pitchCoef;
+				d.body.phase += static_cast<uint32_t>(std::min(hz, p.maxHz) * p.incPerHz);
+			}
+			else {
+				d.body.phase += p.restInc;
+			}
+			body = sine(d.body.phase) * d.bodyEnv * d.attack;
+			d.bodyEnv *= p.bodyCoef;
+		}
 
-		d.mod.phase += modInc;
-		d.rattle[0].phase += carInc;
-		const float rattle = sine(d.rattle[0].phase + cycles(index * d.rattleEnv * sine(d.mod.phase)));
-		const float nz = svf(d.noiseBp, hp, noise(v.common_.rng)).hp;
-		const float noisy = (kNoise * noiseAmount * d.rattleEnv + kBurst * d.noiseEnv) * nz;
-		d.rattleEnv *= rattleCoef;
-		d.noiseEnv *= bodyCoef;
-		out[i] = kBody * body + d.attack * (kRattle * rattle + noisy);
+		d.mod.phase += p.modInc;
+		d.rattle[0].phase += p.carInc;
+		const float rattle = rattleMod ? sine(d.rattle[0].phase + cycles(p.index * d.rattleEnv * sine(d.mod.phase)))
+		                               : sine(d.rattle[0].phase);
+		float noisy = 0.f;
+		if (noiseOn) {
+			const float nz = svf(d.noiseBp, p.hp, noise(v.common_.rng)).hp;
+			noisy = (kSnrNoise * p.noiseAmount * d.rattleEnv + kSnrBurst * d.noiseEnv) * nz;
+			d.noiseEnv *= p.bodyCoef;
+		}
+		d.rattleEnv *= p.rattleCoef;
+		out[i] = kSnrBody * body + d.attack * (kSnrRattle * rattle + noisy);
+	}
+	if (!noiseOn) {
+		skipNoise(v.common_.rng, n);
 	}
 }
 
@@ -346,6 +458,7 @@ void renderSnr(Voice& v, const Ctx& c, float* out, int32_t n) {
 
 constexpr std::array<float, 6> kMetalRatioLo{1.f, 1.3420f, 1.2001f, 1.6830f, 1.4513f, 2.1260f};
 constexpr std::array<float, 6> kMetalRatioHi{1.f, 1.8137f, 1.5873f, 2.7461f, 2.2389f, 3.4317f};
+constexpr float kMetalMaxDepth = 1.f;
 
 void startMetal(Voice& v, const Ctx& c) {
 	auto& m = v.s_.metal;
@@ -357,8 +470,8 @@ void startMetal(Voice& v, const Ctx& c) {
 	}
 }
 
-void renderMetal(Voice& v, const Ctx& c, float* out, int32_t n) {
-	auto& m = v.s_.metal;
+void prepareMetal(Voice& v, const Ctx& c) {
+	auto& p = v.p_.e.metal;
 	const float color = c.st.macro[0];
 	const float shape = c.st.macro[1];
 	const float sweep = c.st.macro[2];
@@ -366,42 +479,58 @@ void renderMetal(Voice& v, const Ctx& c, float* out, int32_t n) {
 	const float incPerHz = 4294967296.f / c.sr;
 
 	const float base = c.hz * 5.03f;
-	std::array<float, 6> inc;
-	for (size_t i = 0; i < inc.size(); i++) {
+	for (size_t i = 0; i < p.inc.size(); i++) {
 		const float ratio = kMetalRatioLo[i] + color * (kMetalRatioHi[i] - kMetalRatioLo[i]);
-		inc[i] = std::min(base * ratio, 0.49f * c.sr) * incPerHz;
+		p.inc[i] = std::min(base * ratio, 0.49f * c.sr) * incPerHz;
+		p.restInc[i] = static_cast<uint32_t>(p.inc[i]);
 	}
-	const float index = 0.25f + 1.1f * shape * shape;
-	const float depth = 0.9f * sweep * sweep;
-	const float pitchCoef = decayFor(0.02f + 0.06f * sweep, c.sr);
-	const float brightCoef = (contour < 0.01f) ? 1.f : decayFor(0.03f / (contour * contour * 0.99f + 0.01f), c.sr);
-	const SvfCoefs hp = svfCoefs(std::clamp(base * 1.5f, 300.f, 6000.f), 0.6f, c.sr);
-	const SvfCoefs ring = svfCoefs(std::clamp(base * 2.5f, 500.f, 12000.f), 4.f, c.sr);
-	constexpr float kLevel = 0.14f;
+	p.index = 0.25f + 1.1f * shape * shape;
+	p.depth = 0.9f * sweep * sweep;
+	p.pitchCoef = decayFor(0.02f + 0.06f * sweep, c.sr);
+	p.brightCoef = (contour < 0.01f) ? 1.f : decayFor(0.03f / (contour * contour * 0.99f + 0.01f), c.sr);
+	p.hp = svfCoefs(std::clamp(base * 1.5f, 300.f, 6000.f), 0.6f, c.sr);
+	p.ring = svfCoefs(std::clamp(base * 2.5f, 500.f, 12000.f), 4.f, c.sr);
 	// Contour's low pass closes from open to about 5 kHz
-	const float cutLo = 1.f - expf(-6.2831853f * 4000.f / c.sr);
-	const float cutHi = 1.f - expf(-6.2831853f * std::min(15000.f, 0.4f * c.sr) / c.sr);
+	p.cutLo = 1.f - expf(-6.2831853f * 4000.f / c.sr);
+	p.cutHi = 1.f - expf(-6.2831853f * std::min(15000.f, 0.4f * c.sr) / c.sr);
+}
+
+void renderMetal(Voice& v, float* out, int32_t n, bool chunkStart) {
+	auto& m = v.s_.metal;
+	const auto& p = v.p_.e.metal;
+	constexpr float kLevel = 0.14f;
+	if (m.pitchEnv * kMetalMaxDepth < kSweepOver) {
+		m.pitchEnv = 0.f;
+	}
+	const bool sweeping = m.pitchEnv != 0.f;
 
 	for (int32_t i = 0; i < n; i++) {
-		const float bend = 1.f + depth * m.pitchEnv;
-		m.pitchEnv *= pitchCoef;
-		for (size_t k = 0; k < 6; k++) {
-			m.osc[k].phase += static_cast<uint32_t>(inc[k] * bend);
+		if (sweeping) {
+			const float bend = 1.f + p.depth * m.pitchEnv;
+			m.pitchEnv *= p.pitchCoef;
+			for (size_t k = 0; k < 6; k++) {
+				m.osc[k].phase += static_cast<uint32_t>(p.inc[k] * bend);
+			}
+		}
+		else {
+			for (size_t k = 0; k < 6; k++) {
+				m.osc[k].phase += p.restInc[k];
+			}
 		}
 		// Pairs: 1 > 0, 3 > 2, 5 > 4, and each pair's output also rocks the next pair's modulator
-		const float a = sine(m.osc[1].phase + cycles(0.5f * index * m.osc[4].last));
-		const float x0 = sine(m.osc[0].phase + cycles(index * a));
-		const float b = sine(m.osc[3].phase + cycles(0.5f * index * x0));
-		const float x1 = sine(m.osc[2].phase + cycles(index * b));
-		const float d = sine(m.osc[5].phase + cycles(0.5f * index * x1));
-		const float x2 = sine(m.osc[4].phase + cycles(index * d));
+		const float a = sine(m.osc[1].phase + cycles(0.5f * p.index * m.osc[4].last));
+		const float x0 = sine(m.osc[0].phase + cycles(p.index * a));
+		const float b = sine(m.osc[3].phase + cycles(0.5f * p.index * x0));
+		const float x1 = sine(m.osc[2].phase + cycles(p.index * b));
+		const float d = sine(m.osc[5].phase + cycles(0.5f * p.index * x1));
+		const float x2 = sine(m.osc[4].phase + cycles(p.index * d));
 		m.osc[4].last = x2;
 		float x = (x0 + x1 + x2) * 0.4f;
-		x = svf(m.hp, hp, x).hp;
-		x += 0.35f * svf(m.ring, ring, x).bp; // the cymbal's ringing band
+		x = svf(m.hp, p.hp, x).hp;
+		x += 0.35f * svf(m.ring, p.ring, x).bp; // the cymbal's ringing band
 		// Contour: a one-pole low pass closing from wide open, so the top dies first
-		const float cut = cutLo + (cutHi - cutLo) * m.brightEnv;
-		m.brightEnv *= brightCoef;
+		const float cut = p.cutLo + (p.cutHi - p.cutLo) * m.brightEnv;
+		m.brightEnv *= p.brightCoef;
 		m.lp += cut * (x - m.lp);
 		out[i] = kLevel * m.lp;
 	}
@@ -420,6 +549,9 @@ constexpr float kPercContourDefault = 64.f / 127.f;
 constexpr std::array<float, 5> kPercSweepKnob{0.f, 32.f, 64.f, 100.f, 127.f};
 constexpr std::array<float, 5> kPercSweepDepth{0.f, 0.4f, 0.75f, 0.35f, 1.2f};
 constexpr std::array<float, 5> kPercSweepTime{0.05f, 0.2f, 0.2f, 0.025f, 0.012f};
+constexpr float kPercLevel = 0.1f;
+constexpr float kPercMaxDepth = 1.25f;
+constexpr float kPercMaxOvertone = 1.2f;
 
 void startPerc(Voice& v, const Ctx& c) {
 	auto& d = v.s_.perc;
@@ -428,38 +560,64 @@ void startPerc(Voice& v, const Ctx& c) {
 	d.indexEnv = 1.f;
 }
 
-void renderPerc(Voice& v, const Ctx& c, float* out, int32_t n) {
-	auto& d = v.s_.perc;
+void preparePerc(Voice& v, const Ctx& c) {
+	auto& p = v.p_.e.perc;
 	const float color = c.st.macro[0];
 	const float shape = c.st.macro[1];
 	const float sweepKnob = c.st.macro[2] * 127.f;
 	const float contour = c.st.macro[3];
-	const float incPerHz = 4294967296.f / c.sr;
+	p.incPerHz = 4294967296.f / c.sr;
+	p.maxHz = 0.45f * c.sr;
 
-	const float depth = interp(kPercSweepKnob, kPercSweepDepth, sweepKnob);
-	const float pitchCoef = decayFor(interp(kPercSweepKnob, kPercSweepTime, sweepKnob) * 6.907755f
-	                                     * sweepTimeScale(contour, kPercContourDefault),
-	                                 c.sr);
-	const float index = 0.24f * shape * shape;
-	const float levelB = 0.9f * (1.f - 0.75f * shape);
-	const float ratioC = 1.f + 6.f * powf(color, 1.3f);
-	const float levelC = 1.2f * powf(color, 0.8f);
-	const float overtoneCoef = decayFor(0.08f + 6.f * (1.f - contour) * (1.f - contour), c.sr);
-	const float maxHz = 0.45f * c.sr;
-	constexpr float kLevel = 0.1f;
+	p.depth = interp(kPercSweepKnob, kPercSweepDepth, sweepKnob);
+	p.pitchCoef = decayFor(interp(kPercSweepKnob, kPercSweepTime, sweepKnob) * 6.907755f
+	                           * sweepTimeScale(contour, kPercContourDefault),
+	                       c.sr);
+	p.index = 0.24f * shape * shape;
+	p.levelB = 0.9f * (1.f - 0.75f * shape);
+	p.ratioC = 1.f + 6.f * powf(color, 1.3f);
+	p.levelC = 1.2f * powf(color, 0.8f);
+	p.overtoneCoef = decayFor(0.08f + 6.f * (1.f - contour) * (1.f - contour), c.sr);
+	p.restInc[0] = static_cast<uint32_t>(std::min(c.hz, p.maxHz) * p.incPerHz);
+	p.restInc[1] = static_cast<uint32_t>(std::min(c.hz * 1.26f, p.maxHz) * p.incPerHz);
+	p.restInc[2] = static_cast<uint32_t>(std::min(c.hz * p.ratioC, p.maxHz) * p.incPerHz);
+	p.restInc[3] = static_cast<uint32_t>(std::min(c.hz * 0.52f, p.maxHz) * p.incPerHz);
+}
+
+void renderPerc(Voice& v, float* out, int32_t n, bool chunkStart) {
+	auto& d = v.s_.perc;
+	const auto& p = v.p_.e.perc;
+	const float noteHz = v.p_.hz;
+	if (d.pitchEnv * kPercMaxDepth < kSweepOver) {
+		d.pitchEnv = 0.f;
+	}
+	if (chunkStart && kPercLevel * kPercMaxOvertone * d.indexEnv < goneFor(Kind::PERC)) {
+		d.indexEnv = 0.f; // The overtone is gone
+	}
+	const bool sweeping = d.pitchEnv != 0.f;
+	const bool modulated = p.index != 0.f;
+	const bool overtone = p.levelC != 0.f && d.indexEnv != 0.f;
 
 	for (int32_t i = 0; i < n; i++) {
-		const float hz = c.hz * (1.f + depth * d.pitchEnv);
-		d.pitchEnv *= pitchCoef;
-		d.car.phase += static_cast<uint32_t>(std::min(hz, maxHz) * incPerHz);
-		d.mod.phase += static_cast<uint32_t>(std::min(hz * 1.26f, maxHz) * incPerHz);
-		d.mod2.phase += static_cast<uint32_t>(std::min(hz * ratioC, maxHz) * incPerHz);
-		d.sub.phase += static_cast<uint32_t>(std::min(hz * 0.52f, maxHz) * incPerHz);
-		const float a = sine(d.car.phase + cycles(index * sine(d.sub.phase)));
+		if (sweeping) {
+			const float hz = noteHz * (1.f + p.depth * d.pitchEnv);
+			d.pitchEnv *= p.pitchCoef;
+			d.car.phase += static_cast<uint32_t>(std::min(hz, p.maxHz) * p.incPerHz);
+			d.mod.phase += static_cast<uint32_t>(std::min(hz * 1.26f, p.maxHz) * p.incPerHz);
+			d.mod2.phase += static_cast<uint32_t>(std::min(hz * p.ratioC, p.maxHz) * p.incPerHz);
+			d.sub.phase += static_cast<uint32_t>(std::min(hz * 0.52f, p.maxHz) * p.incPerHz);
+		}
+		else {
+			d.car.phase += p.restInc[0];
+			d.mod.phase += p.restInc[1];
+			d.mod2.phase += p.restInc[2];
+			d.sub.phase += p.restInc[3];
+		}
+		const float a = modulated ? sine(d.car.phase + cycles(p.index * sine(d.sub.phase))) : sine(d.car.phase);
 		const float b = sine(d.mod.phase);
-		const float ov = sine(d.mod2.phase + cycles(0.08f * a)) * d.indexEnv;
-		d.indexEnv *= overtoneCoef;
-		out[i] = kLevel * (a + levelB * b + levelC * ov);
+		const float ov = overtone ? sine(d.mod2.phase + cycles(0.08f * a)) * d.indexEnv : 0.f;
+		d.indexEnv *= p.overtoneCoef;
+		out[i] = kPercLevel * (a + p.levelB * b + p.levelC * ov);
 	}
 }
 
@@ -480,6 +638,8 @@ constexpr std::array<float, 4> kToneBurstTime{0.05f, 0.1f, 0.05f, 2.f};
 constexpr float kToneFeedback = 0.127f;
 constexpr std::array<float, 5> kToneContourKnob{0.f, 48.f, 64.f, 96.f, 127.f};
 constexpr std::array<float, 5> kToneIndexTime{4.6f, 3.f, -1.2f, -3.5f, -4.6f}; ///< ln(seconds to fall 60 dB)
+constexpr float kToneLevel = 0.125f;
+constexpr float kToneMaxIndex = 1.2f; ///< The most of the index and of the burst
 
 void startTone(Voice& v, const Ctx& c) {
 	auto& d = v.s_.tone;
@@ -488,8 +648,8 @@ void startTone(Voice& v, const Ctx& c) {
 	d.pitchEnv = 1.f; // the sweep's burst
 }
 
-void renderTone(Voice& v, const Ctx& c, float* out, int32_t n) {
-	auto& d = v.s_.tone;
+void prepareTone(Voice& v, const Ctx& c) {
+	auto& p = v.p_.e.tone;
 	const float colorKnob = c.st.macro[0] * 127.f;
 	const float shapeKnob = c.st.macro[1] * 127.f;
 	const float sweep = c.st.macro[2];
@@ -497,24 +657,51 @@ void renderTone(Voice& v, const Ctx& c, float* out, int32_t n) {
 	const float incPerHz = 4294967296.f / c.sr;
 	const float maxHz = 0.45f * c.sr;
 
-	const uint32_t carInc = static_cast<uint32_t>(std::min(c.hz, maxHz) * incPerHz);
-	const uint32_t modInc = static_cast<uint32_t>(std::min(c.hz * colorKnob / 12.f, maxHz) * incPerHz);
-	const float index = interp(kToneShapeKnob, kToneIndex, shapeKnob);
-	const float indexCoef =
+	p.carInc = static_cast<uint32_t>(std::min(c.hz, maxHz) * incPerHz);
+	p.modInc = static_cast<uint32_t>(std::min(c.hz * colorKnob / 12.f, maxHz) * incPerHz);
+	p.index = interp(kToneShapeKnob, kToneIndex, shapeKnob);
+	p.indexCoef =
 	    (contourKnob < 1.f) ? 1.f : decayFor(expf(interp(kToneContourKnob, kToneIndexTime, contourKnob)), c.sr);
-	const float burst = interp(kToneSweepKnob, kToneBurst, sweep * 127.f);
-	const float burstCoef = decayFor(interp(kToneSweepKnob, kToneBurstTime, sweep * 127.f), c.sr);
-	constexpr float kLevel = 0.125f;
+	p.burst = interp(kToneSweepKnob, kToneBurst, sweep * 127.f);
+	p.burstCoef = decayFor(interp(kToneSweepKnob, kToneBurstTime, sweep * 127.f), c.sr);
+}
 
-	for (int32_t i = 0; i < n; i++) {
-		d.car.phase += carInc;
-		d.mod.phase += modInc;
-		const float idx = index * d.indexEnv + burst * d.pitchEnv;
-		d.indexEnv *= indexCoef;
-		d.pitchEnv *= burstCoef;
-		const float m = sine(d.mod.phase + cycles(kToneFeedback * d.mod.last));
-		d.mod.last = m;
-		out[i] = kLevel * sine(d.car.phase + cycles(idx * m));
+void renderTone(Voice& v, float* out, int32_t n, bool chunkStart) {
+	auto& d = v.s_.tone;
+	const auto& p = v.p_.e.tone;
+	if (chunkStart) {
+		// The modulation moves the carrier's phase by up to idx cycles
+		const float gone = goneFor(Kind::TONE) / (kToneLevel * 6.2831853f * kToneMaxIndex);
+		if (d.indexEnv < gone) {
+			d.indexEnv = 0.f;
+		}
+		if (d.pitchEnv < gone) {
+			d.pitchEnv = 0.f;
+		}
+	}
+	const bool modulated = (p.index != 0.f && d.indexEnv != 0.f) || (p.burst != 0.f && d.pitchEnv != 0.f);
+
+	if (modulated) {
+		for (int32_t i = 0; i < n; i++) {
+			d.car.phase += p.carInc;
+			d.mod.phase += p.modInc;
+			const float idx = p.index * d.indexEnv + p.burst * d.pitchEnv;
+			d.indexEnv *= p.indexCoef;
+			d.pitchEnv *= p.burstCoef;
+			const float m = sine(d.mod.phase + cycles(kToneFeedback * d.mod.last));
+			d.mod.last = m;
+			out[i] = kToneLevel * sine(d.car.phase + cycles(idx * m));
+		}
+	}
+	else {
+		// No index: just the carrier
+		for (int32_t i = 0; i < n; i++) {
+			d.car.phase += p.carInc;
+			d.indexEnv *= p.indexCoef;
+			d.pitchEnv *= p.burstCoef;
+			out[i] = kToneLevel * sine(d.car.phase);
+		}
+		d.mod.phase += p.modInc * static_cast<uint32_t>(n);
 	}
 }
 
@@ -581,6 +768,9 @@ constexpr std::array<std::array<int8_t, 4>, 8> kVoicings{{
     {0, 1, 1, 1},   // spread
 }};
 
+constexpr float kChordLevel = 0.045f;
+constexpr float kChordMaxWave = 0.22f + 0.12f; ///< The most of odd and fb together
+
 void startChord(Voice& v, const Ctx& c) {
 	auto& d = v.s_.chord;
 	d = {};
@@ -590,8 +780,8 @@ void startChord(Voice& v, const Ctx& c) {
 	}
 }
 
-void renderChord(Voice& v, const Ctx& c, float* out, int32_t n) {
-	auto& d = v.s_.chord;
+void prepareChord(Voice& v, const Ctx& c) {
+	auto& p = v.p_.e.chord;
 	const float colorKnob = c.st.macro[0] * 127.f;
 	const int32_t shape =
 	    std::clamp<int32_t>(static_cast<int32_t>(c.st.macro[1] * kNumChordShapes), 0, kNumChordShapes - 1);
@@ -601,35 +791,43 @@ void renderChord(Voice& v, const Ctx& c, float* out, int32_t n) {
 	const float maxHz = 0.45f * c.sr;
 
 	const int32_t voicing = std::clamp<int32_t>(static_cast<int32_t>(colorKnob / 16.f), 0, 7);
-	std::array<uint32_t, 4> inc;
-	std::array<uint32_t, 4> inc2;
 	for (size_t i = 0; i < 4; i++) {
 		const int32_t semis = (voicing == 0) ? 0 : kChords[shape][i] + 12 * kVoicings[voicing][i];
 		// Unison spreads its voices by a few cents, so it's thick rather than just loud
 		const float detune = (voicing == 0) ? (static_cast<float>(i) - 1.5f) * 0.004f : 0.f;
 		const float hz = std::min(c.hz * exp2f(static_cast<float>(semis) / 12.f + detune), maxHz);
-		inc[i] = static_cast<uint32_t>(hz * incPerHz);
-		inc2[i] = static_cast<uint32_t>(std::min(2.f * hz, maxHz) * incPerHz);
+		p.inc[i] = static_cast<uint32_t>(hz * incPerHz);
+		p.inc2[i] = static_cast<uint32_t>(std::min(2.f * hz, maxHz) * incPerHz);
 	}
 	// Sweep: odd harmonics from a modulator at twice the pitch, then all of them from feedback
-	const float odd = 0.22f * std::min(sweep * 2.f, 1.f) * std::min(sweep * 2.f, 1.f);
-	const float fb = 0.12f * std::max(sweep - 0.3f, 0.f) / 0.7f;
-	const float sweepCoef =
-	    (contour < 0.2f) ? 1.f : decayFor(0.15f / ((contour - 0.2f) * (contour - 0.2f) + 0.002f), c.sr);
-	constexpr float kLevel = 0.045f;
+	p.odd = 0.22f * std::min(sweep * 2.f, 1.f) * std::min(sweep * 2.f, 1.f);
+	p.fb = 0.12f * std::max(sweep - 0.3f, 0.f) / 0.7f;
+	p.sweepCoef = (contour < 0.2f) ? 1.f : decayFor(0.15f / ((contour - 0.2f) * (contour - 0.2f) + 0.002f), c.sr);
+}
+
+void renderChord(Voice& v, float* out, int32_t n, bool chunkStart) {
+	auto& d = v.s_.chord;
+	const auto& p = v.p_.e.chord;
+	// The wave moves each voice's phase by up to sweepEnv * (odd + fb) cycles
+	if (chunkStart && 4.f * kChordLevel * 6.2831853f * kChordMaxWave * d.sweepEnv < goneFor(Kind::CHORD)) {
+		d.sweepEnv = 0.f;
+	}
+	const bool shaped = d.sweepEnv != 0.f && (p.odd != 0.f || p.fb != 0.f);
 
 	for (int32_t i = 0; i < n; i++) {
 		const float bright = d.sweepEnv;
-		d.sweepEnv *= sweepCoef;
+		d.sweepEnv *= p.sweepCoef;
 		float sum = 0.f;
 		for (size_t k = 0; k < 4; k++) {
-			d.osc[k].phase += inc[k];
-			d.mod[k].phase += inc2[k];
-			const float x = sine(d.osc[k].phase + cycles(bright * (odd * sine(d.mod[k].phase) + fb * d.osc[k].last)));
+			d.osc[k].phase += p.inc[k];
+			d.mod[k].phase += p.inc2[k];
+			const float x =
+			    shaped ? sine(d.osc[k].phase + cycles(bright * (p.odd * sine(d.mod[k].phase) + p.fb * d.osc[k].last)))
+			           : sine(d.osc[k].phase);
 			d.osc[k].last = x;
 			sum += x;
 		}
-		out[i] = kLevel * sum;
+		out[i] = kChordLevel * sum;
 	}
 }
 
@@ -642,6 +840,11 @@ void renderChord(Voice& v, const Ctx& c, float* out, int32_t n) {
 // - Mod Envelope: depth and length of the body's modulation, the knock in the attack
 
 constexpr std::array<float, 4> kVsnrModes{2870.f, 3730.f, 4610.f, 5330.f};
+constexpr float kVsnrBody = 0.3f;
+constexpr float kVsnrMaxDepth = 1.f;
+constexpr float kVsnrMaxModDepth = 0.25f;
+/// The most the snares come to for each unit of their envelope: the top cluster level, four modes, and the noise
+constexpr float kVsnrMaxSnares = 0.15f * (0.25f * 4.f + 1.5f * 3.f);
 
 void startVsnr(Voice& v, const Ctx& c) {
 	auto& d = v.s_.vsnr;
@@ -654,55 +857,120 @@ void startVsnr(Voice& v, const Ctx& c) {
 	}
 }
 
-void renderVsnr(Voice& v, const Ctx& c, float* out, int32_t n) {
-	auto& d = v.s_.vsnr;
+void prepareVsnr(Voice& v, const Ctx& c) {
+	auto& p = v.p_.e.vsnr;
 	const float inharm = c.st.macro[0];
 	const float complex = c.st.macro[1];
 	const float sweep = c.st.macro[2];
 	const float menv = c.st.macro[3];
-	const float incPerHz = 4294967296.f / c.sr;
-	const float maxHz = 0.45f * c.sr;
+	p.incPerHz = 4294967296.f / c.sr;
+	p.maxHz = 0.45f * c.sr;
 
-	const float depth = 0.75f * sweep * sweep;
-	const float pitchCoef = decayFor(0.02f + 0.12f * sweep * sweep, c.sr);
-	const float ratio = 1.f + 1.41f * inharm;
-	const float modDepth = 0.25f * menv;
-	const float modCoef = decayFor(0.01f + 0.15f * menv * menv, c.sr);
+	p.depth = 0.75f * sweep * sweep;
+	p.pitchCoef = decayFor(0.02f + 0.12f * sweep * sweep, c.sr);
+	p.ratio = 1.f + 1.41f * inharm;
+	p.modDepth = 0.25f * menv;
+	p.modCoef = decayFor(0.01f + 0.15f * menv * menv, c.sr);
+	p.restInc = static_cast<uint32_t>(std::min(c.hz, p.maxHz) * p.incPerHz);
+	p.restModInc = static_cast<uint32_t>(std::min(c.hz * p.ratio, p.maxHz) * p.incPerHz);
 	// The body follows the amp decay. The snares have their own 0.25 s decay, and only feel the amp decay half as much,
 	// so at short decays they ring past the body and at long ones the body rings past them. The common amp envelope is
-	// applied after, so it's divided back out here.
-	const float clusterCoef = decayFor(0.25f, c.sr);
-	float amp = v.common_.amp;
-	const float ampCoef = v.common_.ampCoef;
-	std::array<uint32_t, 4> modeInc;
-	for (size_t i = 0; i < 4; i++) {
-		modeInc[i] = static_cast<uint32_t>(std::min(kVsnrModes[i], maxHz) * incPerHz);
+	// applied after, so it's divided back out here: sqrt(amp) and 1 / amp are followed as envelopes of their own.
+	p.clusterCoef = decayFor(0.25f, c.sr);
+	const float ampCoef = v.p_.ampCoef;
+	p.sqrtAmpCoef = sqrtf(ampCoef);
+	p.invAmpCoef = 1.f / ampCoef;
+	float coef64 = ampCoef;
+	for (int32_t i = 0; i < 6; i++) {
+		coef64 *= coef64;
 	}
-	const float clusterLevel = 0.15f * (0.25f + 0.75f * complex);
-	const float roughness = 0.05f + 0.25f * complex;
-	const SvfCoefs bp = svfCoefs(3500.f, 0.9f, c.sr);
-	constexpr float kBody = 0.3f;
+	p.ampCoef64 = coef64;
+	for (size_t i = 0; i < 4; i++) {
+		p.modeInc[i] = static_cast<uint32_t>(std::min(kVsnrModes[i], p.maxHz) * p.incPerHz);
+	}
+	p.clusterLevel = 0.15f * (0.25f + 0.75f * complex);
+	p.roughness = 0.05f + 0.25f * complex;
+	p.bp = svfCoefs(3500.f, 0.9f, c.sr);
+}
+
+void renderVsnr(Voice& v, float* out, int32_t n, bool chunkStart) {
+	auto& d = v.s_.vsnr;
+	const auto& p = v.p_.e.vsnr;
+	const float noteHz = v.p_.hz;
+	if (d.pitchEnv * kVsnrMaxDepth < kSweepOver) {
+		d.pitchEnv = 0.f;
+	}
+	if (chunkStart) {
+		const float gone = goneFor(Kind::VSNR);
+		// The body's modulation moves its phase by up to modDepth * modEnv cycles
+		if (kVsnrBody * 6.2831853f * kVsnrMaxModDepth * d.modEnv < gone) {
+			d.modEnv = 0.f;
+		}
+		const float amp = v.common_.amp;
+		d.sqrtAmp = sqrtf(amp);
+		d.invAmp = 1.f / std::max(amp, 1e-5f);
+		// Once the amp envelope is on them, the snares come out at min(clusterEnv, sqrt(amp)) at most
+		if (kVsnrMaxSnares * std::min(d.clusterEnv, d.sqrtAmp) < gone) {
+			d.clusterEnv = 0.f;
+		}
+	}
+	const bool sweeping = d.pitchEnv != 0.f;
+	const bool modulated = d.modEnv != 0.f;
+	const bool snaresOn = d.clusterEnv != 0.f;
 
 	for (int32_t i = 0; i < n; i++) {
-		const float hz = c.hz * (1.f + depth * d.pitchEnv);
-		d.pitchEnv *= pitchCoef;
-		d.body.phase += static_cast<uint32_t>(std::min(hz, maxHz) * incPerHz);
-		d.bodyMod.phase += static_cast<uint32_t>(std::min(hz * ratio, maxHz) * incPerHz);
-		const float body = sine(d.body.phase + cycles(modDepth * d.modEnv * sine(d.bodyMod.phase)));
-		d.modEnv *= modCoef;
-
-		// The snares: four modes, each phase-jittered by band passed noise
-		const float nz = svf(d.noiseBp, bp, noise(v.common_.rng)).bp;
-		float cl = 0.f;
-		for (size_t k = 0; k < 4; k++) {
-			d.cluster[k].phase += modeInc[k];
-			cl += sine(d.cluster[k].phase + cycles(roughness * nz * static_cast<float>(k + 1)));
+		if (sweeping) {
+			const float hz = noteHz * (1.f + p.depth * d.pitchEnv);
+			d.pitchEnv *= p.pitchCoef;
+			d.body.phase += static_cast<uint32_t>(std::min(hz, p.maxHz) * p.incPerHz);
+			if (modulated) {
+				d.bodyMod.phase += static_cast<uint32_t>(std::min(hz * p.ratio, p.maxHz) * p.incPerHz);
+			}
 		}
-		const float snares = std::min(d.clusterEnv, sqrtf(amp)) / std::max(amp, 1e-5f);
-		out[i] = kBody * body + clusterLevel * snares * (0.25f * cl + 1.5f * nz);
-		d.clusterEnv *= clusterCoef;
-		amp *= ampCoef;
+		else {
+			d.body.phase += p.restInc;
+			d.bodyMod.phase += p.restModInc;
+		}
+		float body;
+		if (modulated) {
+			body = sine(d.body.phase + cycles(p.modDepth * d.modEnv * sine(d.bodyMod.phase)));
+			d.modEnv *= p.modCoef;
+		}
+		else {
+			body = sine(d.body.phase);
+		}
+
+		if (snaresOn) {
+			// The snares: four modes, each phase-jittered by band passed noise
+			const float nz = svf(d.noiseBp, p.bp, noise(v.common_.rng)).bp;
+			float cl = 0.f;
+			for (size_t k = 0; k < 4; k++) {
+				d.cluster[k].phase += p.modeInc[k];
+				cl += sine(d.cluster[k].phase + cycles(p.roughness * nz * static_cast<float>(k + 1)));
+			}
+			const float snares = std::min(d.clusterEnv, d.sqrtAmp) * d.invAmp;
+			out[i] = kVsnrBody * body + p.clusterLevel * snares * (0.25f * cl + 1.5f * nz);
+			d.clusterEnv *= p.clusterCoef;
+			d.sqrtAmp *= p.sqrtAmpCoef;
+			d.invAmp = std::min(d.invAmp * p.invAmpCoef, 1e5f);
+		}
+		else {
+			out[i] = kVsnrBody * body;
+		}
 	}
+	if (!snaresOn) {
+		skipNoise(v.common_.rng, n);
+	}
+}
+
+/// Vtg Snr's level: its snares outlast the amp envelope at short decays. It ends no later than at the amp envelope's
+/// -100 dB, where every engine used to end.
+float vsnrLevel(const Voice& v) {
+	const float amp = v.common_.amp;
+	if (amp * v.p_.e.vsnr.ampCoef64 < 1e-5f) {
+		return amp;
+	}
+	return std::max(amp, std::min(v.s_.vsnr.clusterEnv, sqrtf(amp)));
 }
 
 // clap eng ------------------------------------------------------------------------------------------------------------
@@ -727,54 +995,107 @@ void startClap(Voice& v, const Ctx& c) {
 	v.common_.ampHold = static_cast<uint32_t>(spacing * kClapBursts * c.sr);
 }
 
-void renderClap(Voice& v, const Ctx& c, float* out, int32_t n) {
-	auto& d = v.s_.clap;
+void prepareClap(Voice& v, const Ctx& c) {
+	auto& p = v.p_.e.clap;
 	const float bodyChar = c.st.macro[0];
 	const float balance = c.st.macro[1];
 	const float crunch = c.st.macro[2];
 	const float bodyEnvKnob = c.st.macro[3];
 	const float pitch = c.hz / 261.63f; // the note moves the filters, C4 = as measured
 
-	const int32_t spacing = static_cast<int32_t>((0.006f + 0.018f * crunch) * c.sr);
-	const float burstCoef = decayFor(0.022f, c.sr);
-	const SvfCoefs bp = svfCoefs(1000.f * pitch, 1.1f, c.sr);
-	const SvfCoefs bp2 = svfCoefs(2400.f * pitch, 1.5f, c.sr);
-	const SvfCoefs body = svfCoefs(900.f * pitch, 1.f + 9.f * bodyChar, c.sr);
-	const float bodyGain = 1.f / (1.f + 4.f * bodyChar); // a band pass peaks at its Q
-	const float darkCoef = decayFor(0.05f + 1.5f * (1.f - bodyEnvKnob) * (1.f - bodyEnvKnob), c.sr);
-	const float burstLevel = 0.4f * (0.8f + 0.4f * balance);
-	const float tailLevel = 0.4f * (1.f - balance * balance);
-	const float burstBright = 0.3f + 1.5f * bodyChar * bodyChar;
-	const float tailFastCoef = decayFor(0.2f, c.sr);        // the tail's first drop, before the amp decay takes over
+	p.spacing = static_cast<int32_t>((0.006f + 0.018f * crunch) * c.sr);
+	p.burstCoef = decayFor(0.022f, c.sr);
+	p.bp = svfCoefs(1000.f * pitch, 1.1f, c.sr);
+	p.bp2 = svfCoefs(2400.f * pitch, 1.5f, c.sr);
+	p.body = svfCoefs(900.f * pitch, 1.f + 9.f * bodyChar, c.sr);
+	p.bodyGain = 1.f / (1.f + 4.f * bodyChar); // a band pass peaks at its Q
+	p.darkCoef = decayFor(0.05f + 1.5f * (1.f - bodyEnvKnob) * (1.f - bodyEnvKnob), c.sr);
+	p.burstLevel = 0.4f * (0.8f + 0.4f * balance);
+	p.tailLevel = 0.4f * (1.f - balance * balance);
+	p.burstBright = 0.3f + 1.5f * bodyChar * bodyChar;
+	p.tailFastCoef = decayFor(0.2f, c.sr);                  // the tail's first drop, before the amp decay takes over
 	const float grit = std::max(crunch - 0.4f, 0.f) * 1.6f; // sample-and-hold roughness
-	const int32_t holdSamples = 1 + static_cast<int32_t>(grit * 6.f);
+	p.holdSamples = 1 + static_cast<int32_t>(grit * 6.f);
+}
+
+void renderClap(Voice& v, float* out, int32_t n, bool chunkStart) {
+	auto& d = v.s_.clap;
+	const auto& p = v.p_.e.clap;
 
 	for (int32_t i = 0; i < n; i++) {
 		if (d.burstIndex < kClapBursts && --d.samplesToBurst <= 0) {
 			d.burstEnv = 1.f;
 			d.burstIndex++;
-			d.samplesToBurst = spacing;
+			d.samplesToBurst = p.spacing;
 		}
 		if (d.body.phase-- == 0) {
 			d.body.last = noise(v.common_.rng);
-			d.body.phase = static_cast<uint32_t>(holdSamples - 1);
+			d.body.phase = static_cast<uint32_t>(p.holdSamples - 1);
 		}
 		const float nz = d.body.last;
-		const auto b1 = svf(d.bp1, bp, nz);
-		const auto b2 = svf(d.bp2, bp2, nz);
+		const auto b1 = svf(d.bp1, p.bp, nz);
+		const auto b2 = svf(d.bp2, p.bp2, nz);
 		const float bright = b1.bp + 0.5f * b2.bp * d.bodyEnv;
-		const float bursts = (d.burstIndex > 0) ? burstLevel * d.burstEnv * (b1.bp + burstBright * b2.bp) : 0.f;
-		d.burstEnv *= burstCoef;
+		const float bursts = (d.burstIndex > 0) ? p.burstLevel * d.burstEnv * (b1.bp + p.burstBright * b2.bp) : 0.f;
+		d.burstEnv *= p.burstCoef;
 		const bool tailOn = d.burstIndex >= kClapBursts;
 		const float tail =
-		    tailOn ? tailLevel * (0.2f + 0.8f * d.tailEnv) * (bright + bodyGain * svf(d.hp, body, bright).bp) : 0.f;
+		    tailOn ? p.tailLevel * (0.2f + 0.8f * d.tailEnv) * (bright + p.bodyGain * svf(d.hp, p.body, bright).bp)
+		           : 0.f;
 		if (tailOn) {
-			d.bodyEnv *= darkCoef;
-			d.tailEnv *= tailFastCoef;
+			d.bodyEnv *= p.darkCoef;
+			d.tailEnv *= p.tailFastCoef;
 		}
 		out[i] = bursts + tail;
 	}
 }
+
+/// Level trim, then drive after the amp envelope (amp, sample by sample), so the tail cleans up as it dies away
+#if defined(__ARM_NEON)
+/// Four samples. The drive's divide is a reciprocal estimate and two Newton steps, to a couple of bits of float
+inline void output4(const float* in, const float* amp, int32_t* out, float trim, float gain, bool driven) {
+	float32x4_t x = vmulq_n_f32(vmulq_f32(vld1q_f32(in), vld1q_f32(amp)), trim);
+	if (driven) {
+		x = vmulq_n_f32(x, gain);
+		x = vminq_f32(vmaxq_f32(x, vdupq_n_f32(-3.f)), vdupq_n_f32(3.f));
+		const float32x4_t x2 = vmulq_f32(x, x);
+		const float32x4_t num = vmulq_f32(x, vaddq_f32(vdupq_n_f32(27.f), x2));
+		const float32x4_t den = vmlaq_n_f32(vdupq_n_f32(27.f), x2, 9.f);
+		float32x4_t r = vrecpeq_f32(den);
+		r = vmulq_f32(r, vrecpsq_f32(den, r));
+		r = vmulq_f32(r, vrecpsq_f32(den, r));
+		x = vmulq_f32(num, r);
+	}
+	x = vminq_f32(vmaxq_f32(x, vdupq_n_f32(-1.f)), vdupq_n_f32(1.f));
+	vst1q_s32(out, vcvtq_s32_f32(vmulq_n_f32(x, kFullScale)));
+}
+
+void output(const float* in, const float* amp, int32_t* out, int32_t n, float trim, float gain, bool driven) {
+	const int32_t whole = n & ~3;
+	for (int32_t i = 0; i < whole; i += 4) {
+		output4(in + i, amp + i, out + i, trim, gain, driven);
+	}
+	if (whole < n) {
+		// The last one to three, the same way, so they come out the same at any host block size
+		std::array<float, 4> inRest{}, ampRest{};
+		std::array<int32_t, 4> outRest;
+		std::copy(in + whole, in + n, inRest.begin());
+		std::copy(amp + whole, amp + n, ampRest.begin());
+		output4(inRest.data(), ampRest.data(), outRest.data(), trim, gain, driven);
+		std::copy(outRest.begin(), outRest.begin() + (n - whole), out + whole);
+	}
+}
+#else
+void output(const float* in, const float* amp, int32_t* out, int32_t n, float trim, float gain, bool driven) {
+	for (int32_t i = 0; i < n; i++) {
+		float x = in[i] * amp[i] * trim;
+		if (driven) {
+			x = driveCurve(x * gain);
+		}
+		out[i] = static_cast<int32_t>(std::clamp(x, -1.f, 1.f) * kFullScale);
+	}
+}
+#endif
 
 } // namespace
 
@@ -785,6 +1106,7 @@ void Voice::reset() {
 	kind_ = Kind::NUM_KINDS;
 	pendingTrigger_ = false;
 	finished_ = true;
+	prepared_ = false;
 }
 
 void Voice::start(Kind kind, const Settings& settings, uint32_t phaseIncrement, float sampleRate) {
@@ -795,6 +1117,7 @@ void Voice::start(Kind kind, const Settings& settings, uint32_t phaseIncrement, 
 	common_.rng = (seed != 0) ? seed : 0x9E3779B9u;
 	common_.amp = 1.f;
 	common_.punchEnv = 1.f;
+	common_.level = 1.f;
 	const Ctx c{settings, sampleRate, static_cast<float>(phaseIncrement) * kPhaseToCycles * sampleRate};
 	switch (kind) {
 	case Kind::KIK:
@@ -826,6 +1149,61 @@ void Voice::start(Kind kind, const Settings& settings, uint32_t phaseIncrement, 
 	}
 }
 
+bool Voice::preparedFor(Kind kind, const Settings& settings, uint32_t phaseIncrement, float sampleRate) const {
+	return prepared_ && p_.kind == kind && p_.phaseIncrement == phaseIncrement && p_.sampleRate == sampleRate
+	       && p_.macro == settings.macro && p_.decay == settings.decay && p_.drive == settings.drive
+	       && p_.punch == settings.punch;
+}
+
+void Voice::prepare(Kind kind, const Settings& settings, uint32_t phaseIncrement, float sampleRate) {
+	p_.macro = settings.macro;
+	p_.decay = settings.decay;
+	p_.drive = settings.drive;
+	p_.sampleRate = sampleRate;
+	p_.phaseIncrement = phaseIncrement;
+	p_.kind = kind;
+	p_.punch = settings.punch;
+	prepared_ = true;
+
+	p_.hz = static_cast<float>(phaseIncrement) * kPhaseToCycles * sampleRate;
+	const DecayCurve& curve = decayCurveFor(kind);
+	const bool hold = curve.holdsAtTop && settings.decay >= kHoldKnob;
+	const float punchStretch = settings.punch ? 1.25f : 1.f;
+	p_.ampCoef = hold ? 1.f : decayFor(ampDecayTime(curve, settings.decay * 127.f) * punchStretch, sampleRate);
+	p_.driveGain = driveGainFor(settings.drive);
+	p_.punchCoef = decayFor(0.18f, sampleRate);
+
+	const Ctx c{settings, sampleRate, p_.hz};
+	switch (kind) {
+	case Kind::KIK:
+		prepareKik(*this, c);
+		break;
+	case Kind::SNR:
+		prepareSnr(*this, c);
+		break;
+	case Kind::METAL:
+		prepareMetal(*this, c);
+		break;
+	case Kind::PERC:
+		preparePerc(*this, c);
+		break;
+	case Kind::TONE:
+		prepareTone(*this, c);
+		break;
+	case Kind::CHORD:
+		prepareChord(*this, c);
+		break;
+	case Kind::VSNR:
+		prepareVsnr(*this, c);
+		break;
+	case Kind::CLAP:
+		prepareClap(*this, c);
+		break;
+	case Kind::NUM_KINDS:
+		break;
+	}
+}
+
 void Voice::render(Kind kind, const Settings& settings, uint32_t phaseIncrement, float sampleRate, int32_t* out,
                    int32_t numSamples) {
 	if (pendingTrigger_ || kind != kind_) {
@@ -842,41 +1220,48 @@ void Voice::render(Kind kind, const Settings& settings, uint32_t phaseIncrement,
 		std::fill(out, out + numSamples, 0);
 		return;
 	}
+	if (!preparedFor(kind, settings, phaseIncrement, sampleRate)) {
+		prepare(kind, settings, phaseIncrement, sampleRate);
+	}
+	common_.ampCoef = p_.ampCoef;
 
-	const Ctx c{settings, sampleRate, static_cast<float>(phaseIncrement) * kPhaseToCycles * sampleRate};
-	const DecayCurve& curve = decayCurveFor(kind);
-	const bool hold = curve.holdsAtTop && settings.decay >= kHoldKnob;
-	const float punchStretch = settings.punch ? 1.25f : 1.f;
-	common_.ampCoef = hold ? 1.f : decayFor(ampDecayTime(curve, settings.decay * 127.f) * punchStretch, sampleRate);
-
-	constexpr int32_t kChunk = 64;
+	const float trim = kLevelTrim[static_cast<size_t>(kind)];
+	const bool driven = settings.drive > 0.f;
 	float buf[kChunk];
 	while (numSamples > 0) {
-		const int32_t n = std::min(numSamples, kChunk);
+		// Chunks count from the start of the note, so a host block can start or end part way through one
+		const int32_t offset = static_cast<int32_t>(common_.pos % kChunk);
+		const int32_t n = std::min(numSamples, kChunk - offset);
+		const bool chunkStart = offset == 0;
+		// Below -72 dB the voice fades out over the next chunk, then it's done
+		if (chunkStart && common_.level < kEndLevel) {
+			common_.ending = true;
+		}
+
 		switch (kind) {
 		case Kind::KIK:
-			renderKik(*this, c, buf, n);
+			renderKik(*this, buf, n, chunkStart);
 			break;
 		case Kind::SNR:
-			renderSnr(*this, c, buf, n);
+			renderSnr(*this, buf, n, chunkStart);
 			break;
 		case Kind::METAL:
-			renderMetal(*this, c, buf, n);
+			renderMetal(*this, buf, n, chunkStart);
 			break;
 		case Kind::PERC:
-			renderPerc(*this, c, buf, n);
+			renderPerc(*this, buf, n, chunkStart);
 			break;
 		case Kind::TONE:
-			renderTone(*this, c, buf, n);
+			renderTone(*this, buf, n, chunkStart);
 			break;
 		case Kind::CHORD:
-			renderChord(*this, c, buf, n);
+			renderChord(*this, buf, n, chunkStart);
 			break;
 		case Kind::VSNR:
-			renderVsnr(*this, c, buf, n);
+			renderVsnr(*this, buf, n, chunkStart);
 			break;
 		case Kind::CLAP:
-			renderClap(*this, c, buf, n);
+			renderClap(*this, buf, n, chunkStart);
 			break;
 		case Kind::NUM_KINDS:
 			std::fill(buf, buf + n, 0.f);
@@ -887,45 +1272,50 @@ void Voice::render(Kind kind, const Settings& settings, uint32_t phaseIncrement,
 		// about 60 ms, which squares up and lifts the attack like a compressor slamming. The amp decay also runs a
 		// quarter longer.
 		if (settings.punch) {
-			const float punchCoef = decayFor(0.18f, sampleRate);
 			float p = common_.punchEnv;
 			for (int32_t i = 0; i < n; i++) {
 				const float drive = 2.f + 2.f * p;
 				buf[i] = softClip(buf[i] * drive) * (1.f + 0.5f * p) / drive;
-				p *= punchCoef;
+				p *= p_.punchCoef;
 			}
 			common_.punchEnv = p;
 		}
 
-		// Level trim, then drive after the amp envelope, so the tail cleans up as it dies away
+		// The amp envelope, which waits out any hold
+		float amps[kChunk];
+		const int32_t held = static_cast<int32_t>(std::min(common_.ampHold, static_cast<uint32_t>(n)));
+		common_.ampHold -= held;
 		float amp = common_.amp;
-		const float coef = common_.ampCoef;
-		const float trim = kLevelTrim[static_cast<size_t>(kind)];
-		const bool driven = settings.drive > 0.f;
-		const float gain = driveGainFor(settings.drive);
-		for (int32_t i = 0; i < n; i++) {
-			// Below -100 dB the voice is done, at the same sample whatever the host's block size
-			if (amp < 1e-5f) {
-				std::fill(out + i, out + numSamples, 0);
-				finished_ = true;
-				common_.amp = 0.f;
-				return;
-			}
-			float x = buf[i] * amp * trim;
-			if (driven) {
-				x = driveCurve(x * gain);
-			}
-			out[i] = static_cast<int32_t>(std::clamp(x, -1.f, 1.f) * kFullScale);
-			if (common_.ampHold > 0) {
-				common_.ampHold--;
-			}
-			else {
-				amp *= coef;
-			}
+		std::fill(amps, amps + held, amp);
+		for (int32_t i = held; i < n; i++) {
+			amps[i] = amp;
+			amp *= p_.ampCoef;
 		}
 		common_.amp = amp;
+		if (common_.ending) {
+			for (int32_t i = 0; i < n; i++) {
+				amps[i] *= static_cast<float>(kChunk - offset - i) * (1.f / kChunk);
+			}
+		}
+		output(buf, amps, out, n, trim, p_.driveGain, driven);
+		common_.pos += n;
 		out += n;
 		numSamples -= n;
+
+		const float level = (kind == Kind::VSNR) ? vsnrLevel(*this) : amp;
+		if (!common_.ending) {
+			common_.level = level;
+		}
+		else if (common_.pos % kChunk != 0) {
+			common_.level = level * static_cast<float>(kChunk - offset - n) * (1.f / kChunk);
+		}
+		else {
+			std::fill(out, out + numSamples, 0);
+			finished_ = true;
+			common_.amp = 0.f;
+			common_.level = 0.f;
+			return;
+		}
 	}
 }
 

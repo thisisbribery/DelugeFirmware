@@ -23,8 +23,10 @@ constexpr float kPhaseToCycles = 1.f / 4294967296.f;
 
 constexpr float kEnvFloor = 0.001f; ///< Envelopes run from here to 1 and back: 60 dB
 constexpr float kEnvSpan = 1.f / kEnvFloor;
-/// Envelope time for 80 dB rather than 60: where the voice is called finished
-constexpr float kEndScale = 4.f / 3.f;
+/// Envelope time for 72 dB rather than 60: where the voice is called finished
+constexpr float kEndScale = 72.f / 60.f;
+/// And for 40 dB, where culling treats it like a releasing voice
+constexpr float kQuietScale = 40.f / 60.f;
 constexpr float kOneThird = 1.f / 3.f;
 constexpr float kTwoThirds = 2.f / 3.f;
 
@@ -241,6 +243,7 @@ void Voice::prepare(const Settings& s) {
 	const float maxHz = 0.45f * kSampleRate;
 	noiseFilter_ =
 	    noiseFilterFor(s.noiseFilter, std::min(paramToHz(s.noiseFreq), maxHz), 0.1f * std::pow(100000.f, s.noiseQ));
+	filterNoise_ = s.noiseFilter != NoiseFilter::OFF;
 
 	// A boost takes half its dB off the whole channel
 	const float eqDb = (s.eqGain - 0.5f) * 80.f;
@@ -268,15 +271,20 @@ void Voice::prepare(const Settings& s) {
 		distBias_ = -11.f / 27.f;
 	}
 
-	// Done once each layer that can be heard is 80 dB down
+	// Done once each layer that can be heard is 72 dB down, and quiet at 40 dB
 	float end = 0.f;
+	float quiet = 0.f;
 	if (oscGain_ > 0.f) {
 		end = oscAtk_ + oscDcy_ * kEndScale;
+		quiet = oscAtk_ + oscDcy_ * kQuietScale;
 	}
 	if (noiseGain_ > 0.f) {
-		end = std::max(end, (s.noiseEnv == NoiseEnv::LINEAR) ? linAtk_ + linDcy_ : nAtk_ + nDcy_ * kEndScale);
+		const bool linear = s.noiseEnv == NoiseEnv::LINEAR;
+		end = std::max(end, linear ? linAtk_ + linDcy_ : nAtk_ + nDcy_ * kEndScale);
+		quiet = std::max(quiet, linear ? linAtk_ + linDcy_ * 0.99f : nAtk_ + nDcy_ * kQuietScale);
 	}
 	endTime_ = end;
+	quietTime_ = quiet;
 }
 
 void Voice::render(const Settings& s, uint32_t phaseIncrement, int32_t* out, int32_t numSamples) {
@@ -422,7 +430,15 @@ void Voice::render(const Settings& s, uint32_t phaseIncrement, int32_t* out, int
 			break;
 		}
 
-		const float noise = noiseOn ? process(noiseFilter_, nz1_, nz2_, randomUnit(rand_) * 2.f - 1.f) * nEnv : 0.f;
+		float noise = 0.f;
+		if (noiseOn) {
+			noise = randomUnit(rand_) * 2.f - 1.f;
+			// With the filter off its biquad passes the noise straight through, so skip it
+			if (filterNoise_) {
+				noise = process(noiseFilter_, nz1_, nz2_, noise);
+			}
+			noise *= nEnv;
+		}
 		float x = osc * oscGain_ + noise * noiseGain_;
 
 		if (distort) {
@@ -446,6 +462,10 @@ void Voice::render(const Settings& s, uint32_t phaseIncrement, int32_t* out, int
 	}
 	n_ += static_cast<uint32_t>(numSamples);
 	finished_ = static_cast<float>(n_) * kInvSampleRate > endTime_;
+}
+
+bool Voice::quiet() const {
+	return finished_ || static_cast<float>(n_) * kInvSampleRate > quietTime_;
 }
 
 } // namespace deluge::dsp::drum_synth::gin

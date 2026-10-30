@@ -41,6 +41,15 @@ inline Counter voices;
 /// The drum synth oscillator alone. samples = voice-samples.
 inline Counter drumSynth;
 
+/// Timing every voice reads the timer twice per voice per render, so voices and drumSynth only count while the CPU
+/// load menu keeps asking for them: it tops this up, and each render takes one off.
+inline int32_t rendersToTimeVoices = 0;
+[[nodiscard]] inline bool timingVoices() {
+	return rendersToTimeVoices > 0;
+}
+/// Enough renders to last until the menu's next refresh, even at the smallest buffers
+constexpr int32_t kRendersPerRefresh = 8192;
+
 constexpr uint32_t kTicksPerSecond = 33330000;
 constexpr uint32_t kSampleRate = 44100;
 

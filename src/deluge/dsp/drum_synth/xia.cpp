@@ -30,6 +30,8 @@ namespace {
 
 constexpr int32_t kMax = std::numeric_limits<int32_t>::max();
 constexpr int32_t kKnobMax = 0x7F00;
+/// A voice is done once its envelope is 72 dB down (q31)
+constexpr int32_t kEndEnvelope = 0x80000;
 constexpr int32_t kPitchMax = 0x870000;
 
 /// The EMAC's signed fractional multiply-accumulate into a clear accumulator, then read with saturation
@@ -364,7 +366,7 @@ void render(TiaState& s, const TiaSettings& t, bool trigger, bool fadeOut, int32
 	post(p, buffer, s.lowPass);
 	output(buffer, mul(envelope, declick), mul(newEnvelope, newDeclick), t.punch != 0, out);
 
-	if (t.decay < kKnobMax && s.envelope < 0x8000 && !trigger && !s.held) {
+	if (t.decay < kKnobMax && s.envelope < kEndEnvelope && !trigger && !s.held) {
 		s.active = 0;
 	}
 }
@@ -672,7 +674,7 @@ void render(IiaState& s, const IiaSettings& t, bool trigger, bool fadeOut, int32
 	output(buffer, gain, gainEnd, t.punch != 0, out);
 
 	s.noiseSeed = seed;
-	if (s.envelope < 0x8000 && s.strike < 0x8000 && !trigger && !s.held) {
+	if (s.envelope < kEndEnvelope && s.strike < kEndEnvelope && !trigger && !s.held) {
 		s.active = 0;
 	}
 }

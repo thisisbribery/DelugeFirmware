@@ -56,6 +56,9 @@ constexpr float kNoiseMaxRate = 22000.f;
 constexpr float kNoiseGain = 0.9f;
 constexpr float kCutoffMin = 30.f;
 constexpr float kCutoffMax = 16000.f;
+/// A voice is done once its own decay is 72 dB down, and counts as quiet for culling at 40 dB
+constexpr float kEndLevel = 2.5e-4f;
+constexpr float kQuietLevel = 0.01f;
 
 int32_t toQ31(float f) {
 	return static_cast<int32_t>(std::clamp(f, -1.f, 1.f) * 2147483647.f);
@@ -66,7 +69,7 @@ uint32_t toPhaseIncrement(float f) {
 }
 
 /// Same as getSine() in util/waves.h: linear interpolation of the 256-point table, giving a full-range q31
-int32_t sine(uint32_t phase) {
+[[gnu::always_inline]] inline int32_t sine(uint32_t phase) {
 	const uint32_t index = phase >> 24;
 	const int32_t strength2 = (phase >> 8) & 65535;
 	const int32_t strength1 = 65536 - strength2;
@@ -74,7 +77,7 @@ int32_t sine(uint32_t phase) {
 }
 
 /// Full-range triangle, starting at its lowest point
-int32_t triangle(uint32_t phase) {
+[[gnu::always_inline]] inline int32_t triangle(uint32_t phase) {
 	const uint32_t folded = std::min<uint32_t>((phase >= 0x80000000u) ? -phase : phase, 0x7FFFFFFFu);
 	return static_cast<int32_t>((folded << 1) - 0x80000000u);
 }
@@ -726,6 +729,13 @@ void storeControlsInPatch(const DrumControls& controls, Patch& patch) {
 // Voice ---------------------------------------------------------------------------------------------------------------
 
 void Voice::updateSettings(const Patch& patch, const DrumControls& controls) {
+	// Most buffers bring the same patch and controls as the last one
+	if (settingsValid_ && patch.bytes() == rawPatch_ && controls.values == rawControls_) {
+		return;
+	}
+	rawPatch_ = patch.bytes();
+	rawControls_ = controls.values;
+
 	std::array<uint8_t, Patch::NUM_PARAMS> effective;
 	for (uint8_t p = 0; p < Patch::NUM_PARAMS; p++) {
 		const auto param = static_cast<Patch::Param>(p);
@@ -773,6 +783,9 @@ void Voice::updateSettings(const Patch& patch, const DrumControls& controls) {
 	const float cutoff = kCutoffMin * powf(kCutoffMax / kCutoffMin, effective[Patch::NOISE_CUTOFF] / 127.f);
 	s.filterG = tanf(3.14159265f * std::min(cutoff, 0.45f * kSampleRate) / kSampleRate);
 	s.filterK = 2.f - 1.95f * (effective[Patch::NOISE_RESONANCE] / 127.f);
+	s.filterA1 = 1.f / (1.f + s.filterG * (s.filterG + s.filterK));
+	s.filterA2 = s.filterG * s.filterA1;
+	s.filterA3 = s.filterG * s.filterA2;
 
 	s.transientMode = effective[Patch::TRANS_MODE];
 	s.transientVolume = effective[Patch::TRANS_VOLUME] / 127.f;
@@ -818,7 +831,7 @@ int32_t Voice::random() {
 	return static_cast<int32_t>(random_);
 }
 
-int32_t Voice::step(Wave w, Osc& osc, uint32_t phaseOffset) {
+[[gnu::always_inline]] inline int32_t Voice::step(Wave w, Osc& osc, uint32_t phaseOffset) {
 	const uint32_t phase = osc.phase + phaseOffset;
 	const uint32_t next = osc.phase + osc.phaseIncrement;
 	int32_t value;
@@ -911,7 +924,7 @@ void Voice::controlTick(uint32_t basePhaseIncrement) {
 	transientLevel_ = toQ31(s.transientVolume);
 }
 
-int32_t Voice::transientSample() {
+[[gnu::always_inline]] inline int32_t Voice::transientSample() {
 	const uint8_t mode = settings_.transientMode;
 	if (mode < kTransientSampleFirst || transientPhase_ >= kTransientEnd) {
 		return 0;
@@ -922,18 +935,17 @@ int32_t Voice::transientSample() {
 	return multiply_32x32_rshift32(t, transientLevel_); // q30
 }
 
-int32_t Voice::filterNoise(int32_t input) {
+[[gnu::always_inline]] inline int32_t Voice::filterNoise(int32_t input) {
 	const Settings& s = settings_;
 	if (s.noiseFilter == NoiseFilter::OFF) {
 		return input;
 	}
 
 	// TPT state variable filter (Zavalishin, "The Art of VA Filter Design")
-	const float g = s.filterG;
 	const float k = s.filterK;
-	const float a1 = 1.f / (1.f + g * (g + k));
-	const float a2 = g * a1;
-	const float a3 = g * a2;
+	const float a1 = s.filterA1;
+	const float a2 = s.filterA2;
+	const float a3 = s.filterA3;
 
 	const float x = input * (1.f / 2147483648.f);
 	const float v3 = x - filterState2_;
@@ -981,8 +993,10 @@ void Voice::renderDrum(int32_t* out, int32_t n, int32_t& amplitude, int32_t ampl
 
 void Voice::renderSnare(int32_t* out, int32_t n, int32_t& amplitude, int32_t amplitudeIncrement) {
 	const Settings& s = settings_;
+	// No noise in the mix: skip its osc and filter
+	const bool noisy = modLevel_ != 0;
 	for (int32_t i = 0; i < n; i++) {
-		const int32_t noise = filterNoise(step(Wave::NOISE, noise_));
+		const int32_t noise = noisy ? filterNoise(step(Wave::NOISE, noise_)) : 0;
 		const int32_t osc = step(s.oscWave, main_);
 
 		int32_t sample = multiply_32x32_rshift32(osc, mainLevel_) + multiply_32x32_rshift32(noise, modLevel_);
@@ -995,10 +1009,14 @@ void Voice::renderSnare(int32_t* out, int32_t n, int32_t& amplitude, int32_t amp
 void Voice::renderMetal(int32_t* out, int32_t n, int32_t& amplitude, int32_t amplitudeIncrement) {
 	const Settings& s = settings_;
 	constexpr int32_t kOne = 1 << 30; // q30
+	// The second mod at zero adds nothing: skip its osc
+	const bool mod2On = mod2Level_ != 0;
 	for (int32_t i = 0; i < n; i++) {
 		// The two mods sum and clip like the LXR's saturating int16 add
-		int32_t mod = multiply_32x32_rshift32(step(s.modWave, mod_), modLevel_)
-		              + multiply_32x32_rshift32(step(s.mod2Wave, mod2_), mod2Level_);
+		int32_t mod = multiply_32x32_rshift32(step(s.modWave, mod_), modLevel_);
+		if (mod2On) {
+			mod += multiply_32x32_rshift32(step(s.mod2Wave, mod2_), mod2Level_);
+		}
 		mod = std::clamp(mod, -kOne, kOne);
 
 		// mod is q30 and fmDepth_ is index / 8: x 2^6 makes a full-scale mod move the phase by index cycles
@@ -1057,6 +1075,7 @@ void Voice::render(const Patch& patch, const DrumControls& controls, int32_t* bu
 		lxrLevel_ = 1.f;
 	}
 	xiaFinished_ = false;
+	lxrQuiet_ = false;
 
 	// The LXR voices' drive and decay. Left at neutral (no drive, decay holding) they're skipped entirely.
 	const float driveKnob = static_cast<float>(controls.value(DrumControls::LXR_DRIVE)) / 127.f;
@@ -1100,8 +1119,12 @@ void Voice::renderLxrDriven(int32_t* buffer, int32_t numSamples, uint32_t basePh
 	constexpr float kQ30 = 1073741824.f;
 	const float gain = cyc::driveGainFor(driveKnob);
 	// Decay: 30 ms to 12 s to fall 60 dB across the knob, 127 holds
-	const float coef =
-	    (decayKnob >= 127) ? 1.f : expf(-6.907755f / (0.03f * powf(400.f, decayKnob / 126.f) * kSampleRate));
+	if (decayKnob != lxrDecayKnob_) {
+		lxrDecayKnob_ = decayKnob;
+		lxrDecayCoef_ =
+		    (decayKnob >= 127) ? 1.f : expf(-6.907755f / (0.03f * powf(400.f, decayKnob / 126.f) * kSampleRate));
+	}
+	const float coef = lxrDecayCoef_;
 	std::array<int32_t, 64> scratch;
 	int32_t* out = buffer;
 	int32_t remaining = numSamples;
@@ -1138,8 +1161,36 @@ void Voice::renderLxrDriven(int32_t* buffer, int32_t numSamples, uint32_t basePh
 		}
 		out += n;
 	}
-	// Once the decay has died away, so has the voice
-	xiaFinished_ = lxrLevel_ < 1e-5f;
+	// Once the decay has died away, so has the voice: 72 dB down, counting the drive's gain
+	const float level = lxrLevel_ * std::max(gain, 1.f);
+	xiaFinished_ = level < kEndLevel;
+	lxrQuiet_ = level < kQuietLevel;
+}
+
+bool Voice::quiet() const {
+	if (xiaFinished_) {
+		return true;
+	}
+	if (pendingTrigger_) {
+		return false;
+	}
+	if (isGin(settings_.engine)) {
+		return ginReady_ && xia_.gin.quiet();
+	}
+	if (isCyc(settings_.engine)) {
+		return cycReady_ && xia_.cyc.level() < kQuietLevel;
+	}
+	if (isXia(settings_.engine)) {
+		constexpr int32_t kQuietQ31 = static_cast<int32_t>(kQuietLevel * 2147483648.f);
+		if (xiaEngine_ == Engine::TIA) {
+			return xia_.tia.envelope < kQuietQ31;
+		}
+		if (xiaEngine_ == Engine::IIA) {
+			return xia_.iia.envelope < kQuietQ31 && xia_.iia.strike < kQuietQ31;
+		}
+		return false;
+	}
+	return lxrQuiet_;
 }
 
 // XIA engines ---------------------------------------------------------------------------------------------------------

@@ -49,5 +49,6 @@ public:
 	VoiceSample* voiceSample = nullptr;
 	LivePitchShifter* livePitchShifter = nullptr;
 	gsl::owner<DxVoice*> dxVoice = nullptr;
-	deluge::dsp::drum_synth::Voice drumVoice;
+	// Only drum synth sources get one, from a pool, so every other voice stays small
+	gsl::owner<deluge::dsp::drum_synth::Voice*> drumVoice = nullptr;
 };

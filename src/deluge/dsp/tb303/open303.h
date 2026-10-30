@@ -74,7 +74,7 @@ class OnePole {
 public:
 	enum Mode : uint8_t { HIGHPASS, ALLPASS };
 	void setup(Mode mode, float cutoff, float sampleRate);
-	inline float process(float in) {
+	[[gnu::always_inline]] inline float process(float in) {
 		y1 = b0 * in + b1 * x1 + a1 * y1;
 		x1 = in;
 		return y1;
@@ -90,7 +90,7 @@ class Biquad {
 public:
 	void setupLowpass(float frequency, float q, float sampleRate);
 	void setupNotch(float frequency, float bandwidthOctaves, float sampleRate);
-	inline float process(float in) {
+	[[gnu::always_inline]] inline float process(float in) {
 		float y = b0 * in + b1 * x1 + b2 * x2 + a1 * y1 + a2 * y2;
 		x2 = x1;
 		x1 = in;
@@ -108,43 +108,97 @@ private:
 /// Open303's 12th order elliptic quarter-band lowpass, split into biquads so it holds up in single precision
 class AntiAliasFilter {
 public:
-	float process(float in);
+	[[gnu::always_inline]] inline float process(float in) {
+		float x = in;
+#pragma GCC unroll 6
+		for (int32_t s = 0; s < 6; s++) {
+			// Transposed direct form II
+			const float* c = kSections[s];
+			std::array<float, 2>& z = state[s];
+			float y = c[0] * x + z[0];
+			z[0] = c[1] * x + c[3] * y + z[1];
+			z[1] = c[2] * x + c[4] * y;
+			x = y;
+		}
+		return x;
+	}
 	void reset() { state = {}; }
 
 private:
+	// b0, b1, b2, -a1, -a2 for each section. The product of these is Open303's filter to within 3e-7.
+	static constexpr float kSections[6][5] = {
+	    {0.016780659926151895f, 0.022947305659324117f, 0.016780659926151933f, 1.5863116558748012f,
+	     -0.6428202813864291f},
+	    {0.09459763035184697f, -0.035133895460929543f, 0.09459763035184561f, 1.5620957226926269f, -0.7161570879353899f},
+	    {0.29069484193705036f, -0.29936460675402321f, 0.290694841937152f, 1.5310700890181974f, -0.81309516613837662f},
+	    {0.52578571778729133f, -0.66650721431468896f, 0.52578571778628858f, 1.5080939966772393f, -0.89315821793613026f},
+	    {0.70505069759938288f, -0.96089912665161337f, 0.70505069760221728f, 1.4983265489464017f, -0.9475288174963884f},
+	    {0.79922266095877925f, -1.117333033909587f, 0.79922266095683048f, 1.5032624520096824f, -0.98437474001570513f},
+	};
 	std::array<std::array<float, 2>, 6> state{};
 };
 
 /// Open303's TeeBeeFilter: a ladder with a highpass in its feedback path
 class TeeBeeFilter {
 public:
+	struct Coefficients {
+		float b0, a1, k, g;
+	};
+
 	void setSampleRate(float sampleRate);
 	void setResonance(float percent);
 	void setClassic(bool classic) { classic_ = classic; }
-	void setCutoff(float cutoff);
-	inline float process(float in) {
-		if (classic_) {
-			float y0 = in - feedbackHighpass.process(k * y4);
-			y1 += 2.f * b0 * (y0 - y1 + y2);
-			y2 += b0 * (y1 - 2.f * y2 + y3);
-			y3 += b0 * (y2 - 2.f * y3 + y4);
-			y4 += b0 * (y3 - 2.f * y4);
-			return 2.f * g * y4;
+	bool isClassic() const { return classic_; }
+	Coefficients coefficientsFor(float cutoff) const;
+
+	/// Glides the coefficients from where they are to target over the next numSamples calls to step()
+	[[gnu::always_inline]] inline void glideTo(Coefficients const& target, int32_t numSamples) {
+		float scale = 1.f / (float)numSamples;
+		step_ = {(target.b0 - now.b0) * scale, (target.a1 - now.a1) * scale, (target.k - now.k) * scale,
+		         (target.g - now.g) * scale};
+	}
+	/// Like glideTo(), but the first step() lands on first rather than carrying on from where the coefficients are
+	[[gnu::always_inline]] inline void jumpTo(Coefficients const& first, Coefficients const& target,
+	                                          int32_t numSamples) {
+		now = first;
+		if (numSamples > 1) {
+			glideTo(target, numSamples - 1);
 		}
-		float y0 = 0.125f * in - feedbackHighpass.process(k * y4);
-		y1 = y0 + a1 * (y0 - y1);
-		y2 = y1 + a1 * (y1 - y2);
-		y3 = y2 + a1 * (y2 - y3);
-		y4 = y3 + a1 * (y3 - y4);
-		return 8.f * y3;
+		else {
+			step_ = {};
+		}
+		now = {now.b0 - step_.b0, now.a1 - step_.a1, now.k - step_.k, now.g - step_.g};
+	}
+	/// Once per output sample, before it's processed
+	[[gnu::always_inline]] inline void step() {
+		now = {now.b0 + step_.b0, now.a1 + step_.a1, now.k + step_.k, now.g + step_.g};
+	}
+
+	template <bool classic>
+	[[gnu::always_inline]] inline float process(float in) {
+		if constexpr (classic) {
+			float y0 = in - feedbackHighpass.process(now.k * y4);
+			y1 += 2.f * now.b0 * (y0 - y1 + y2);
+			y2 += now.b0 * (y1 - 2.f * y2 + y3);
+			y3 += now.b0 * (y2 - 2.f * y3 + y4);
+			y4 += now.b0 * (y3 - 2.f * y4);
+			return 2.f * now.g * y4;
+		}
+		else {
+			float y0 = 0.125f * in - feedbackHighpass.process(now.k * y4);
+			y1 = y0 + now.a1 * (y0 - y1);
+			y2 = y1 + now.a1 * (y1 - y2);
+			y3 = y2 + now.a1 * (y2 - y3);
+			y4 = y3 + now.a1 * (y3 - y4);
+			return 8.f * y3;
+		}
 	}
 	void reset();
 
 private:
-	void calculateCoefficients();
-	float b0 = 0.f, a1 = 0.f, k = 0.f, g = 1.f;
+	Coefficients now{0.f, 0.f, 0.f, 1.f};
+	Coefficients step_{};
 	float y1 = 0.f, y2 = 0.f, y3 = 0.f, y4 = 0.f;
-	float cutoff_ = 1000.f;
 	float resonanceSkewed = 0.f;
 	float twoPiOverSampleRate = 0.f;
 	bool classic_ = true;
@@ -155,6 +209,8 @@ class Open303 {
 public:
 	static constexpr float kSampleRate = 44100.f;
 	static constexpr int32_t kOversampling = 4;
+	/// Output samples between filter coefficient updates. They glide in between, so the envelope doesn't zipper.
+	static constexpr int32_t kControlInterval = 4;
 
 	Open303();
 
@@ -185,14 +241,14 @@ public:
 	void render(std::span<int32_t> buffer, float gain);
 
 private:
-	float renderSample();
+	template <bool classic>
+	void renderVoice(std::span<int32_t> buffer, float gain);
 	void triggerNote(int32_t note, bool accent);
 	void slideToNote(int32_t note, bool accent);
 	void releaseNote();
 	void setAccentState(bool accent);
 	void calculateEnvModScalerAndOffset();
 	float noteToFrequency(int32_t note) const;
-	inline float oscillator();
 
 	Controls controls;
 
@@ -209,6 +265,7 @@ private:
 	float envOffset = 0.f;
 	float accentGain = 0.f;
 	bool sounding = false;
+	bool filterJump = true; // The next coefficient update jumps rather than glides: a new note, accent or knob move
 
 	// Oscillator: one phase for both waves, in fractions of a cycle
 	uint32_t phase = 0;

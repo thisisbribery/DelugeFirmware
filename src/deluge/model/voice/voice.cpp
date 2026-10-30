@@ -2824,7 +2824,13 @@ dontUseCache: {}
 			}
 		}
 		else if (sound.sources[s].oscType == OscType::DRUM_SYNTH) {
-			uint32_t startTicks = getSystemTicks();
+			deluge::dsp::drum_synth::Voice* drumVoice = unisonParts[u].sources[s].drumVoice;
+			// Switched to a drum synth while this note was already going: it has no engine, so it stops
+			if (drumVoice == nullptr) {
+				goto instantUnassign;
+			}
+			const bool timing = deluge::cpu_meter::timingVoices();
+			uint32_t startTicks = timing ? getSystemTicks() : 0;
 
 			int32_t* renderBuffer = oscBuffer;
 			if (stereoBuffer) {
@@ -2832,9 +2838,8 @@ dontUseCache: {}
 				memset(renderBuffer, 0, SSI_TX_BUFFER_NUM_SAMPLES * sizeof(int32_t));
 			}
 
-			unisonParts[u].sources[s].drumVoice.render(sound.sources[s].drumPatch,
-			                                           modulatedDrumControls(*paramManager, sourceValues), renderBuffer,
-			                                           numSamples, phaseIncrement, sourceAmplitude, amplitudeIncrement);
+			drumVoice->render(sound.sources[s].drumPatch, modulatedDrumControls(*paramManager, sourceValues),
+			                  renderBuffer, numSamples, phaseIncrement, sourceAmplitude, amplitudeIncrement);
 
 			if (stereoBuffer) {
 				for (int32_t i = 0; i < numSamples; i++) {
@@ -2843,10 +2848,12 @@ dontUseCache: {}
 				}
 			}
 
-			deluge::cpu_meter::drumSynth.add(startTicks, getSystemTicks(), numSamples);
+			if (timing) {
+				deluge::cpu_meter::drumSynth.add(startTicks, getSystemTicks(), numSamples);
+			}
 
 			// The XIA engines have their own amp envelope: once it's done, so is this part of the voice
-			if (unisonParts[u].sources[s].drumVoice.finished()) {
+			if (drumVoice->finished()) {
 				goto instantUnassign;
 			}
 
@@ -2964,6 +2971,32 @@ static_assert(kNumEnvelopeStages < 8, "Too many envelope stages");
 static_assert(kNumVoicePriorities < 4, "Too many priority options");
 
 // Higher numbers are lower priority. 1 is top priority. Will never return 0, because nextVoiceState starts at 1
+// A drum synth voice whose own decay has fallen 40 dB ranks like a releasing one, so culling takes it before notes that
+// can still be heard. Its Deluge envelope is still in its decay, as the release is fitted well past the engine's tail.
+uint32_t Voice::stateForPriority() const {
+	const auto state = util::to_underlying(envelopes[0].state);
+	constexpr auto kRelease = util::to_underlying(EnvelopeStage::RELEASE);
+	if (state >= kRelease) {
+		return state;
+	}
+	bool anyDrum = false;
+	for (int32_t s = 0; s < kNumSources; s++) {
+		for (int32_t u = 0; u < sound.numUnison; u++) {
+			const VoiceUnisonPartSource& source = unisonParts[u].sources[s];
+			if (source.drumVoice != nullptr) {
+				if (!source.drumVoice->quiet()) {
+					return state;
+				}
+				anyDrum = true;
+			}
+			else if (source.active) {
+				return state; // Another oscillator still playing
+			}
+		}
+	}
+	return anyDrum ? kRelease : state;
+}
+
 uint32_t Voice::getPriorityRating() const {
 	return
 	    // Bits 30-31 - manual priority setting
@@ -2976,7 +3009,7 @@ uint32_t Voice::getPriorityRating() const {
 	    + ((uint32_t)std::min<size_t>(sound.numActiveVoices(), 7) << 27)
 
 	    // Bits 24-26 - envelope state
-	    + ((uint32_t)envelopes[0].state << 24)
+	    + ((uint32_t)stateForPriority() << 24)
 
 	    // Bits  0-23 - time entered
 	    + ((uint32_t)(-envelopes[0].timeEnteredState) & (0xFFFFFFFF >> 8));

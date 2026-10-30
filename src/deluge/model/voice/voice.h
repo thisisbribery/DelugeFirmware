@@ -113,6 +113,8 @@ public:
 	bool hasReleaseStage();
 	void unassignStuff(bool deletingSong);
 	[[nodiscard]] uint32_t getPriorityRating() const;
+	/// The envelope state getPriorityRating() ranks by
+	[[nodiscard]] uint32_t stateForPriority() const;
 	void expressionEventImmediate(const Sound& sound, int32_t voiceLevelValue, int32_t s);
 	void expressionEventSmooth(int32_t newValue, int32_t s);
 

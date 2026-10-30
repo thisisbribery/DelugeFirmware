@@ -93,6 +93,8 @@ public:
 
 	/// True once both envelopes have died away, so the Deluge voice can be freed
 	[[nodiscard]] bool finished() const { return finished_; }
+	/// True once every layer is 40 dB down
+	[[nodiscard]] bool quiet() const;
 
 	struct Biquad {
 		float b0, b1, b2, a1, a2;
@@ -114,7 +116,9 @@ private:
 	float oscGain_, noiseGain_, level_;
 	float distDrive_, distGain_, distClip_, distBias_;
 	bool useEq_;
-	float endTime_; ///< Seconds after the hit when both envelopes are 80 dB down
+	bool filterNoise_; ///< The noise filter is on (off, its biquad passes the noise straight through)
+	float endTime_;    ///< Seconds after the hit when both envelopes are 72 dB down
+	float quietTime_;  ///< And 40 dB down
 	Biquad noiseFilter_, eq_;
 
 	// Running state

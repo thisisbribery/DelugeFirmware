@@ -2952,11 +2952,14 @@ void Sound::render(ModelStackWithThreeMainThings* modelStack, std::span<StereoSa
 		for (auto it = voices_.begin(); it != voices_.end();) {
 			ActiveVoice& voice = *it;
 
-			uint32_t startTicks = getSystemTicks();
+			const bool timing = deluge::cpu_meter::timingVoices();
+			uint32_t startTicks = timing ? getSystemTicks() : 0;
 			bool stillGoing =
 			    voice->render(modelStackWithSoundFlags, sound_mono.data(), sound_mono.size(), voice_rendered_in_stereo,
 			                  applyingPanAtVoiceLevel, sourcesChanged, doLPF, doHPF, pitchAdjust);
-			deluge::cpu_meter::voices.add(startTicks, getSystemTicks(), sound_mono.size());
+			if (timing) {
+				deluge::cpu_meter::voices.add(startTicks, getSystemTicks(), sound_mono.size());
+			}
 			if (!stillGoing) {
 				this->checkVoiceExists(voice, "E201");
 				this->freeActiveVoice(voice, modelStackWithSoundFlags, false);

@@ -312,6 +312,7 @@ public:
 
 	/// Raw bytes, for saving and loading. Out of range values are clamped when read.
 	std::array<uint8_t, NUM_PARAMS>& bytes() { return params_; }
+	[[nodiscard]] const std::array<uint8_t, NUM_PARAMS>& bytes() const { return params_; }
 	void clampAll();
 
 	/// Load the 12 bytes saved by the first, kick-and-tom-only version of the drum synth
@@ -373,6 +374,8 @@ public:
 
 	/// True once an XIA or Cyc engine's own envelope has finished, so the Deluge voice can be freed
 	[[nodiscard]] bool finished() const { return xiaFinished_; }
+	/// True once the engine's own decay has fallen 40 dB, so culling can treat the voice like a releasing one
+	[[nodiscard]] bool quiet() const;
 
 private:
 	/// Patch values after knob offsets, turned into the numbers the render loop wants
@@ -387,6 +390,7 @@ private:
 		uint32_t noisePhaseIncrement;
 		NoiseFilter noiseFilter;
 		float filterG, filterK;
+		float filterA1, filterA2, filterA3; ///< The noise filter's coefficients, from filterG and filterK
 		uint8_t transientMode;
 		float transientVolume, transientPitch;
 		uint32_t transientPhaseIncrement;
@@ -424,6 +428,9 @@ private:
 	Settings settings_{};
 	std::array<uint8_t, Patch::NUM_PARAMS> settingsFrom_{}; ///< Effective bytes settings_ was built from
 	bool settingsValid_ = false;
+	// The patch and controls settingsFrom_ came from, so an unchanged buffer skips working the bytes out again
+	std::array<uint8_t, Patch::NUM_PARAMS> rawPatch_{};
+	std::array<int32_t, DrumControls::NUM_SLOTS> rawControls_{};
 
 	Osc main_, mod_, mod2_, noise_;
 	uint32_t transientPhase_ = 0;
@@ -453,6 +460,10 @@ private:
 	bool cycReady_ = false;           ///< xia_ holds a Cyc engine's state
 	bool ginReady_ = false;           ///< xia_ holds GIN's state
 	float lxrLevel_ = 1.f;            ///< The LXR voices' decay
+	float lxrGain_ = 1.f;             ///< The LXR voices' drive gain, last render
+	int32_t lxrDecayKnob_ = -1;       ///< The decay knob lxrDecayCoef_ was worked out for
+	float lxrDecayCoef_ = 1.f;
+	bool lxrQuiet_ = false; ///< The LXR voices' decay has fallen 40 dB
 	bool xiaTrigger_ = false;
 	bool xiaFinished_ = false;
 	bool pendingTrigger_ = false;
