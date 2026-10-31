@@ -78,6 +78,10 @@ extern MenuHighlighting accessibilityMenuHighlighting;
 
 extern OutputType defaultNewClipType;
 extern bool defaultUseLastClipType;
+/// The instrument a new kit track starts as: a PresetKit (LXR, Cycles, GIN), or 0 for a stock kit
+extern uint8_t defaultKitInstrument;
+/// The instrument a new synth track starts as: 1 + its place in synth_instruments::kSynthInstruments, or 0 for stock
+extern uint8_t defaultSynthInstrument;
 /// What the screensaver shows, or OFF to disable it entirely.
 extern ScreensaverMode screensaverMode;
 /// Minutes without physical input before the screensaver appears, kMinScreensaverTimeoutMinutes to

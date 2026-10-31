@@ -78,7 +78,11 @@ bool NewKitType::acceptCurrentOption() {
 	case PresetKit::LXR:
 	case PresetKit::CYCLES:
 	case PresetKit::GIN:
-		instrumentClipView.createNewDrumSynthKit(chosen);
+		// Then straight into its presets, playing the top one
+		if (instrumentClipView.createNewDrumSynthKit(chosen) && kitPresets.setup(chosen)) {
+			openUI(&kitPresets);
+			kitPresets.startOnTopPreset();
+		}
 		break;
 	default:
 		instrumentClipView.createNewInstrument(OutputType::KIT);

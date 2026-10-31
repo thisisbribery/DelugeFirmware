@@ -59,6 +59,7 @@
 #include "model/clip/clip_instance.h"
 #include "model/clip/instrument_clip.h"
 #include "model/clip/instrument_clip_minder.h"
+#include "model/instrument/default_instruments.h"
 #include "model/instrument/instrument.h"
 #include "model/instrument/melodic_instrument.h"
 #include "model/note/note_row.h"
@@ -1587,34 +1588,41 @@ void SessionView::drawSectionSquare(uint8_t yDisplay, RGB thisImage[]) {
 // Will now look in subfolders too if need be.
 Error setPresetOrNextUnlaunchedOne(InstrumentClip* clip, OutputType outputType, bool* instrumentAlreadyInSong,
                                    bool copyDrumsFromClip = true) {
-	Error error = Browser::currentDir.set(getInstrumentFolder(outputType));
-	if (error != Error::NONE) {
-		return error;
-	}
+	// A default instrument set in SETTINGS > DEFAULTS > CLIP TYPE, else the first free preset as stock
+	Error error = Error::NONE;
+	Instrument* newInstrument = deluge::default_instruments::forNewTrack(currentSong, outputType);
+	*instrumentAlreadyInSong = false;
+	if (newInstrument == nullptr) {
+		error = Browser::currentDir.set(getInstrumentFolder(outputType));
+		if (error != Error::NONE) {
+			return error;
+		}
 
-	FileItem* fileItem = D_TRY_CATCH(loadInstrumentPresetUI.findAnUnlaunchedPresetIncludingWithinSubfolders(
-	                                     currentSong, outputType, Availability::INSTRUMENT_UNUSED),
-	                                 error, { return error; });
+		FileItem* fileItem = D_TRY_CATCH(loadInstrumentPresetUI.findAnUnlaunchedPresetIncludingWithinSubfolders(
+		                                     currentSong, outputType, Availability::INSTRUMENT_UNUSED),
+		                                 error, { return error; });
 
-	Instrument* newInstrument = fileItem->instrument;
-	bool isHibernating = newInstrument && !fileItem->instrumentAlreadyInSong;
-	*instrumentAlreadyInSong = newInstrument && fileItem->instrumentAlreadyInSong;
+		newInstrument = fileItem->instrument;
+		bool isHibernating = newInstrument && !fileItem->instrumentAlreadyInSong;
+		*instrumentAlreadyInSong = newInstrument && fileItem->instrumentAlreadyInSong;
 
-	if (!newInstrument) {
-		String newPresetName;
-		fileItem->getFilenameWithoutExtension(&newPresetName);
-		error = StorageManager::loadInstrumentFromFile(currentSong, nullptr, outputType, false, &newInstrument,
-		                                               &fileItem->filePointer, &newPresetName, &Browser::currentDir);
-	}
+		if (!newInstrument) {
+			String newPresetName;
+			fileItem->getFilenameWithoutExtension(&newPresetName);
+			error =
+			    StorageManager::loadInstrumentFromFile(currentSong, nullptr, outputType, false, &newInstrument,
+			                                           &fileItem->filePointer, &newPresetName, &Browser::currentDir);
+		}
 
-	Browser::emptyFileItems();
+		Browser::emptyFileItems();
 
-	if (error != Error::NONE) {
-		return error;
-	}
+		if (error != Error::NONE) {
+			return error;
+		}
 
-	if (isHibernating) {
-		currentSong->removeInstrumentFromHibernationList(newInstrument);
+		if (isHibernating) {
+			currentSong->removeInstrumentFromHibernationList(newInstrument);
+		}
 	}
 
 	if (display->haveOLED()) {

@@ -27,6 +27,7 @@
 #include "hid/buttons.h"
 #include "io/midi/midi_device.h"
 #include "io/midi/midi_engine.h"
+#include "io/midi/midi_transpose.h"
 #include "memory/general_memory_allocator.h"
 #include "model/action/action_logger.h"
 #include "model/clip/clip_instance.h"
@@ -34,8 +35,8 @@
 #include "model/consequence/consequence_scale_add_note.h"
 #include "model/drum/drum_name.h"
 #include "model/instrument/cv_instrument.h"
+#include "model/instrument/default_instruments.h"
 #include "model/instrument/midi_instrument.h"
-#include "io/midi/midi_transpose.h"
 #include "model/iterance/iterance.h"
 #include "model/note/note.h"
 #include "model/output.h"
@@ -4023,48 +4024,54 @@ Instrument* InstrumentClip::changeOutputType(ModelStackWithTimelineCounter* mode
 
 	// Synth / Kit
 	else {
-		String newName;
-		Error error;
+		// Never been this type before: a default instrument set in SETTINGS > DEFAULTS > CLIP TYPE, else as stock
+		if (backedUpInstrumentDirPath[newOutputTypeAsIdx].isEmpty()) {
+			newInstrument = deluge::default_instruments::forNewTrack(modelStack->song, newOutputType);
+		}
+		if (newInstrument == nullptr) {
+			String newName;
+			Error error;
 
-		newName.set(&backedUpInstrumentName[newOutputTypeAsIdx]);
-		Browser::currentDir.set(&backedUpInstrumentDirPath[newOutputTypeAsIdx]);
+			newName.set(&backedUpInstrumentName[newOutputTypeAsIdx]);
+			Browser::currentDir.set(&backedUpInstrumentDirPath[newOutputTypeAsIdx]);
 
-		if (Browser::currentDir.isEmpty()) {
-			error = Browser::currentDir.set(getInstrumentFolder(newOutputType));
+			if (Browser::currentDir.isEmpty()) {
+				error = Browser::currentDir.set(getInstrumentFolder(newOutputType));
+				if (error != Error::NONE) {
+					display->displayError(error);
+					return nullptr;
+				}
+			}
+
+			FileItem* fileItem = D_TRY_CATCH(loadInstrumentPresetUI.confirmPresetOrNextUnlaunchedOne(
+			                                     newOutputType, &newName, availabilityRequirement),
+			                                 error, {
+				                                 display->displayError(error);
+				                                 return nullptr;
+			                                 });
+
+			newInstrument = fileItem->instrument;
+			bool isHibernating = newInstrument && !fileItem->instrumentAlreadyInSong;
+			instrumentAlreadyInSong = newInstrument && fileItem->instrumentAlreadyInSong;
+
+			if (!newInstrument) {
+				String newPresetName;
+				fileItem->getFilenameWithoutExtension(&newPresetName);
+				error = StorageManager::loadInstrumentFromFile(modelStack->song, nullptr, newOutputType, false,
+				                                               &newInstrument, &fileItem->filePointer, &newPresetName,
+				                                               &Browser::currentDir);
+			}
+
+			Browser::emptyFileItems();
+
 			if (error != Error::NONE) {
 				display->displayError(error);
 				return nullptr;
 			}
-		}
 
-		FileItem* fileItem = D_TRY_CATCH(
-		    loadInstrumentPresetUI.confirmPresetOrNextUnlaunchedOne(newOutputType, &newName, availabilityRequirement),
-		    error, {
-			    display->displayError(error);
-			    return nullptr;
-		    });
-
-		newInstrument = fileItem->instrument;
-		bool isHibernating = newInstrument && !fileItem->instrumentAlreadyInSong;
-		instrumentAlreadyInSong = newInstrument && fileItem->instrumentAlreadyInSong;
-
-		if (!newInstrument) {
-			String newPresetName;
-			fileItem->getFilenameWithoutExtension(&newPresetName);
-			error =
-			    StorageManager::loadInstrumentFromFile(modelStack->song, nullptr, newOutputType, false, &newInstrument,
-			                                           &fileItem->filePointer, &newPresetName, &Browser::currentDir);
-		}
-
-		Browser::emptyFileItems();
-
-		if (error != Error::NONE) {
-			display->displayError(error);
-			return nullptr;
-		}
-
-		if (isHibernating) {
-			modelStack->song->removeInstrumentFromHibernationList(newInstrument);
+			if (isHibernating) {
+				modelStack->song->removeInstrumentFromHibernationList(newInstrument);
+			}
 		}
 
 		display->displayLoadingAnimationText("Loading");

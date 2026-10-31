@@ -31,12 +31,18 @@ namespace deluge::gui::context_menu {
 /// away, pattern running; the other rows and the pattern stay. SELECT or KIT keeps the one showing. BACK puts the kit
 /// back as it was and goes up to the Kit / LXR / Cycles / GIN menu. The list: Default (as SHIFT + KIT makes it), or on
 /// GIN its sixteen built in kits, then the presets in name order, with Current first if the kit isn't on any of them.
+/// SELECT on a preset kit, with the menu closed, steps through the same list (see step()).
 class KitPresets final : public ContextMenu {
 public:
 	KitPresets() = default;
 
 	/// Read the preset list and find the kit's preset rows. false if there's nothing to browse.
 	bool setup(preset_kit::PresetKit kit);
+	/// Once open, play the top preset: the first file, else the first kit built in (GIN: always its first)
+	void startOnTopPreset();
+	/// SELECT on a preset kit with the menu closed: the next (offset > 0) or previous of its presets, built in kits
+	/// then files, round at the ends, kept straight away. false if the kit has nothing to step through.
+	bool step(preset_kit::PresetKit kit, int32_t offset);
 
 	char const* getTitle() override;
 	std::span<char const*> getOptions() override;
@@ -65,6 +71,8 @@ private:
 	void preview(int32_t option);
 	void restoreRow(int32_t row);
 	void restoreAll();
+	/// Note the option on the kit, so the list opens there next time
+	void remember(int32_t option);
 	void keep();
 	void refresh();
 

@@ -41,6 +41,7 @@
 #include "model/clip/instrument_clip.h"
 #include "model/consequence/consequence_clip_existence.h"
 #include "model/instrument/cv_instrument.h"
+#include "model/instrument/default_instruments.h"
 #include "model/instrument/kit.h"
 #include "model/instrument/midi_instrument.h"
 #include "model/mod_controllable/mod_controllable_audio.h"
@@ -404,13 +405,16 @@ bool Song::ensureAtLeastOneSessionClip() {
 
 	std::expected<FileItem*, Error> result;
 
+	// The default synth instrument set in SETTINGS > DEFAULTS > CLIP TYPE: the first preset in its folder
+	const deluge::synth_instruments::SynthInstrument* defaultSynth = deluge::default_instruments::synth();
+
 	Error error;
 	error = StorageManager::initSD(); // Still want this here?
 	if (error != Error::NONE) {
 		goto couldntLoad;
 	}
 
-	error = Browser::currentDir.set("SYNTHS");
+	error = Browser::currentDir.set((defaultSynth != nullptr) ? defaultSynth->folder : "SYNTHS");
 	if (error != Error::NONE) {
 		goto couldntLoad;
 	}
@@ -441,7 +445,7 @@ couldntLoad:
 			while (1) {}
 		}
 
-		error = newInstrument->dirPath.set("SYNTHS");
+		error = newInstrument->dirPath.set((defaultSynth != nullptr) ? defaultSynth->folder : "SYNTHS");
 		if (error != Error::NONE) {
 			display->displayError(error);
 			while (1) {}
@@ -453,7 +457,16 @@ couldntLoad:
 			while (1) {}
 		}
 
-		((SoundInstrument*)newInstrument)->setupAsDefaultSynth(&newParamManager);
+		// Nothing saved in the default instrument's folder: a blank synth of its kind
+		if (defaultSynth != nullptr && defaultSynth->dx) {
+			((SoundInstrument*)newInstrument)->setupAsBlankSynth(&newParamManager, true);
+		}
+		else {
+			((SoundInstrument*)newInstrument)->setupAsDefaultSynth(&newParamManager);
+		}
+		if (defaultSynth != nullptr && defaultSynth->mode != ((SoundInstrument*)newInstrument)->getSynthMode()) {
+			((SoundInstrument*)newInstrument)->setSynthMode(defaultSynth->mode, this);
+		}
 		display->displayError(error); // E.g. show the CARD error.
 	}
 
@@ -3841,8 +3854,8 @@ void Song::setupPatchingForAllParamManagers() {
 }
 
 // Files from before saturation was a param keep its drive on the sound, kit or audio output. Put it in every param
-// manager that goes with it (each Clip's, each kit row's and the backed up ones), then forget it so it's only done once.
-// With only, just that one: a preset that was just read, whose param managers are all backed up.
+// manager that goes with it (each Clip's, each kit row's and the backed up ones), then forget it so it's only done
+// once. With only, just that one: a preset that was just read, whose param managers are all backed up.
 void Song::applyLoadedSaturationDrives(ModControllableAudio* only) {
 	for (int32_t i = 0; i < backedUpParamManagers.getNumElements(); i++) {
 		auto* backedUp = (BackedUpParamManager*)backedUpParamManagers.getElementAddress(i);
@@ -3857,8 +3870,7 @@ void Song::applyLoadedSaturationDrives(ModControllableAudio* only) {
 
 	for (Clip* clip : AllClips::everywhere(this)) {
 		Output* output = clip->output;
-		if (output->type != OutputType::SYNTH && output->type != OutputType::KIT
-		    && output->type != OutputType::AUDIO) {
+		if (output->type != OutputType::SYNTH && output->type != OutputType::KIT && output->type != OutputType::AUDIO) {
 			continue;
 		}
 		((ModControllableAudio*)output->toModControllable())->applyLoadedSaturationDrive(&clip->paramManager);
@@ -5147,39 +5159,43 @@ gotAnInstrument: {}
 
 	// Synth or Kit
 	else {
-		Error error = Browser::currentDir.set(getInstrumentFolder(newOutputType));
-		if (error != Error::NONE) {
-			display->displayError(error);
-			return nullptr;
-		}
+		// A default instrument set in SETTINGS > DEFAULTS > CLIP TYPE, else the first free preset as stock
+		newInstrument = deluge::default_instruments::forNewTrack(this, newOutputType);
+		if (newInstrument == nullptr) {
+			Error error = Browser::currentDir.set(getInstrumentFolder(newOutputType));
+			if (error != Error::NONE) {
+				display->displayError(error);
+				return nullptr;
+			}
 
-		FileItem* fileItem = D_TRY_CATCH(loadInstrumentPresetUI.findAnUnlaunchedPresetIncludingWithinSubfolders(
-		                                     this, newOutputType, Availability::INSTRUMENT_UNUSED),
-		                                 error, {
-			                                 display->displayError(error);
-			                                 return nullptr;
-		                                 });
+			FileItem* fileItem = D_TRY_CATCH(loadInstrumentPresetUI.findAnUnlaunchedPresetIncludingWithinSubfolders(
+			                                     this, newOutputType, Availability::INSTRUMENT_UNUSED),
+			                                 error, {
+				                                 display->displayError(error);
+				                                 return nullptr;
+			                                 });
 
-		newInstrument = fileItem->instrument;
-		bool isHibernating = newInstrument && !fileItem->instrumentAlreadyInSong;
+			newInstrument = fileItem->instrument;
+			bool isHibernating = newInstrument && !fileItem->instrumentAlreadyInSong;
 
-		if (!newInstrument) {
-			String newPresetName;
-			fileItem->getFilenameWithoutExtension(&newPresetName);
-			error =
-			    StorageManager::loadInstrumentFromFile(this, nullptr, newOutputType, false, &newInstrument,
-			                                           &fileItem->filePointer, &newPresetName, &Browser::currentDir);
-		}
+			if (!newInstrument) {
+				String newPresetName;
+				fileItem->getFilenameWithoutExtension(&newPresetName);
+				error = StorageManager::loadInstrumentFromFile(this, nullptr, newOutputType, false, &newInstrument,
+				                                               &fileItem->filePointer, &newPresetName,
+				                                               &Browser::currentDir);
+			}
 
-		Browser::emptyFileItems();
+			Browser::emptyFileItems();
 
-		if (error != Error::NONE) {
-			display->displayError(error);
-			return nullptr;
-		}
+			if (error != Error::NONE) {
+				display->displayError(error);
+				return nullptr;
+			}
 
-		if (isHibernating) {
-			removeInstrumentFromHibernationList(newInstrument);
+			if (isHibernating) {
+				removeInstrumentFromHibernationList(newInstrument);
+			}
 		}
 
 		display->displayLoadingAnimationText("Loading");

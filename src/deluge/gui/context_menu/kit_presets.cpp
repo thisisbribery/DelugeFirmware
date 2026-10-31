@@ -84,6 +84,40 @@ bool KitPresets::setup(preset_kit::PresetKit kit) {
 	return true;
 }
 
+void KitPresets::startOnTopPreset() {
+	const int32_t top = (numPresets_ > 0 && kit_ != preset_kit::PresetKit::GIN) ? firstPresetOption() : defaultOption();
+	currentOption = top;
+	scrollPos = top;
+	preview(top);
+}
+
+bool KitPresets::step(preset_kit::PresetKit kit, int32_t offset) {
+	if (offset == 0 || !setup(kit)) {
+		return false;
+	}
+	// Current isn't a preset to step to: from there, the first or the last
+	const int32_t first = defaultOption();
+	const int32_t count = numOptions() - first;
+	int32_t target;
+	if (hasCurrent_) {
+		target = (offset > 0) ? first : numOptions() - 1;
+	}
+	else {
+		target = first + (home_ - first + ((offset > 0) ? 1 : count - 1)) % count;
+	}
+	if (target == home_) {
+		return true;
+	}
+	currentOption = target;
+	preview(target);
+	if (previewing_ == target) {
+		remember(target);
+		keep();
+		getCurrentKit()->beenEdited();
+	}
+	return true;
+}
+
 int32_t KitPresets::findHome() {
 	Kit* kit = getCurrentKit();
 	char const* name = kit->presetName.get();
@@ -236,6 +270,16 @@ void KitPresets::refresh() {
 	view.setActiveModControllableTimelineCounter(getCurrentInstrumentClip());
 	view.setKnobIndicatorLevels();
 	uiNeedsRendering(&instrumentClipView);
+	// Stepping with SELECT, the menu closed: the preset's name over the view
+	if (getCurrentUI() != this) {
+		if (display->haveOLED()) {
+			display->displayPopup(options_[previewing_]);
+		}
+		else {
+			display->setScrollingText(options_[previewing_]);
+		}
+		return;
+	}
 	if (display->haveOLED()) {
 		renderUIsForOled();
 	}
@@ -244,23 +288,26 @@ void KitPresets::refresh() {
 	}
 }
 
-bool KitPresets::acceptCurrentOption() {
-	preview(currentOption);
-	// Remember it, so the list opens here next time
+void KitPresets::remember(int32_t option) {
 	Kit* kit = getCurrentKit();
-	if (currentOption == defaultOption()) {
+	if (option == defaultOption()) {
 		kit->presetName.set("*");
 	}
-	else if (currentOption > defaultOption() && currentOption < firstPresetOption()) {
+	else if (option > defaultOption() && option < firstPresetOption()) {
 		char builtIn[8];
-		snprintf(builtIn, sizeof(builtIn), "*%d", static_cast<int>(currentOption - defaultOption() + 1));
+		snprintf(builtIn, sizeof(builtIn), "*%d", static_cast<int>(option - defaultOption() + 1));
 		kit->presetName.set(builtIn);
 	}
-	else if (currentOption >= firstPresetOption()) {
-		kit->presetName.set(labels_[currentOption - firstPresetOption()].data());
+	else if (option >= firstPresetOption()) {
+		kit->presetName.set(labels_[option - firstPresetOption()].data());
 	}
+}
+
+bool KitPresets::acceptCurrentOption() {
+	preview(currentOption);
+	remember(currentOption);
 	keep();
-	kit->beenEdited();
+	getCurrentKit()->beenEdited();
 	display->setNextTransitionDirection(-1);
 	close();
 	return true;

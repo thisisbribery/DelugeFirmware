@@ -55,6 +55,7 @@
 #include "model/consequence/consequence_clip_existence.h"
 #include "model/consequence/consequence_clip_instance_change.h"
 #include "model/drum/drum.h"
+#include "model/instrument/default_instruments.h"
 #include "model/instrument/instrument.h"
 #include "model/instrument/kit.h"
 #include "model/instrument/melodic_instrument.h"
@@ -819,39 +820,45 @@ void ArrangerView::endAudition(Output* output, bool evenIfPlaying) {
 
 // Loads from file, etc - doesn't truly "create"
 Instrument* ArrangerView::createNewInstrument(OutputType newOutputType, bool* instrumentAlreadyInSong) {
-	Error error = Browser::currentDir.set(getInstrumentFolder(newOutputType));
-	if (error != Error::NONE) {
-		display->displayError(error);
-		return nullptr;
-	}
+	// A default instrument set in SETTINGS > DEFAULTS > CLIP TYPE, else the first free preset as stock
+	Instrument* newInstrument = deluge::default_instruments::forNewTrack(currentSong, newOutputType);
+	*instrumentAlreadyInSong = false;
+	if (newInstrument == nullptr) {
+		Error error = Browser::currentDir.set(getInstrumentFolder(newOutputType));
+		if (error != Error::NONE) {
+			display->displayError(error);
+			return nullptr;
+		}
 
-	FileItem* fileItem = D_TRY_CATCH(loadInstrumentPresetUI.findAnUnlaunchedPresetIncludingWithinSubfolders(
-	                                     currentSong, newOutputType, Availability::INSTRUMENT_UNUSED),
-	                                 error, {
-		                                 display->displayError(error);
-		                                 return nullptr;
-	                                 });
+		FileItem* fileItem = D_TRY_CATCH(loadInstrumentPresetUI.findAnUnlaunchedPresetIncludingWithinSubfolders(
+		                                     currentSong, newOutputType, Availability::INSTRUMENT_UNUSED),
+		                                 error, {
+			                                 display->displayError(error);
+			                                 return nullptr;
+		                                 });
 
-	Instrument* newInstrument = fileItem->instrument;
-	bool isHibernating = newInstrument && !fileItem->instrumentAlreadyInSong;
-	*instrumentAlreadyInSong = newInstrument && fileItem->instrumentAlreadyInSong;
+		newInstrument = fileItem->instrument;
+		bool isHibernating = newInstrument && !fileItem->instrumentAlreadyInSong;
+		*instrumentAlreadyInSong = newInstrument && fileItem->instrumentAlreadyInSong;
 
-	if (!newInstrument) {
-		String newPresetName;
-		fileItem->getFilenameWithoutExtension(&newPresetName);
-		error = StorageManager::loadInstrumentFromFile(currentSong, nullptr, newOutputType, false, &newInstrument,
-		                                               &fileItem->filePointer, &newPresetName, &Browser::currentDir);
-	}
+		if (!newInstrument) {
+			String newPresetName;
+			fileItem->getFilenameWithoutExtension(&newPresetName);
+			error =
+			    StorageManager::loadInstrumentFromFile(currentSong, nullptr, newOutputType, false, &newInstrument,
+			                                           &fileItem->filePointer, &newPresetName, &Browser::currentDir);
+		}
 
-	Browser::emptyFileItems();
+		Browser::emptyFileItems();
 
-	if (error != Error::NONE) {
-		display->displayError(error);
-		return nullptr;
-	}
+		if (error != Error::NONE) {
+			display->displayError(error);
+			return nullptr;
+		}
 
-	if (isHibernating) {
-		currentSong->removeInstrumentFromHibernationList(newInstrument);
+		if (isHibernating) {
+			currentSong->removeInstrumentFromHibernationList(newInstrument);
+		}
 	}
 
 	char modelStackMemory[MODEL_STACK_MAX_SIZE];

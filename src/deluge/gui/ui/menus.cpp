@@ -57,6 +57,7 @@
 #include "gui/menu_item/defaults/slice_mode.h"
 #include "gui/menu_item/defaults/startup_song_mode.h"
 #include "gui/menu_item/defaults/swing_interval.h"
+#include "gui/menu_item/defaults/ui/clip_type/default_instrument.h"
 #include "gui/menu_item/defaults/ui/clip_type/default_new_clip_type.h"
 #include "gui/menu_item/defaults/velocity.h"
 #include "gui/menu_item/delay/amount.h"
@@ -1399,10 +1400,17 @@ PLACE_SDRAM_BSS defaults::ui::clip_type::DefaultNewClipType defaultNewClipTypeMe
 PLACE_SDRAM_BSS ToggleBool defaultUseLastClipTypeMenu{
     STRING_FOR_DEFAULT_USE_LAST_CLIP_TYPE, STRING_FOR_DEFAULT_USE_LAST_CLIP_TYPE, FlashStorage::defaultUseLastClipType};
 
+PLACE_SDRAM_BSS defaults::ui::clip_type::DefaultKitInstrument defaultKitInstrumentMenu{
+    STRING_FOR_DEFAULT_KIT_INSTRUMENT, STRING_FOR_DEFAULT_KIT_INSTRUMENT};
+PLACE_SDRAM_BSS defaults::ui::clip_type::DefaultSynthInstrument defaultSynthInstrumentMenu{
+    STRING_FOR_DEFAULT_SYNTH_INSTRUMENT, STRING_FOR_DEFAULT_SYNTH_INSTRUMENT};
+
 PLACE_SDRAM_BSS Submenu defaultClipTypeMenu{STRING_FOR_DEFAULT_CLIP_TYPE,
                                             {
                                                 &defaultNewClipTypeMenu,
                                                 &defaultUseLastClipTypeMenu,
+                                                &defaultKitInstrumentMenu,
+                                                &defaultSynthInstrumentMenu,
                                             }};
 
 PLACE_SDRAM_BSS ToggleBool defaultUseSharps{STRING_FOR_DEFAULT_UI_SHARPS, STRING_FOR_DEFAULT_UI_SHARPS,

@@ -18,6 +18,7 @@
 #include "storage/flash_storage.h"
 #include "RZA1/cpu_specific.h"
 #include "definitions_cxx.hpp"
+#include "dsp/drum_synth/drum_synth.h"
 #include "gui/l10n/l10n.h"
 #include "gui/menu_item/colour.h"
 #include "gui/ui/sound_editor.h"
@@ -26,6 +27,7 @@
 #include "io/midi/midi_device_manager.h"
 #include "io/midi/midi_engine.h"
 #include "io/midi/midi_transpose.h"
+#include "model/instrument/synth_instruments.h"
 #include "model/scale/preset_scales.h"
 #include "processing/engines/audio_engine.h"
 #include "processing/engines/cv_engine.h"
@@ -278,6 +280,8 @@ MenuHighlighting accessibilityMenuHighlighting = MenuHighlighting::FULL_INVERSIO
 
 OutputType defaultNewClipType = OutputType::SYNTH;
 bool defaultUseLastClipType = true;
+uint8_t defaultKitInstrument = 0;
+uint8_t defaultSynthInstrument = 0;
 
 ThresholdRecordingMode defaultThresholdRecordingMode = ThresholdRecordingMode::OFF;
 
@@ -388,6 +392,8 @@ void resetSettings() {
 
 	defaultNewClipType = OutputType::SYNTH;
 	defaultUseLastClipType = true;
+	defaultKitInstrument = 0;
+	defaultSynthInstrument = 0;
 
 	defaultThresholdRecordingMode = ThresholdRecordingMode::OFF;
 
@@ -869,6 +875,11 @@ void readSettings() {
 		screensaverMode =
 		    (buffer[196] < kNumScreensaverModes) ? static_cast<ScreensaverMode>(buffer[196]) : kDefaultScreensaverMode;
 	}
+
+	// Anything out of range (never saved here) is off: new tracks as stock
+	defaultKitInstrument =
+	    (buffer[198] < util::to_underlying(deluge::dsp::drum_synth::PresetKit::NUM_KITS)) ? buffer[198] : 0;
+	defaultSynthInstrument = (buffer[199] <= deluge::synth_instruments::kSynthInstruments.size()) ? buffer[199] : 0;
 }
 
 /// Sanity-check the pre-c1.3 MIDI-follow block (bytes 126-145) before migrating it. Same checks the deleted
@@ -1136,6 +1147,9 @@ void writeSettings() {
 
 	buffer[196] = util::to_underlying(screensaverMode);
 	buffer[197] = screensaverTimeoutMinutes;
+
+	buffer[198] = defaultKitInstrument;
+	buffer[199] = defaultSynthInstrument;
 
 	R_SFLASH_EraseSector(0x80000 - 0x1000, SPIBSC_CH, SPIBSC_CMNCR_BSZ_SINGLE, 1, SPIBSC_OUTPUT_ADDR_24);
 	R_SFLASH_ByteProgram(0x80000 - 0x1000, buffer.data(), 256, SPIBSC_CH, SPIBSC_CMNCR_BSZ_SINGLE, SPIBSC_1BIT,

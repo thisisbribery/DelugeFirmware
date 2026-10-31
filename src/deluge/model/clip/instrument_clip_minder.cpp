@@ -17,6 +17,7 @@
 
 #include "model/clip/instrument_clip_minder.h"
 #include "definitions_cxx.hpp"
+#include "gui/context_menu/kit_presets.h"
 #include "gui/l10n/l10n.h"
 #include "gui/ui/keyboard/keyboard_screen.h"
 #include "gui/ui/load/load_instrument_preset_ui.h"
@@ -45,6 +46,7 @@
 #include "model/consequence/consequence.h"
 #include "model/instrument/cv_instrument.h"
 #include "model/instrument/midi_instrument.h"
+#include "model/instrument/preset_kit.h"
 #include "model/scale/preset_scales.h"
 #include "model/song/song.h"
 #include "modulation/midi/midi_param.h"
@@ -102,6 +104,14 @@ void InstrumentClipMinder::selectEncoderAction(int32_t offset) {
 		}
 	}
 	else {
+		// A preset kit steps through its own presets, so it stays an LXR, Cycles or GIN kit
+		if (getCurrentOutputType() == OutputType::KIT) {
+			const auto presetKit = deluge::preset_kit::typeOf(getCurrentKit());
+			if (presetKit != deluge::preset_kit::PresetKit::NONE
+			    && deluge::gui::context_menu::kitPresets.step(presetKit, offset)) {
+				return;
+			}
+		}
 		view.navigateThroughPresetsForInstrumentClip(offset, modelStack);
 	}
 }

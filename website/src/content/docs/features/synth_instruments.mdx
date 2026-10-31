@@ -19,3 +19,7 @@ On a synth track, **SHIFT + SYNTH** picks which synth instrument the track plays
 - On kit, MIDI and CV tracks, and with a menu open, **SHIFT + SYNTH** still makes a new blank synth. **MOD7 + SYNTH** still makes a new DX7 synth.
 - Ringmod, the 303 and the drum synth engines aren't in the list: pick those in **SYNTH MODE**.
 - The list is one table in the source (`model/instrument/synth_instruments.h`): a new instrument is one entry, its name, and its preset folder.
+
+## Default synth instrument
+
+From v1.19, **SETTINGS > DEFAULTS > UI > CLIP TYPE > SYNTH INSTRUMENT** (**SYNT**) picks the instrument every new synth track starts as: **OFF** (the default, stock), **Deluge**, **DLFM** or **DX7**. A new synth track (a new clip in song view, the **SYNTH** button on a clip that has never been a synth, a new arranger track, and the synth a new song starts with) then loads that instrument's first preset not on another track, or a blank synth of its kind if there's none. Turning **SELECT** steps through that folder's presets as usual. DX7 only applies with the DX7 engine on in Community Features. The kit equivalent, **KIT INSTRUMENT**, is in the [drum synth](../drum_synth/#kit-presets) page.
