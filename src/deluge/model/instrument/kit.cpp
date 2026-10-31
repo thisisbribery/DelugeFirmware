@@ -117,8 +117,9 @@ bool Kit::writeDataToFile(Serializer& writer, Clip* clipForSavingOutputOnly, Son
 	}
 
 	GlobalEffectableForClip::writeAttributesToFile(writer, clipForSavingOutputOnly == nullptr);
+	// Not "presetName": that's the kit's own name (Instrument::writeDataToFile)
 	if (!presetName.isEmpty()) {
-		writer.writeAttribute("presetName", presetName.get());
+		writer.writeAttribute("kitPreset", presetName.get());
 	}
 
 	writer.writeOpeningTagEnd();
@@ -303,8 +304,21 @@ doReadDrum:
 			reader.match(']');
 			reader.exitTag("soundSources");
 		}
-		else if (!strcmp(tagName, "presetName")) {
+		else if (!strcmp(tagName, "kitPreset")) {
 			reader.readTagOrAttributeValueString(&presetName);
+			reader.exitTag("kitPreset");
+		}
+		else if (!strcmp(tagName, "presetName")) {
+			// The kit's own name, which the song's clips find it by. v1.12 to v1.19 also saved the Kit presets entry
+			// under this name, after the kit's name: a second one, or a built in entry ("*", "*2"...), is that.
+			String value;
+			reader.readTagOrAttributeValueString(&value);
+			if (name.isEmpty() && value.get()[0] != '*') {
+				name.set(&value);
+			}
+			else {
+				presetName.set(&value);
+			}
 			reader.exitTag("presetName");
 		}
 		else if (!strcmp(tagName, "selectedDrumIndex")) {

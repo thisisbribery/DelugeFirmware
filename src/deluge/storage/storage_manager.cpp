@@ -422,6 +422,15 @@ paramManagersMissing:
 		song->applyLoadedSaturationDrives((ModControllableAudio*)newInstrument->toModControllable());
 	}
 
+	// Kit files never hold the kit's own name, so a presetName read from one (saved on v1.12 to v1.19) was its Kit
+	// presets entry
+	if (newInstrument->type == OutputType::KIT && !newInstrument->name.isEmpty()) {
+		Kit* kit = (Kit*)newInstrument;
+		if (kit->presetName.isEmpty()) {
+			kit->presetName.set(&kit->name);
+		}
+	}
+
 	newInstrument->name.set(name);
 	newInstrument->dirPath.set(dirPath);
 	newInstrument->mightExistOnCard = true;
