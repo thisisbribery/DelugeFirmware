@@ -92,7 +92,7 @@ public:
 	};
 	struct Osc {
 		uint32_t phase;
-		float last; ///< Last output, for feedback
+		int32_t last; ///< Last output, q31, for feedback
 	};
 	struct Svf {
 		float ic1, ic2;
@@ -142,7 +142,8 @@ public:
 		float burstEnv, tailEnv, bodyEnv;
 		int32_t burstIndex, samplesToBurst;
 		Svf bp1, bp2, hp;
-		Osc body; ///< phase: samples left on the held noise value, last: that value
+		uint32_t holdLeft; ///< Samples left on the held noise value
+		float held;        ///< That value
 	};
 
 	Common common_;
@@ -174,11 +175,13 @@ public:
 	struct MetalCoefs {
 		std::array<float, 6> inc;
 		std::array<uint32_t, 6> restInc;
-		float index, depth, pitchCoef, brightCoef, cutLo, cutHi;
+		int32_t index, halfIndex; ///< Phase modulation depths, q29 cycles
+		float depth, pitchCoef, brightCoef, cutLo, cutHi;
 		SvfCoefs hp, ring;
 	};
 	struct PercCoefs {
-		float depth, pitchCoef, incPerHz, maxHz, index, levelB, ratioC, levelC, overtoneCoef;
+		float depth, pitchCoef, incPerHz, maxHz, levelB, ratioC, levelC, overtoneCoef;
+		int32_t index;                   ///< Phase modulation depth, q29 cycles
 		std::array<uint32_t, 4> restInc; ///< car, mod, mod2, sub
 	};
 	struct ToneCoefs {

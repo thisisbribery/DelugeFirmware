@@ -19,33 +19,63 @@ namespace cyc_detail {
 constexpr float kPhaseToCycles = 1.f / 4294967296.f;
 constexpr float kFullScale = 2147483520.f; ///< The largest float below 2^31, so clipping can't wrap
 
-/// sin(2 pi phase / 2^32), to about -100 dB, without a table
-inline float sine(uint32_t phase) {
-	// Centre on zero: x in [-0.5, 0.5) cycles, then fold into [-0.25, 0.25]
-	float x = static_cast<float>(static_cast<int32_t>(phase)) * kPhaseToCycles;
-	if (x > 0.25f) {
-		x = 0.5f - x;
+// The oscillators are integer: a phase is a uint32, 2^32 to the cycle, and a sine comes out q31. Phase modulation adds
+// a fixed point offset to the phase, so the 32-bit wrap takes it into the cycle for nothing.
+
+constexpr int32_t kSineBits = 10; ///< 1024 steps to the cycle: linear interpolation between them is good to -106 dB
+constexpr int32_t kSineSize = 1 << kSineBits;
+
+/// sin(x) for x in [-pi, pi], as a Taylor series in double, to build the table at compile time
+constexpr double taylorSine(double x) {
+	double term = x;
+	double sum = x;
+	for (int32_t n = 1; n < 30; n++) {
+		term *= -x * x / static_cast<double>((2 * n) * (2 * n + 1));
+		sum += term;
 	}
-	else if (x < -0.25f) {
-		x = -0.5f - x;
-	}
-	const float x2 = x * x;
-	// Taylor series of sin(2 pi x), coefficients trimmed for the [-0.25, 0.25] range
-	return x * (6.283185307f + x2 * (-41.341702f + x2 * (81.605249f + x2 * (-76.705859f + x2 * 42.058693f))));
+	return sum;
 }
 
-/// Phase offset in cycles to a phase. Wraps first: converting a float beyond the int32 range is undefined, and deep
-/// modulation goes well past half a cycle.
-inline uint32_t cycles(float c) {
-	float x =
-	    c - static_cast<float>(static_cast<int32_t>(c)); // -1 to 1 (no rintf: the Cortex-A9 has no instruction for it)
-	if (x >= 0.5f) {
-		x -= 1.f;
+/// One cycle of sine, q31, with the first entry again at the end so interpolation can read one past
+constexpr std::array<int32_t, kSineSize + 1> makeSineTable() {
+	std::array<int32_t, kSineSize + 1> table{};
+	constexpr double kPi = 3.14159265358979323846;
+	for (int32_t i = 0; i <= kSineSize; i++) {
+		const int32_t folded = (i <= kSineSize / 2) ? i : i - kSineSize; // into [-pi, pi]
+		const double y = taylorSine(2. * kPi * folded / kSineSize) * 2147483647.;
+		table[i] = static_cast<int32_t>(y + ((y >= 0.) ? 0.5 : -0.5));
 	}
-	else if (x < -0.5f) {
-		x += 1.f;
-	}
-	return static_cast<uint32_t>(static_cast<int32_t>(x * 4294967040.f));
+	return table;
+}
+constexpr std::array<int32_t, kSineSize + 1> kSineTable = makeSineTable();
+
+/// sin(2 pi phase / 2^32), q31, from the table with linear interpolation
+inline int32_t sine(uint32_t phase) {
+	const uint32_t i = phase >> (32 - kSineBits);
+	const int32_t a = kSineTable[i];
+	const int32_t b = kSineTable[i + 1];
+	const int32_t f = static_cast<int32_t>((phase << kSineBits) >> 1); // the way from a to b, q31
+	return a + 2 * static_cast<int32_t>((static_cast<int64_t>(b - a) * f) >> 32);
+}
+
+/// q31 to a float, -1 to 1
+inline float toFloat(int32_t x) {
+	return static_cast<float>(x) * (1.f / 2147483648.f);
+}
+
+/// A phase modulation depth in cycles, under 4 either way, as q29 for pmOffset()
+constexpr int32_t depthQ29(float cycles) {
+	return static_cast<int32_t>(cycles * 536870912.f);
+}
+
+/// The phase offset of a modulator x (q31) at a depth (q29 cycles): x * depth cycles, wrapped into the cycle
+inline uint32_t pmOffset(int32_t x, int32_t depth) {
+	return static_cast<uint32_t>(static_cast<int32_t>((static_cast<int64_t>(x) * depth) >> 32)) << 4;
+}
+
+/// A phase offset in cycles, under 8 either way, wrapped into the cycle
+inline uint32_t cyclesOffset(float c) {
+	return static_cast<uint32_t>(static_cast<int32_t>(c * 268435456.f)) << 4;
 }
 
 /// Per sample multiplier that falls by 60 dB in t60 seconds
@@ -313,7 +343,7 @@ void renderKik(Voice& v, float* out, int32_t n, bool chunkStart) {
 		else {
 			k.body.phase += p.restInc;
 		}
-		float x = sine(k.body.phase);
+		float x = toFloat(sine(k.body.phase));
 		float click = 0.f;
 		if (full) {
 			const float nz = noise(v.common_.rng);
@@ -426,14 +456,15 @@ void renderSnr(Voice& v, float* out, int32_t n, bool chunkStart) {
 			else {
 				d.body.phase += p.restInc;
 			}
-			body = sine(d.body.phase) * d.bodyEnv * d.attack;
+			body = toFloat(sine(d.body.phase)) * d.bodyEnv * d.attack;
 			d.bodyEnv *= p.bodyCoef;
 		}
 
 		d.mod.phase += p.modInc;
 		d.rattle[0].phase += p.carInc;
-		const float rattle = rattleMod ? sine(d.rattle[0].phase + cycles(p.index * d.rattleEnv * sine(d.mod.phase)))
-		                               : sine(d.rattle[0].phase);
+		const float rattle =
+		    toFloat(rattleMod ? sine(d.rattle[0].phase + pmOffset(sine(d.mod.phase), depthQ29(p.index * d.rattleEnv)))
+		                      : sine(d.rattle[0].phase));
 		float noisy = 0.f;
 		if (noiseOn) {
 			const float nz = svf(d.noiseBp, p.hp, noise(v.common_.rng)).hp;
@@ -484,7 +515,9 @@ void prepareMetal(Voice& v, const Ctx& c) {
 		p.inc[i] = std::min(base * ratio, 0.49f * c.sr) * incPerHz;
 		p.restInc[i] = static_cast<uint32_t>(p.inc[i]);
 	}
-	p.index = 0.25f + 1.1f * shape * shape;
+	const float index = 0.25f + 1.1f * shape * shape;
+	p.index = depthQ29(index);
+	p.halfIndex = depthQ29(0.5f * index);
 	p.depth = 0.9f * sweep * sweep;
 	p.pitchCoef = decayFor(0.02f + 0.06f * sweep, c.sr);
 	p.brightCoef = (contour < 0.01f) ? 1.f : decayFor(0.03f / (contour * contour * 0.99f + 0.01f), c.sr);
@@ -518,14 +551,14 @@ void renderMetal(Voice& v, float* out, int32_t n, bool chunkStart) {
 			}
 		}
 		// Pairs: 1 > 0, 3 > 2, 5 > 4, and each pair's output also rocks the next pair's modulator
-		const float a = sine(m.osc[1].phase + cycles(0.5f * p.index * m.osc[4].last));
-		const float x0 = sine(m.osc[0].phase + cycles(p.index * a));
-		const float b = sine(m.osc[3].phase + cycles(0.5f * p.index * x0));
-		const float x1 = sine(m.osc[2].phase + cycles(p.index * b));
-		const float d = sine(m.osc[5].phase + cycles(0.5f * p.index * x1));
-		const float x2 = sine(m.osc[4].phase + cycles(p.index * d));
+		const int32_t a = sine(m.osc[1].phase + pmOffset(m.osc[4].last, p.halfIndex));
+		const int32_t x0 = sine(m.osc[0].phase + pmOffset(a, p.index));
+		const int32_t b = sine(m.osc[3].phase + pmOffset(x0, p.halfIndex));
+		const int32_t x1 = sine(m.osc[2].phase + pmOffset(b, p.index));
+		const int32_t d = sine(m.osc[5].phase + pmOffset(x1, p.halfIndex));
+		const int32_t x2 = sine(m.osc[4].phase + pmOffset(d, p.index));
 		m.osc[4].last = x2;
-		float x = (x0 + x1 + x2) * 0.4f;
+		float x = toFloat((x0 >> 2) + (x1 >> 2) + (x2 >> 2)) * (4.f * 0.4f);
 		x = svf(m.hp, p.hp, x).hp;
 		x += 0.35f * svf(m.ring, p.ring, x).bp; // the cymbal's ringing band
 		// Contour: a one-pole low pass closing from wide open, so the top dies first
@@ -573,7 +606,7 @@ void preparePerc(Voice& v, const Ctx& c) {
 	p.pitchCoef = decayFor(interp(kPercSweepKnob, kPercSweepTime, sweepKnob) * 6.907755f
 	                           * sweepTimeScale(contour, kPercContourDefault),
 	                       c.sr);
-	p.index = 0.24f * shape * shape;
+	p.index = depthQ29(0.24f * shape * shape);
 	p.levelB = 0.9f * (1.f - 0.75f * shape);
 	p.ratioC = 1.f + 6.f * powf(color, 1.3f);
 	p.levelC = 1.2f * powf(color, 0.8f);
@@ -595,7 +628,7 @@ void renderPerc(Voice& v, float* out, int32_t n, bool chunkStart) {
 		d.indexEnv = 0.f; // The overtone is gone
 	}
 	const bool sweeping = d.pitchEnv != 0.f;
-	const bool modulated = p.index != 0.f;
+	const bool modulated = p.index != 0;
 	const bool overtone = p.levelC != 0.f && d.indexEnv != 0.f;
 
 	for (int32_t i = 0; i < n; i++) {
@@ -613,11 +646,11 @@ void renderPerc(Voice& v, float* out, int32_t n, bool chunkStart) {
 			d.mod2.phase += p.restInc[2];
 			d.sub.phase += p.restInc[3];
 		}
-		const float a = modulated ? sine(d.car.phase + cycles(p.index * sine(d.sub.phase))) : sine(d.car.phase);
-		const float b = sine(d.mod.phase);
-		const float ov = overtone ? sine(d.mod2.phase + cycles(0.08f * a)) * d.indexEnv : 0.f;
+		const int32_t a = modulated ? sine(d.car.phase + pmOffset(sine(d.sub.phase), p.index)) : sine(d.car.phase);
+		const float b = toFloat(sine(d.mod.phase));
+		const float ov = overtone ? toFloat(sine(d.mod2.phase + pmOffset(a, depthQ29(0.08f)))) * d.indexEnv : 0.f;
 		d.indexEnv *= p.overtoneCoef;
-		out[i] = kPercLevel * (a + p.levelB * b + p.levelC * ov);
+		out[i] = kPercLevel * (toFloat(a) + p.levelB * b + p.levelC * ov);
 	}
 }
 
@@ -688,9 +721,9 @@ void renderTone(Voice& v, float* out, int32_t n, bool chunkStart) {
 			const float idx = p.index * d.indexEnv + p.burst * d.pitchEnv;
 			d.indexEnv *= p.indexCoef;
 			d.pitchEnv *= p.burstCoef;
-			const float m = sine(d.mod.phase + cycles(kToneFeedback * d.mod.last));
+			const int32_t m = sine(d.mod.phase + pmOffset(d.mod.last, depthQ29(kToneFeedback)));
 			d.mod.last = m;
-			out[i] = kToneLevel * sine(d.car.phase + cycles(idx * m));
+			out[i] = kToneLevel * toFloat(sine(d.car.phase + pmOffset(m, depthQ29(idx))));
 		}
 	}
 	else {
@@ -699,7 +732,7 @@ void renderTone(Voice& v, float* out, int32_t n, bool chunkStart) {
 			d.car.phase += p.carInc;
 			d.indexEnv *= p.indexCoef;
 			d.pitchEnv *= p.burstCoef;
-			out[i] = kToneLevel * sine(d.car.phase);
+			out[i] = kToneLevel * toFloat(sine(d.car.phase));
 		}
 		d.mod.phase += p.modInc * static_cast<uint32_t>(n);
 	}
@@ -817,17 +850,19 @@ void renderChord(Voice& v, float* out, int32_t n, bool chunkStart) {
 	for (int32_t i = 0; i < n; i++) {
 		const float bright = d.sweepEnv;
 		d.sweepEnv *= p.sweepCoef;
-		float sum = 0.f;
+		const int32_t odd = shaped ? depthQ29(bright * p.odd) : 0;
+		const int32_t fb = shaped ? depthQ29(bright * p.fb) : 0;
+		int32_t sum = 0; // a quarter of each voice, so four can't overflow
 		for (size_t k = 0; k < 4; k++) {
 			d.osc[k].phase += p.inc[k];
 			d.mod[k].phase += p.inc2[k];
-			const float x =
-			    shaped ? sine(d.osc[k].phase + cycles(bright * (p.odd * sine(d.mod[k].phase) + p.fb * d.osc[k].last)))
+			const int32_t x =
+			    shaped ? sine(d.osc[k].phase + pmOffset(sine(d.mod[k].phase), odd) + pmOffset(d.osc[k].last, fb))
 			           : sine(d.osc[k].phase);
 			d.osc[k].last = x;
-			sum += x;
+			sum += x >> 2;
 		}
-		out[i] = kChordLevel * sum;
+		out[i] = (4.f * kChordLevel) * toFloat(sum);
 	}
 }
 
@@ -933,23 +968,25 @@ void renderVsnr(Voice& v, float* out, int32_t n, bool chunkStart) {
 		}
 		float body;
 		if (modulated) {
-			body = sine(d.body.phase + cycles(p.modDepth * d.modEnv * sine(d.bodyMod.phase)));
+			body = toFloat(sine(d.body.phase + pmOffset(sine(d.bodyMod.phase), depthQ29(p.modDepth * d.modEnv))));
 			d.modEnv *= p.modCoef;
 		}
 		else {
-			body = sine(d.body.phase);
+			body = toFloat(sine(d.body.phase));
 		}
 
 		if (snaresOn) {
 			// The snares: four modes, each phase-jittered by band passed noise
 			const float nz = svf(d.noiseBp, p.bp, noise(v.common_.rng)).bp;
-			float cl = 0.f;
+			// Mode k is jittered by k times the noise: in phase, multiplying the offset wraps it as the phase does
+			const uint32_t jitter = cyclesOffset(p.roughness * nz);
+			int32_t cl = 0; // a quarter of each mode
 			for (size_t k = 0; k < 4; k++) {
 				d.cluster[k].phase += p.modeInc[k];
-				cl += sine(d.cluster[k].phase + cycles(p.roughness * nz * static_cast<float>(k + 1)));
+				cl += sine(d.cluster[k].phase + jitter * static_cast<uint32_t>(k + 1)) >> 2;
 			}
 			const float snares = std::min(d.clusterEnv, d.sqrtAmp) * d.invAmp;
-			out[i] = kVsnrBody * body + p.clusterLevel * snares * (0.25f * cl + 1.5f * nz);
+			out[i] = kVsnrBody * body + p.clusterLevel * snares * (toFloat(cl) + 1.5f * nz);
 			d.clusterEnv *= p.clusterCoef;
 			d.sqrtAmp *= p.sqrtAmpCoef;
 			d.invAmp = std::min(d.invAmp * p.invAmpCoef, 1e5f);
@@ -1028,11 +1065,11 @@ void renderClap(Voice& v, float* out, int32_t n, bool chunkStart) {
 			d.burstIndex++;
 			d.samplesToBurst = p.spacing;
 		}
-		if (d.body.phase-- == 0) {
-			d.body.last = noise(v.common_.rng);
-			d.body.phase = static_cast<uint32_t>(p.holdSamples - 1);
+		if (d.holdLeft-- == 0) {
+			d.held = noise(v.common_.rng);
+			d.holdLeft = static_cast<uint32_t>(p.holdSamples - 1);
 		}
-		const float nz = d.body.last;
+		const float nz = d.held;
 		const auto b1 = svf(d.bp1, p.bp, nz);
 		const auto b2 = svf(d.bp2, p.bp2, nz);
 		const float bright = b1.bp + 0.5f * b2.bp * d.bodyEnv;

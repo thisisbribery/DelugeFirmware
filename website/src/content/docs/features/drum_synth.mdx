@@ -326,6 +326,8 @@ Voice and Drum are only measured while this page is open, so timing them costs n
 
 **How long a hit lasts (from v1.17).** A drum synth voice keeps running until its own decay is 72 dB down, then stops (Cyc engines fade out over the last 64 samples). Before v1.17 they ran to 100 dB down, so long tails (cymbals, open hats, toms, Chord, Tone) kept a voice busy for about a third longer than you could hear. Once a hit is 40 dB down, the Deluge treats it like a releasing note when it runs short of CPU, so it cuts that tail before notes you can still hear. A Decay of 127 still holds for as long as the note does.
 
+**Cyc engines from v1.18.** The Cyc engines build their sines from a lookup table and do their phase modulation in whole numbers, instead of working each sine out in floating point every sample. Metal, Chord, Vtg Snr, Perc and Tone cost about a third to a quarter of what they did, so a Cycles kit and an LXR kit can play together with a 303 and a synth. The sound is the same: the table is accurate to about -106 dB. Metal's chaotic feedback means its waveform never comes out exactly the same from one build to the next, but its sound does.
+
 ## Compatibility
 
 Drum synth rows saved by earlier test builds of this drum synth load with their choices intact, but their continuous settings (pitch amount, FM amount and so on) moved onto Deluge parameters: reload a preset or set them again.
