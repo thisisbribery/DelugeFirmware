@@ -120,6 +120,10 @@ public:
 	uint8_t paramShortcutBlinkFrequency;
 	uint32_t shortcutBlinkCounter;
 
+	/// The shortcut pad held down while the 7SEG scrolls the name of what it edits, or kNoSelection
+	uint8_t namedShortcutX = kNoSelection;
+	uint8_t namedShortcutY = kNoSelection;
+
 	uint32_t timeLastAttemptedAutomatedParamEdit;
 
 	int8_t numberScrollAmount;
@@ -143,6 +147,8 @@ public:
 	void enterOrUpdateSoundEditor(bool on);
 	void blinkShortcut();
 	ActionResult potentialShortcutPadAction(int32_t x, int32_t y, bool on);
+	void showShortcutName(int32_t x, int32_t y);
+	void endShortcutName(int32_t x, int32_t y);
 	bool editingReverbSidechain();
 	MenuItem* getCurrentMenuItem();
 	bool inSettingsMenu();

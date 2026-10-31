@@ -2,6 +2,8 @@
 #include "gui/ui/sound_editor.h"
 #include "definitions_cxx.hpp"
 #include "extern.h"
+#include "gui/l10n/l10n.h"
+#include "gui/l10n/language.h"
 #include "gui/l10n/strings.h"
 #include "gui/menu_item/drum_synth/editor.h"
 #include "gui/menu_item/dx/param.h"
@@ -1523,7 +1525,42 @@ std::tuple<MenuItem*, bool> SoundEditor::get_basic_shortcut_action(int32_t x, in
 
 static const uint32_t shortcutPadUIModes[] = {UI_MODE_AUDITIONING, UI_MODE_HOLDING_AFFECT_ENTIRE_IN_SOUND_EDITOR, 0};
 
+/// While its shortcut pad is held, the 7SEG scrolls the full name of what the pad edits, so the shortcuts can be learnt.
+/// Letting go shows the value again.
+void SoundEditor::showShortcutName(int32_t x, int32_t y) {
+	if (!display->have7SEG() || getCurrentUI() != this) {
+		return;
+	}
+	// The OLED's titles, in English: the 7SEG's own names are cut down to four letters
+	const deluge::l10n::Language* language = deluge::l10n::chosenLanguage;
+	deluge::l10n::chosenLanguage = &deluge::l10n::built_in::english;
+	const std::string_view title = getCurrentMenuItem()->getTitle();
+	deluge::l10n::chosenLanguage = language;
+
+	char name[32];
+	const size_t length = std::min(title.size(), sizeof(name) - 1);
+	memcpy(name, title.data(), length);
+	name[length] = 0;
+	display->setScrollingText(name, 0, 400);
+	namedShortcutX = x;
+	namedShortcutY = y;
+}
+
+void SoundEditor::endShortcutName(int32_t x, int32_t y) {
+	if (x != namedShortcutX || y != namedShortcutY) {
+		return;
+	}
+	namedShortcutX = kNoSelection;
+	namedShortcutY = kNoSelection;
+	if (getCurrentUI() == this) {
+		getCurrentMenuItem()->readValueAgain();
+	}
+}
+
 ActionResult SoundEditor::potentialShortcutPadAction(int32_t x, int32_t y, bool on) {
+	if (!on) {
+		endShortcutName(x, y);
+	}
 	// a bunch of other views call this, in which case we actually want to know if we *would* edit kit affect entire
 	// if we were to open a menu. There's a weird edge case in kits otherwise where trying to open a kit param that doesn't
 	// exist in the current selected drum row (like if a filter is off or different modfx) otherwise
@@ -1778,6 +1815,7 @@ ActionResult SoundEditor::potentialShortcutPadAction(int32_t x, int32_t y, bool 
 			}
 
 			enterOrUpdateSoundEditor(on);
+			showShortcutName(x, y);
 		}
 
 
