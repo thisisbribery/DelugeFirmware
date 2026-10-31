@@ -1977,8 +1977,8 @@ bool InstrumentClipView::presetKitHasAddedRows(Kit* kit) {
 
 namespace {
 /// The soft tint on a preset kit row's audition pad: blue for the Cyc engines, orange for the LXR voices, green for
-/// DXIA and DIIA, pink for GIN, by the engine the row plays now. A preset row put back on a sample keeps its kit's
-/// colour. Rows added to the kit any other way aren't tinted (returns false).
+/// DXIA and DIIA, pink for GIN and ULTRAKIK, by the engine the row plays now. A preset row put back on a sample keeps
+/// its kit's colour. Rows added to the kit any other way aren't tinted (returns false).
 bool presetRowTint(Drum* drum, RGB* tint) {
 	using deluge::dsp::drum_synth::PresetKit;
 	if (drum == nullptr || drum->type != DrumType::SOUND) {
@@ -1994,10 +1994,10 @@ bool presetRowTint(Drum* drum, RGB* tint) {
 	constexpr RGB kPink{255, 0, 120};
 	if (soundDrum->sources[0].oscType == OscType::DRUM_SYNTH) {
 		const auto engine = soundDrum->sources[0].drumPatch.engine();
-		*tint = deluge::dsp::drum_synth::isCyc(engine)   ? kBlue
-		        : deluge::dsp::drum_synth::isXia(engine) ? kGreen
-		        : deluge::dsp::drum_synth::isGin(engine) ? kPink
-		                                                 : kOrange;
+		*tint = deluge::dsp::drum_synth::isCyc(engine)                                                    ? kBlue
+		        : deluge::dsp::drum_synth::isXia(engine)                                                  ? kGreen
+		        : (deluge::dsp::drum_synth::isGin(engine) || deluge::dsp::drum_synth::isUltrakik(engine)) ? kPink
+		                                                                                                  : kOrange;
 	}
 	else {
 		*tint = (soundDrum->presetKit == PresetKit::CYCLES) ? kBlue
@@ -2021,17 +2021,33 @@ void renderDrumSynthShiftGlow(uint32_t whichRows, RGB image[][kDisplayWidth + kS
 	constexpr int32_t kFullGreyout = 6500000;
 	constexpr RGB kGlow{255, 40, 90};
 	const auto engine = sound->sources[0].drumPatch.engine();
+	// The OSC1 extras (ULTRAKIK): the column, and its rows with a setting
+	int32_t osc1X = -1;
+	uint32_t osc1Rows = 0;
 	for (int32_t slot = 0; slot < static_cast<int32_t>(StandardSlot::NUM_SLOTS); slot++) {
 		int32_t x;
 		int32_t y;
 		if (!drumLayoutPadFor(slot, &x, &y) || !(whichRows & (1 << y))) {
 			continue;
 		}
+		const bool modColumn = slot < static_cast<int32_t>(StandardSlot::NUM_MOD_SLOTS);
 		if (drumLayoutItem(engine, slot) != nullptr) {
 			image[y][x] = RGB::blend(kGlow, image[y][x], 32768);
+			if (!modColumn) {
+				osc1X = x;
+				osc1Rows |= 1u << y;
+			}
 		}
-		else if (inSoundEditor) {
+		else if (inSoundEditor && modColumn) {
 			image[y][x] = image[y][x].greyOut(kFullGreyout);
+		}
+	}
+	// In the sound editor that column is left out of the greyout too, so grey its other pads here
+	if (inSoundEditor && osc1X >= 0) {
+		for (int32_t y = 0; y < kDisplayHeight; y++) {
+			if ((whichRows & (1 << y)) && !(osc1Rows & (1u << y))) {
+				image[y][osc1X] = image[y][osc1X].greyOut(kFullGreyout);
+			}
 		}
 	}
 }

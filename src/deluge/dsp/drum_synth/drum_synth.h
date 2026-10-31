@@ -15,6 +15,8 @@
 #include "dsp/drum_synth/cyc.h"
 #include "dsp/drum_synth/gin.h"
 #include "dsp/drum_synth/gin_kits.h"
+#include "dsp/drum_synth/ultrakik.h"
+#include "dsp/drum_synth/ultrakik_presets.h"
 #include "dsp/drum_synth/xia.h"
 #include <algorithm>
 #include <array>
@@ -24,7 +26,8 @@
 namespace deluge::dsp::drum_synth {
 
 /// The three LXR voice structures, then two engines from the XIA set for the Model:Cycles (see xia.h), then the Cyc
-/// engines (see cyc.h), then GIN (see gin.h). New engines go on the end: the number is saved with the sound.
+/// engines (see cyc.h), then GIN (see gin.h), then ULTRAKIK (see ultrakik.h). New engines go on the end: the number is
+/// saved with the sound.
 enum class Engine : uint8_t {
 	DRUM,  ///< Kick and toms: main osc, FM or mixed mod osc, pitch envelope
 	SNARE, ///< Pitched osc with pitch envelope, plus filtered sample-and-hold noise
@@ -39,7 +42,8 @@ enum class Engine : uint8_t {
 	CYC_CHORD,
 	VTG_SNR,
 	CLAP_ENG,
-	GIN, ///< The PO-32 style drum voice from SquareWave Studio's GIN for the OP-1
+	GIN,      ///< The PO-32 style drum voice from SquareWave Studio's GIN for the OP-1
+	ULTRAKIK, ///< The kick engine: thump, grit, 808 bends, 909 punch, destruction
 	NUM_ENGINES,
 };
 
@@ -56,6 +60,11 @@ constexpr bool isCyc(Engine engine) {
 /// Whether an engine is GIN
 constexpr bool isGin(Engine engine) {
 	return engine == Engine::GIN;
+}
+
+/// Whether an engine is ULTRAKIK
+constexpr bool isUltrakik(Engine engine) {
+	return engine == Engine::ULTRAKIK;
 }
 
 /// Whether an engine is one of the three LXR voices
@@ -108,6 +117,20 @@ struct DrumControls {
 		GIN_TONE_ATTACK = 8,
 		GIN_TONE_DECAY = 10,
 		GIN_EQ_FREQ = 11, ///< Peak EQ frequency. Added after GIN, on a param only a sample oscillator reads.
+		// ULTRAKIK's continuous settings (see ultrakik::Settings). Drive and decay share the Cyc engines' slots. Its
+		// choices, crush, bend time and snap stay in the Patch.
+		UK_SWEEP = 0,      ///< Pitch envelope depth: mod depth knob
+		UK_SWEEP_TIME = 1, ///< Pitch envelope time: mod rate knob
+		UK_FOLD = 2,       ///< Wavefolder: Custom 2
+		UK_GRIT = 3,       ///< Custom 3
+		UK_DRIVE = 4,
+		UK_CLICK = 5,
+		UK_CLICK_TONE = 6,
+		UK_BEND = 7, ///< 64 = none
+		UK_PUNCH = 8,
+		UK_DECAY = 9,
+		UK_HOLD = 10,
+		UK_SUB = 11,
 		NUM_SLOTS = 12,
 	};
 	/// Raw Deluge param values: the whole int32 range, centre 0
@@ -139,9 +162,9 @@ struct DrumControls {
 /// Every engine has a drive and a decay, on the same pads and gold knobs, though they live on different slots: the
 /// XIA engines kept theirs where they were first saved
 constexpr int32_t driveSlot(Engine engine) {
-	return isXia(engine)                      ? DrumControls::DRIVE
-	       : (isCyc(engine) || isGin(engine)) ? DrumControls::CYC_DRIVE
-	                                          : DrumControls::LXR_DRIVE;
+	return isXia(engine)                                            ? DrumControls::DRIVE
+	       : (isCyc(engine) || isGin(engine) || isUltrakik(engine)) ? DrumControls::CYC_DRIVE
+	                                                                : DrumControls::LXR_DRIVE;
 }
 constexpr int32_t decaySlot(Engine engine) {
 	return isXia(engine) ? DrumControls::ENGINE_DECAY : DrumControls::COMMON_DECAY;
@@ -159,8 +182,11 @@ enum class StandardSlot : uint8_t {
 	CHARACTER_A,      ///< The Cyc engines' Color
 	CHARACTER_B,      ///< The Cyc engines' Shape
 	NUM_SHARED,
-	EXTRA_1 = NUM_SHARED, ///< Extras 1 to 9: each engine's own settings
-	NUM_SLOTS = 16,
+	EXTRA_1 = NUM_SHARED, ///< Extras 1 to 9: each engine's own settings, on MOD1 and MOD2
+	NUM_MOD_SLOTS = 16,
+	OSC1_EXTRA_1 = NUM_MOD_SLOTS, ///< Four more, on the OSC1 column pads a drum synth has no use for (pulse width,
+	                              ///< retrigger phase, feedback, wave index): only ULTRAKIK fills them
+	NUM_SLOTS = 20,
 };
 
 enum class Wave : uint8_t { SINE, TRIANGLE, SAW, SQUARE, NOISE, NUM_WAVES };
@@ -216,6 +242,12 @@ struct XiaPreset {
 	RowSetup row;
 };
 XiaPreset xiaPresetFor(Engine engine, uint8_t variant);
+
+/// Envelope 1 release (a user value, 0 to 50) for ULTRAKIK at its own decay and hold knobs (see envelopeReleaseFor)
+int8_t ultrakikEnvelopeRelease(int32_t decayKnob, int32_t holdKnob);
+
+/// An ULTRAKIK preset's row: tuned to the preset's note on a kit row, with the release fitted to its decay
+RowSetup rowSetupForUltrakik(int32_t preset);
 
 /// Envelope 1 release (a user value, 0 to 50) for a Cyc engine at its own decay knob (see envelopeReleaseFor)
 int8_t cycEnvelopeRelease(Engine engine, int32_t decayKnob, bool punch);
@@ -285,6 +317,13 @@ public:
 		GIN_EQ_GAIN,    ///< Peak EQ gain, 64 = flat, 0 / 127 = 40 dB cut / boost
 		GIN_LEVEL,      ///< GIN's level before its clipper. 102 is about -2 dB.
 		GIN_EQ_CONTROL, ///< 1 once GIN's EQ frequency is a control. Sounds saved before have no byte for it.
+		// ULTRAKIK. Its continuous settings are on Deluge params: see DrumControls.
+		UK_WAVE,       ///< ultrakik::Wave
+		UK_DRIVE_TYPE, ///< ultrakik::DriveType
+		UK_CLICK_TYPE, ///< ultrakik::Click
+		UK_CRUSH,      ///< 0-127
+		UK_BEND_TIME,  ///< 0-127: 40 ms to 4 s
+		UK_SNAP,       ///< 0-127: start phase 0 to 90 degrees
 		NUM_PARAMS,
 	};
 
@@ -299,6 +338,9 @@ public:
 	void setXiaPreset(Engine engine, uint8_t variant);
 	/// Switch to a Cyc engine. Its continuous settings are on Deluge params: see DrumControls.
 	void setCycPreset(Engine engine);
+	/// Switch to ULTRAKIK, with a preset's choices (see ultrakik_presets.h). Its continuous settings are on Deluge
+	/// params: see ultrakikControlsFor().
+	void setUltrakikPreset(int32_t preset = ultrakik::kDefaultPreset);
 	/// Switch to GIN, with a kit sound's choices, EQ and level. Its continuous settings are on Deluge params: see
 	/// ginControlsFor().
 	void setGinSound(const gin::KitSound& sound);
@@ -333,6 +375,8 @@ public:
 	void clearNeedsControlDefaults() { savedBeforeControls_ = savedBeforeGinEqControl_ = false; }
 
 private:
+	void setUltrakikBytes(const ultrakik::Preset& preset);
+
 	std::array<uint8_t, NUM_PARAMS> params_{};
 	bool savedBeforeControls_ = false;     ///< Not saved
 	bool savedBeforeGinEqControl_ = false; ///< Not saved
@@ -355,8 +399,14 @@ int32_t sharedControlSlot(Engine engine, StandardSlot slot);
 /// The controls a patch starts from: its LXR settings, or an XIA engine's defaults
 DrumControls controlsFromPatch(const Patch& patch);
 
+/// ULTRAKIK's settings from its controls and patch
+ultrakik::Settings ultrakikSettings(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const DrumControls& controls);
+
 /// A GIN kit sound's continuous settings, as controls
 DrumControls ginControlsFor(const gin::KitSound& sound);
+
+/// An ULTRAKIK preset's continuous settings, as controls
+DrumControls ultrakikControlsFor(int32_t preset);
 
 /// Copy the LXR settings back from the controls into the patch, so switching engine and back keeps them
 void storeControlsInPatch(const DrumControls& controls, Patch& patch);
@@ -412,6 +462,8 @@ private:
 	               int32_t amplitudeIncrement);
 	void renderGin(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const DrumControls& controls, int32_t* buffer,
 	               int32_t numSamples, uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement);
+	void renderUltrakik(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const DrumControls& controls, int32_t* buffer,
+	                    int32_t numSamples, uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement);
 
 	void updateSettings(const Patch& patch, const DrumControls& controls);
 	void startLxr();
@@ -453,12 +505,14 @@ private:
 		xia::IiaState iia;
 		cyc::Voice cyc;
 		gin::Voice gin;
+		ultrakik::Voice ultrakik;
 	} xia_{};
 	std::array<int32_t, xia::kBlockSize> xiaBlock_{};
 	int32_t xiaBlockPos_ = xia::kBlockSize;
 	Engine xiaEngine_ = Engine::DRUM; ///< The XIA engine xia_ holds, or DRUM for none
 	bool cycReady_ = false;           ///< xia_ holds a Cyc engine's state
 	bool ginReady_ = false;           ///< xia_ holds GIN's state
+	bool ultrakikReady_ = false;      ///< xia_ holds ULTRAKIK's state
 	float lxrLevel_ = 1.f;            ///< The LXR voices' decay
 	float lxrGain_ = 1.f;             ///< The LXR voices' drive gain, last render
 	int32_t lxrDecayKnob_ = -1;       ///< The decay knob lxrDecayCoef_ was worked out for

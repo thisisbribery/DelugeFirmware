@@ -125,7 +125,7 @@ public:
 		if (!kitRow) {
 			list.push_back({K::TB303, ::SynthMode::TB303, Engine::DRUM, 0, STRING_FOR_TB303});
 		}
-		static constexpr std::array<Entry, 18> kDrumEngines{{
+		static constexpr std::array<Entry, 19> kDrumEngines{{
 		    {K::DRUM, ::SynthMode::SUBTRACTIVE, Engine::DRUM, 0, STRING_FOR_DRUM_ENGINE_DRUM},
 		    {K::DRUM, ::SynthMode::SUBTRACTIVE, Engine::SNARE, 0, STRING_FOR_DRUM_ENGINE_SNARE},
 		    {K::DRUM, ::SynthMode::SUBTRACTIVE, Engine::METAL, 0, STRING_FOR_DRUM_ENGINE_METAL},
@@ -144,6 +144,7 @@ public:
 		    {K::DRUM, ::SynthMode::SUBTRACTIVE, Engine::VTG_SNR, 0, STRING_FOR_DRUM_ENGINE_VTG_SNR},
 		    {K::DRUM, ::SynthMode::SUBTRACTIVE, Engine::CLAP_ENG, 0, STRING_FOR_DRUM_ENGINE_CLAP_ENG},
 		    {K::DRUM, ::SynthMode::SUBTRACTIVE, Engine::GIN, 0, STRING_FOR_DRUM_ENGINE_GIN},
+		    {K::DRUM, ::SynthMode::SUBTRACTIVE, Engine::ULTRAKIK, 0, STRING_FOR_DRUM_ENGINE_ULTRAKIK},
 		}};
 		for (const Entry& e : kDrumEngines) {
 			list.push_back(e);

@@ -233,13 +233,14 @@ void Sound::setupAsDrumSynth(ParamManagerForTimeline* paramManager, deluge::dsp:
 	using deluge::dsp::drum_synth::Preset;
 	const bool gin = ginSound != nullptr || deluge::dsp::drum_synth::isGin(cycEngine);
 	const bool cyc = deluge::dsp::drum_synth::isCyc(cycEngine);
+	const bool ultrakik = deluge::dsp::drum_synth::isUltrakik(cycEngine);
 	const deluge::dsp::drum_synth::gin::KitSound& ginKitSound =
 	    (ginSound != nullptr) ? *ginSound : deluge::dsp::drum_synth::gin::defaultSound();
 
 	const deluge::dsp::drum_synth::RowSetup row =
-	    gin   ? deluge::dsp::drum_synth::rowSetupForGinSound(ginKitSound, ginChoke)
-	    : cyc ? deluge::dsp::drum_synth::rowSetupForEngine(cycEngine)
-	          : deluge::dsp::drum_synth::rowSetupFor(preset);
+	    gin                 ? deluge::dsp::drum_synth::rowSetupForGinSound(ginKitSound, ginChoke)
+	    : (cyc || ultrakik) ? deluge::dsp::drum_synth::rowSetupForEngine(cycEngine)
+	                        : deluge::dsp::drum_synth::rowSetupFor(preset);
 
 	polyphonic = row.choke ? PolyphonyMode::CHOKE : PolyphonyMode::AUTO;
 	lpfMode = FilterMode::TRANSISTOR_24DB;
@@ -250,6 +251,9 @@ void Sound::setupAsDrumSynth(ParamManagerForTimeline* paramManager, deluge::dsp:
 	}
 	else if (cyc) {
 		sources[0].drumPatch.setCycPreset(cycEngine);
+	}
+	else if (ultrakik) {
+		sources[0].drumPatch.setUltrakikPreset();
 	}
 	else {
 		sources[0].drumPatch.setPreset(preset);
@@ -492,6 +496,10 @@ void Sound::setDrumSynthKnobs(deluge::dsp::drum_synth::Engine engine) {
 		layout = {DrumControls::GIN_MOD_RATE, DrumControls::GIN_MOD_AMOUNT, DrumControls::GIN_MIX,
 		          DrumControls::GIN_NOISE_FREQ};
 		break;
+	case Engine::ULTRAKIK:
+		// The sweep, then fold and grit
+		layout = {DrumControls::UK_SWEEP_TIME, DrumControls::UK_SWEEP, DrumControls::UK_FOLD, DrumControls::UK_GRIT};
+		break;
 	default:
 		// The Cyc engines: Sweep / Contour, Color / Shape
 		layout = {DrumControls::CYC_MACRO3, DrumControls::CYC_MACRO4, DrumControls::CYC_MACRO1,
@@ -589,6 +597,9 @@ char const* Sound::getPatchedParamDisplayNameOverride(int32_t p) {
 	}
 
 	const auto engine = sources[0].drumPatch.engine();
+	if (deluge::dsp::drum_synth::isUltrakik(engine)) {
+		return deluge::l10n::get(deluge::dsp::drum_synth::ultrakikKnobName(slot));
+	}
 	if (deluge::dsp::drum_synth::isGin(engine)) {
 		return deluge::l10n::get(deluge::dsp::drum_synth::ginKnobName(slot));
 	}

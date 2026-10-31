@@ -1596,31 +1596,110 @@ PLACE_SDRAM_BSS drum_synth::GinControl ginDecayMenu{STRING_FOR_GIN_DECAY, XiaSlo
 PLACE_SDRAM_BSS drum_synth::GinControl ginEqFreqMenu{STRING_FOR_GIN_EQ_FREQ, XiaSlot::GIN_EQ_FREQ};
 PLACE_SDRAM_BSS drum_synth::GinNumber ginEqGainMenu{STRING_FOR_GIN_EQ_GAIN, DrumParam::GIN_EQ_GAIN};
 PLACE_SDRAM_BSS drum_synth::GinNumber ginLevelMenu{STRING_FOR_GIN_LEVEL, DrumParam::GIN_LEVEL};
+PLACE_SDRAM_BSS drum_synth::UltrakikPresetSelect ukPresetMenu{STRING_FOR_UK_PRESET};
+PLACE_SDRAM_BSS drum_synth::UltrakikControl ukSweepMenu{STRING_FOR_UK_SWEEP, XiaSlot::UK_SWEEP};
+PLACE_SDRAM_BSS drum_synth::UltrakikControl ukSweepTimeMenu{STRING_FOR_UK_SWEEP_TIME, XiaSlot::UK_SWEEP_TIME};
+PLACE_SDRAM_BSS drum_synth::UltrakikControl ukFoldMenu{STRING_FOR_UK_FOLD, XiaSlot::UK_FOLD};
+PLACE_SDRAM_BSS drum_synth::UltrakikControl ukGritMenu{STRING_FOR_UK_GRIT, XiaSlot::UK_GRIT};
+PLACE_SDRAM_BSS drum_synth::UltrakikControl ukDriveMenu{STRING_FOR_XIA_DRIVE, XiaSlot::UK_DRIVE};
+PLACE_SDRAM_BSS drum_synth::UltrakikControl ukClickMenu{STRING_FOR_UK_CLICK, XiaSlot::UK_CLICK};
+PLACE_SDRAM_BSS drum_synth::UltrakikControl ukClickToneMenu{STRING_FOR_UK_CLICK_TONE, XiaSlot::UK_CLICK_TONE};
+PLACE_SDRAM_BSS drum_synth::UltrakikControl ukBendMenu{STRING_FOR_UK_BEND, XiaSlot::UK_BEND};
+PLACE_SDRAM_BSS drum_synth::UltrakikControl ukPunchMenu{STRING_FOR_UK_PUNCH, XiaSlot::UK_PUNCH};
+PLACE_SDRAM_BSS drum_synth::UltrakikControl ukDecayMenu{STRING_FOR_UK_DECAY, XiaSlot::UK_DECAY};
+PLACE_SDRAM_BSS drum_synth::UltrakikControl ukHoldMenu{STRING_FOR_UK_HOLD, XiaSlot::UK_HOLD};
+PLACE_SDRAM_BSS drum_synth::UltrakikControl ukSubMenu{STRING_FOR_UK_SUB, XiaSlot::UK_SUB};
+PLACE_SDRAM_BSS drum_synth::UltrakikWave ukWaveMenu{STRING_FOR_UK_WAVE};
+PLACE_SDRAM_BSS drum_synth::UltrakikDriveType ukDriveTypeMenu{STRING_FOR_UK_DRIVE_TYPE};
+PLACE_SDRAM_BSS drum_synth::UltrakikClickType ukClickTypeMenu{STRING_FOR_UK_CLICK_TYPE};
+PLACE_SDRAM_BSS drum_synth::PatchNumber ukCrushMenu{STRING_FOR_UK_CRUSH, DrumParam::UK_CRUSH};
+PLACE_SDRAM_BSS drum_synth::PatchNumber ukBendTimeMenu{STRING_FOR_UK_BEND_TIME, DrumParam::UK_BEND_TIME};
+PLACE_SDRAM_BSS drum_synth::PatchNumber ukSnapMenu{STRING_FOR_UK_SNAP, DrumParam::UK_SNAP};
 // Items the current engine doesn't use hide themselves
 PLACE_SDRAM_BSS menu_item::Submenu drumSynthMenu{
     STRING_FOR_DRUM_SYNTH,
     {
-        &drumPresetMenu,         &drumOscWaveMenu,     &drumPitchAmountMenu,
-        &drumPitchDecayMenu,     &drumPitchSlopeMenu,  &drumMixModeMenu,
-        &drumFmAmountMenu,       &drumModWaveMenu,     &drumModCoarseMenu,
-        &drumModFineMenu,        &drumFm2AmountMenu,   &drumMod2WaveMenu,
-        &drumMod2CoarseMenu,     &drumMod2FineMenu,    &drumNoiseMixMenu,
-        &drumNoisePitchMenu,     &drumNoiseFilterMenu, &drumNoiseCutoffMenu,
-        &drumNoiseResonanceMenu, &drumTransientMenu,   &drumTransientVolumeMenu,
-        &drumTransientPitchMenu, &tiaBlendex1Menu,     &tiaFreq1Menu,
-        &tiaBlendex2Menu,        &tiaFreq2Menu,        &tiaBlendex3Menu,
-        &tiaFreq3Menu,           &iiaWeightMenu,       &iiaAlloyMenu,
-        &iiaShapeMenu,           &iiaStrikeMenu,       &cycMacro1Menu,
-        &cycMacro2Menu,          &cycMacro3Menu,       &cycMacro4Menu,
-        &cycDecayMenu,           &cycDriveMenu,        &lxrDriveMenu,
-        &lxrDecayMenu,           &xiaDriveMenu,        &xiaDecayMenu,
-        &xiaPunchMenu,           &ginSoundMenu,        &ginWaveMenu,
-        &ginToneAttackMenu,      &ginToneDecayMenu,    &ginModModeMenu,
-        &ginModRateMenu,         &ginModAmountMenu,    &ginMixMenu,
-        &ginNoiseFreqMenu,       &ginNoiseResMenu,     &ginNoiseEnvMenu,
-        &ginNoiseAttackMenu,     &ginNoiseDecayMenu,   &ginDriveMenu,
-        &ginDecayMenu,           &ginEqFreqMenu,       &ginEqGainMenu,
-        &ginLevelMenu,           &drumSnappyDecayMenu,
+        &drumPresetMenu,
+        &drumOscWaveMenu,
+        &drumPitchAmountMenu,
+        &drumPitchDecayMenu,
+        &drumPitchSlopeMenu,
+        &drumMixModeMenu,
+        &drumFmAmountMenu,
+        &drumModWaveMenu,
+        &drumModCoarseMenu,
+        &drumModFineMenu,
+        &drumFm2AmountMenu,
+        &drumMod2WaveMenu,
+        &drumMod2CoarseMenu,
+        &drumMod2FineMenu,
+        &drumNoiseMixMenu,
+        &drumNoisePitchMenu,
+        &drumNoiseFilterMenu,
+        &drumNoiseCutoffMenu,
+        &drumNoiseResonanceMenu,
+        &drumTransientMenu,
+        &drumTransientVolumeMenu,
+        &drumTransientPitchMenu,
+        &tiaBlendex1Menu,
+        &tiaFreq1Menu,
+        &tiaBlendex2Menu,
+        &tiaFreq2Menu,
+        &tiaBlendex3Menu,
+        &tiaFreq3Menu,
+        &iiaWeightMenu,
+        &iiaAlloyMenu,
+        &iiaShapeMenu,
+        &iiaStrikeMenu,
+        &cycMacro1Menu,
+        &cycMacro2Menu,
+        &cycMacro3Menu,
+        &cycMacro4Menu,
+        &cycDecayMenu,
+        &cycDriveMenu,
+        &lxrDriveMenu,
+        &lxrDecayMenu,
+        &xiaDriveMenu,
+        &xiaDecayMenu,
+        &xiaPunchMenu,
+        &ginSoundMenu,
+        &ginWaveMenu,
+        &ginToneAttackMenu,
+        &ginToneDecayMenu,
+        &ginModModeMenu,
+        &ginModRateMenu,
+        &ginModAmountMenu,
+        &ginMixMenu,
+        &ginNoiseFreqMenu,
+        &ginNoiseResMenu,
+        &ginNoiseEnvMenu,
+        &ginNoiseAttackMenu,
+        &ginNoiseDecayMenu,
+        &ginDriveMenu,
+        &ginDecayMenu,
+        &ginEqFreqMenu,
+        &ginEqGainMenu,
+        &ginLevelMenu,
+        &ukPresetMenu,
+        &ukPunchMenu,
+        &ukSweepMenu,
+        &ukSweepTimeMenu,
+        &ukBendMenu,
+        &ukBendTimeMenu,
+        &ukWaveMenu,
+        &ukSnapMenu,
+        &ukFoldMenu,
+        &ukDriveMenu,
+        &ukDriveTypeMenu,
+        &ukGritMenu,
+        &ukCrushMenu,
+        &ukSubMenu,
+        &ukClickMenu,
+        &ukClickTypeMenu,
+        &ukClickToneMenu,
+        &ukHoldMenu,
+        &ukDecayMenu,
+        &drumSnappyDecayMenu,
     },
 };
 
@@ -1745,13 +1824,35 @@ PLACE_SDRAM_DATA std::array<DrumColumn, 16> drumEditorGinLayout{{
     {&ginDecayMenu, DrumKind::NUMBER, DrumGroup::XIA_ENVELOPE},
     {&source0TransposeMenu, DrumKind::NUMBER, DrumGroup::SOUND, -2400, 2400, 100, 100},
 }};
+// ULTRAKIK: the pitch, the body, the click, then the amp and tuning. Crush, bend time and snap are on the pads and in
+// the menu.
+PLACE_SDRAM_DATA std::array<DrumColumn, 16> drumEditorUltrakikLayout{{
+    {&ukPunchMenu, DrumKind::NUMBER, DrumGroup::PITCH},
+    {&ukSweepMenu, DrumKind::NUMBER, DrumGroup::PITCH},
+    {&ukSweepTimeMenu, DrumKind::NUMBER, DrumGroup::PITCH},
+    {&ukBendMenu, DrumKind::NUMBER, DrumGroup::PITCH},
+    {&ukWaveMenu, DrumKind::CHOICE, DrumGroup::OSC},
+    {&ukFoldMenu, DrumKind::NUMBER, DrumGroup::OSC},
+    {&ukDriveMenu, DrumKind::NUMBER, DrumGroup::MOD},
+    {&ukDriveTypeMenu, DrumKind::CHOICE, DrumGroup::MOD},
+    {&ukGritMenu, DrumKind::NUMBER, DrumGroup::MOD},
+    {&ukSubMenu, DrumKind::NUMBER, DrumGroup::MOD2},
+    {&ukClickMenu, DrumKind::NUMBER, DrumGroup::TRANSIENT},
+    {&ukClickTypeMenu, DrumKind::CHOICE, DrumGroup::TRANSIENT},
+    {&ukClickToneMenu, DrumKind::NUMBER, DrumGroup::TRANSIENT},
+    {&ukHoldMenu, DrumKind::NUMBER, DrumGroup::XIA_ENVELOPE},
+    {&ukDecayMenu, DrumKind::NUMBER, DrumGroup::XIA_ENVELOPE},
+    {&source0TransposeMenu, DrumKind::NUMBER, DrumGroup::SOUND, -2400, 2400, 100, 100},
+}};
 
 // Drum synth shortcut pads. On a drum synth sound, the MOD1 and MOD2 columns hold the standard layout, the same on
 // every engine: from the bottom of MOD1 up, decay, drive, pitch, pitch envelope amount and speed, character A and B and
 // extra 1, then from the bottom of MOD2 up, extras 2 to 9. Their attack / release, mod rate / depth and Custom 2 / 3
-// gold knobs sit in one column, a pair to a knob. OSC1 TYPE opens SYNTH MODE, where the engine is chosen. Every other
-// pad keeps its usual job, except those whose param is one of the drum controls (osc 1's pulse width, the carriers'
-// feedback, the wave indexes), which do nothing: they would edit the control raw.
+// gold knobs sit in one column, a pair to a knob. OSC1 TYPE opens SYNTH MODE, where the engine is chosen. An engine
+// with more settings than that (ULTRAKIK) puts four more on the OSC1 pads a drum synth has no use for: pulse width,
+// retrigger phase, feedback and wave index, bottom up. Every other pad keeps its usual job, except those whose param is
+// one of the drum controls (osc 1's pulse width, the carriers' feedback, the wave indexes), which do nothing: they
+// would edit the control raw.
 extern SynthModeSelection synthModeMenu;
 extern MenuItem* paramShortcutsForSounds[][kDisplayHeight];
 namespace {
@@ -1760,18 +1861,19 @@ constexpr int32_t kPadOsc1 = 2;
 constexpr int32_t kPadMod1 = 4;
 constexpr int32_t kPadMod2 = 5;
 constexpr int32_t kRowType = 2;
+constexpr int32_t kOsc1ExtraFirstRow = 3; ///< OSC1 pulse width, then retrigger phase, feedback, wave index
 
 // The standard drum synth layout (see dsp::drum_synth::StandardSlot): the shared slots, the same job on every engine,
 // then each engine's own extras. nullptr = an engine without that setting. The shared slots' items must be the
 // controls dsp::drum_synth::sharedControlSlot() names, as the gold knobs read that. Settings an engine has beyond its
-// nine extras are only in its menu: LXR Metal's mod 2 fine, GIN's EQ and level.
+// nine extras are only in its menu (LXR Metal's mod 2 fine, GIN's EQ and level), or on the OSC1 extras (ULTRAKIK).
 using StandardSlot = deluge::dsp::drum_synth::StandardSlot;
 constexpr int32_t kNumStandardSlots = static_cast<int32_t>(StandardSlot::NUM_SLOTS);
 struct DrumLayout {
 	DrumEngine first; ///< The engines it's for, first to last
 	DrumEngine last;
 	std::array<MenuItem*, kNumStandardSlots> items; ///< Decay, drive, pitch, pitch envelope amount and speed,
-	                                                ///< character A and B, then extras 1 to 9
+	                                                ///< character A and B, extras 1 to 9, then the OSC1 extras
 };
 PLACE_SDRAM_DATA DrumLayout drumLayouts[] = {
     {DrumEngine::DRUM,
@@ -1810,11 +1912,29 @@ PLACE_SDRAM_DATA DrumLayout drumLayouts[] = {
      {&ginDecayMenu, &ginDriveMenu, &source0TransposeMenu, &ginModAmountMenu, &ginModRateMenu, &ginMixMenu,
       &ginNoiseFreqMenu, &ginModModeMenu, &ginWaveMenu, &ginToneAttackMenu, &ginToneDecayMenu, &drumNoiseFilterMenu,
       &ginNoiseResMenu, &ginNoiseEnvMenu, &ginNoiseAttackMenu, &ginNoiseDecayMenu}},
+    // ULTRAKIK: sweep and its time as the pitch envelope, fold and grit as the characters, the punch on top of MOD1.
+    // MOD2 bottom up: sub, hold, the click (level, type, tone), the bend and its time, crush. OSC1 bottom up from
+    // pulse width: body wave, snap, drive type, the presets.
+    {DrumEngine::ULTRAKIK,
+     DrumEngine::ULTRAKIK,
+     {&ukDecayMenu, &ukDriveMenu,     &source0TransposeMenu, &ukSweepMenu,     &ukSweepTimeMenu,
+      &ukFoldMenu,  &ukGritMenu,      &ukPunchMenu,          &ukSubMenu,       &ukHoldMenu,
+      &ukClickMenu, &ukClickTypeMenu, &ukClickToneMenu,      &ukBendMenu,      &ukBendTimeMenu,
+      &ukCrushMenu, &ukWaveMenu,      &ukSnapMenu,           &ukDriveTypeMenu, &ukPresetMenu}},
 };
 
-/// The standard slot on a pad, or -1
+constexpr int32_t kNumModSlots = static_cast<int32_t>(StandardSlot::NUM_MOD_SLOTS);
+constexpr int32_t kNumOsc1Extras = kNumStandardSlots - kNumModSlots;
+
+/// The standard slot on a pad, or -1. The OSC1 extras count whether or not the engine has them.
 int32_t drumLayoutSlotAt(int32_t x, int32_t y) {
-	return (x == kPadMod1 || x == kPadMod2) ? (x - kPadMod1) * kDisplayHeight + y : -1;
+	if (x == kPadMod1 || x == kPadMod2) {
+		return (x - kPadMod1) * kDisplayHeight + y;
+	}
+	if (x == kPadOsc1 && y >= kOsc1ExtraFirstRow && y < kOsc1ExtraFirstRow + kNumOsc1Extras) {
+		return kNumModSlots + y - kOsc1ExtraFirstRow;
+	}
+	return -1;
 }
 } // namespace
 
@@ -1834,13 +1954,28 @@ MenuItem* drumLayoutItem(deluge::dsp::drum_synth::Engine engine, int32_t slot) {
 	return nullptr;
 }
 
+/// The standard slot on a pad of this sound's layout, or -1: the MOD1 and MOD2 columns on every engine, an OSC1 extra
+/// only where the engine puts something there
+static int32_t drumLayoutSlotFor(const Sound* sound, int32_t x, int32_t y) {
+	const int32_t slot = drumLayoutSlotAt(x, y);
+	if (slot < kNumModSlots) {
+		return slot;
+	}
+	return (drumLayoutItem(sound->sources[0].drumPatch.engine(), slot) != nullptr) ? slot : -1;
+}
+
 bool isDrumLayoutPad(const Sound* sound, int32_t x, int32_t y) {
-	return isDrumSynth(sound) && drumLayoutSlotAt(x, y) >= 0;
+	return isDrumSynth(sound) && drumLayoutSlotFor(sound, x, y) >= 0;
 }
 
 bool drumLayoutPadFor(int32_t slot, int32_t* x, int32_t* y) {
 	if (slot < 0 || slot >= kNumStandardSlots) {
 		return false;
+	}
+	if (slot >= kNumModSlots) {
+		*x = kPadOsc1;
+		*y = kOsc1ExtraFirstRow + slot - kNumModSlots;
+		return true;
 	}
 	*x = kPadMod1 + slot / kDisplayHeight;
 	*y = slot % kDisplayHeight;
@@ -1855,7 +1990,7 @@ MenuItem* soundShortcutFor(const Sound* sound, int32_t x, int32_t y) {
 	if (x == kPadOsc1 && y == kRowType) {
 		return &synthModeMenu;
 	}
-	if (const int32_t slot = drumLayoutSlotAt(x, y); slot >= 0) {
+	if (const int32_t slot = drumLayoutSlotFor(sound, x, y); slot >= 0) {
 		return drumLayoutItem(sound->sources[0].drumPatch.engine(), slot);
 	}
 	if (usual != nullptr && usual->getParamKind() == params::Kind::PATCHED
@@ -1866,7 +2001,7 @@ MenuItem* soundShortcutFor(const Sound* sound, int32_t x, int32_t y) {
 }
 
 uint32_t drumShortcutParam(const Sound* sound, int32_t x, int32_t y) {
-	if (isDrumSynth(sound) && drumLayoutSlotAt(x, y) >= 0) {
+	if (isDrumSynth(sound) && drumLayoutSlotFor(sound, x, y) >= 0) {
 		MenuItem* item = soundShortcutFor(sound, x, y);
 		return (item != nullptr && item->getParamKind() == params::Kind::PATCHED) ? item->getParamIndex()
 		                                                                          : params::kNoParamID;
@@ -1880,9 +2015,9 @@ uint32_t drumShortcutParam(const Sound* sound, int32_t x, int32_t y) {
 #undef DRUM_PITCH_COLUMNS
 
 namespace deluge::gui::menu_item::drum_synth {
-PLACE_SDRAM_BSS Editor drumSynthEditor{STRING_FOR_DRUM_SYNTH, drumEditorDrumLayout, drumEditorSnareLayout,
-                                       drumEditorMetalLayout, drumEditorTiaLayout,  drumEditorIiaLayout,
-                                       drumEditorCycLayout,   drumEditorGinLayout,  &drumSynthMenu};
+PLACE_SDRAM_BSS Editor drumSynthEditor{
+    STRING_FOR_DRUM_SYNTH, drumEditorDrumLayout, drumEditorSnareLayout, drumEditorMetalLayout,    drumEditorTiaLayout,
+    drumEditorIiaLayout,   drumEditorCycLayout,  drumEditorGinLayout,   drumEditorUltrakikLayout, &drumSynthMenu};
 } // namespace deluge::gui::menu_item::drum_synth
 
 // Not FM

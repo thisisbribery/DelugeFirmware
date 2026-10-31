@@ -338,3 +338,54 @@ TEST(DrumSynthTest, enginesOnlyShowTheirSettings) {
 	CHECK_FALSE(Patch::isUsedBy(Patch::MOD_WAVE, Engine::SNARE));
 	CHECK(Patch::isUsedBy(Patch::TRANS_MODE, Engine::METAL));
 }
+
+TEST(DrumSynthTest, everyUltrakikPresetSoundsThroughTheVoice) {
+	for (int32_t i = 0; i < ultrakik::kNumPresets; i++) {
+		Patch patch;
+		patch.setUltrakikPreset(i);
+		const DrumControls controls = ultrakikControlsFor(i);
+		Voice voice;
+		voice.trigger(patch);
+		std::array<int32_t, 4480> out{};
+		renderInto(voice, patch, out, 65.4, &controls);
+		CHECK(peak(out.data(), out.size()) > kAmplitude / 4);
+	}
+}
+
+TEST(DrumSynthTest, ultrakikControlsFromPatchAreItsDefaultPreset) {
+	Patch patch;
+	patch.setUltrakikPreset();
+	CHECK(controlsFromPatch(patch).values == ultrakikControlsFor(ultrakik::kDefaultPreset).values);
+	CHECK(ultrakikSettings(patch.bytes(), controlsFromPatch(patch))
+	      == ultrakik::settingsFor(ultrakik::kPresets[ultrakik::kDefaultPreset]));
+}
+
+TEST(DrumSynthTest, ultrakikSoundsAfterTheVoicePlayedAnotherEngine) {
+	Patch uk;
+	uk.setUltrakikPreset();
+	for (Engine before : {Engine::TIA, Engine::IIA, Engine::CYC_KIK, Engine::GIN, Engine::DRUM}) {
+		Patch other;
+		if (isXia(before)) {
+			other.setXiaPreset(before, 0);
+		}
+		else if (isCyc(before)) {
+			other.setCycPreset(before);
+		}
+		else if (isGin(before)) {
+			other.setGinSound(gin::defaultSound());
+		}
+		// The same voice: ULTRAKIK, then the other engine (the XIA engines share its memory), then ULTRAKIK again
+		Voice voice;
+		std::array<int32_t, 4480> out{};
+		voice.trigger(uk);
+		renderInto(voice, uk, out, 65.4);
+		const int32_t first = peak(out.data(), out.size());
+		voice.trigger(other);
+		renderInto(voice, other, out, 65.4);
+		voice.trigger(uk);
+		renderInto(voice, uk, out, 65.4);
+		CHECK(first > kAmplitude / 4);
+		// Its grit and click noise run on from the first hit, so the peak can move a little
+		CHECK(peak(out.data(), out.size()) > first * 9 / 10);
+	}
+}

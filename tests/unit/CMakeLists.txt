@@ -80,6 +80,10 @@ file(GLOB_RECURSE deluge_SOURCES
         ../../src/deluge/dsp/drum_synth/xia.cpp
         ../../src/deluge/dsp/drum_synth/xia_tables.c
         ../../src/deluge/dsp/drum_synth/cyc.cpp
+        ../../src/deluge/dsp/drum_synth/gin.cpp
+        ../../src/deluge/dsp/drum_synth/gin_kits.cpp
+        ../../src/deluge/dsp/drum_synth/ultrakik.cpp
+        ../../src/deluge/dsp/drum_synth/ultrakik_presets.cpp
 )
 
 add_executable(UnitTests
@@ -108,6 +112,7 @@ add_executable(UnitTests
         drum_synth_tests.cpp
         xia_tests.cpp
         cyc_tests.cpp
+        ultrakik_tests.cpp
 )
 add_test(NAME UnitTests
         COMMAND UnitTests)

@@ -116,6 +116,17 @@ inline deluge::l10n::String cycKnobName(Engine engine, int32_t slot) {
 	}
 }
 
+/// What ULTRAKIK calls the setting on a control slot
+inline deluge::l10n::String ultrakikKnobName(int32_t slot) {
+	using enum deluge::l10n::String;
+	static constexpr std::array<deluge::l10n::String, DrumControls::NUM_SLOTS> kNames{
+	    STRING_FOR_UK_SWEEP,  STRING_FOR_UK_SWEEP_TIME, STRING_FOR_UK_FOLD,       STRING_FOR_UK_GRIT,
+	    STRING_FOR_XIA_DRIVE, STRING_FOR_UK_CLICK,      STRING_FOR_UK_CLICK_TONE, STRING_FOR_UK_BEND,
+	    STRING_FOR_UK_PUNCH,  STRING_FOR_UK_DECAY,      STRING_FOR_UK_HOLD,       STRING_FOR_UK_SUB,
+	};
+	return kNames[std::clamp<int32_t>(slot, 0, DrumControls::NUM_SLOTS - 1)];
+}
+
 /// What GIN calls the setting on a control slot
 inline deluge::l10n::String ginKnobName(int32_t slot) {
 	using enum deluge::l10n::String;

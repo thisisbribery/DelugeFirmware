@@ -134,6 +134,7 @@ Every engine is in one list: press the **SYNTH MODE** shortcut (or **OSC1 TYPE**
 | DIIA | DIIA G, DIIA I, DIIA H |
 | Cyc engines | Cyc Kik, Cyc Snr, Cyc Metal, Cyc Perc, Cyc Tone, Cyc Chord, Vtg Snr, clap eng |
 | GIN | GIN (starts on the 808 kit's kick; **GIN sound** in the Drum synth menu loads any of the 128 kit sounds) |
+| ULTRAKIK | ULTRAKIK, the kick engine (new in v1.21, see [ULTRAKIK](#ultrakik)) |
 
 Choose **Sample** to put a kit row back on its sample.
 
@@ -163,28 +164,29 @@ On a 7-segment Deluge, while you hold a shortcut pad the display scrolls the ful
 - **MOD1, from the bottom up:** Decay, Drive, Pitch, Pitch envelope amount, Pitch envelope speed, Character A, Character B, Extra 1.
 - **MOD2, from the bottom up:** Extras 2 to 9, each engine's own settings.
 - **OSC1 TYPE** opens SYNTH MODE, where the engine is chosen.
+- **OSC1, from PULSE WIDTH up (ULTRAKIK only):** an engine with more settings than fit on MOD1 and MOD2 puts them on the OSC1 pads a drum synth has no use for: PULSE WIDTH, RETRIGGER and FEEDBACK, with ULTRAKIK's presets on WAVE INDEX. OSC1 LEVEL, TRANSPOSE, TYPE and NOISE keep their jobs.
 - Every other pad keeps its usual Deluge job: OSC1 LEVEL and TRANSPOSE, OSC2 (a real second oscillator on a drum row), the envelopes, filters, FX and the mod FX pads. The few whose Deluge setting a drum engine uses for its own controls (osc 1 pulse width, both oscillators' feedback and wave index) do nothing on a drum row.
 - **Pitch** is the oscillator's transpose, the same pad as OSC1 TRANSPOSE.
 - Each pair of gold knobs sits in one column: Drive / Decay, Pitch envelope speed / amount and Character A / B (see Gold knobs below).
 
-| Pad | Kick / tom | Snare | Cymbal / hat | DXIA | DIIA | Cyc engines | GIN |
-|---|---|---|---|---|---|---|---|
-| MOD1 row 1 (bottom) | Decay | Decay | Decay | Engine decay | Engine decay | Amp decay | Decay (both) |
-| MOD1 row 2 | Drive | Drive | Drive | Drive | Drive | Drive | Drive |
-| MOD1 row 3 | Pitch | Pitch | Pitch | Pitch | Pitch | Pitch | Pitch |
-| MOD1 row 4 | Pitch amount | Pitch amount | | | | Sweep | Mod amount |
-| MOD1 row 5 | Pitch decay | Pitch decay | | | | Contour | Mod rate |
-| MOD1 row 6 | FM amount | Noise mix | FM amount | Blendex 1 | Weight | Color | Mix |
-| MOD1 row 7 | Mod pitch | Noise cutoff | FM 2 amount | Freq 1 | Alloy | Shape | Noise freq |
-| MOD1 row 8 (top) | Pitch curve | Pitch curve | Mod 2 pitch | Punch | Punch | Punch | Mod mode |
-| MOD2 row 1 (bottom) | Osc wave | Osc wave | Osc wave | Blendex 2 | Shape | | Tone wave |
-| MOD2 row 2 | Osc mode (FM / mix) | Noise rate | Mod wave | Freq 2 | Strike | | Tone attack |
-| MOD2 row 3 | Mod wave | Noise filter | Mod pitch | Blendex 3 | | | Tone decay |
-| MOD2 row 4 | Mod fine | Noise resonance | Mod fine | Freq 3 | | | Noise filter |
-| MOD2 row 5 | Transient | Transient | Transient | | | | Noise reso |
-| MOD2 row 6 | Transient level | Transient level | Transient level | | | | Noise env |
-| MOD2 row 7 | Transient speed | Transient speed | Transient speed | | | | Noise attack |
-| MOD2 row 8 (top) | | | Mod 2 wave | | | | Noise decay |
+| Pad | Kick / tom | Snare | Cymbal / hat | DXIA | DIIA | Cyc engines | GIN | ULTRAKIK |
+|---|---|---|---|---|---|---|---|---|
+| MOD1 row 1 (bottom) | Decay | Decay | Decay | Engine decay | Engine decay | Amp decay | Decay (both) | Decay |
+| MOD1 row 2 | Drive | Drive | Drive | Drive | Drive | Drive | Drive | Drive |
+| MOD1 row 3 | Pitch | Pitch | Pitch | Pitch | Pitch | Pitch | Pitch | Pitch |
+| MOD1 row 4 | Pitch amount | Pitch amount | | | | Sweep | Mod amount | Sweep |
+| MOD1 row 5 | Pitch decay | Pitch decay | | | | Contour | Mod rate | Sweep time |
+| MOD1 row 6 | FM amount | Noise mix | FM amount | Blendex 1 | Weight | Color | Mix | Fold |
+| MOD1 row 7 | Mod pitch | Noise cutoff | FM 2 amount | Freq 1 | Alloy | Shape | Noise freq | Grit |
+| MOD1 row 8 (top) | Pitch curve | Pitch curve | Mod 2 pitch | Punch | Punch | Punch | Mod mode | Punch |
+| MOD2 row 1 (bottom) | Osc wave | Osc wave | Osc wave | Blendex 2 | Shape | | Tone wave | Sub |
+| MOD2 row 2 | Osc mode (FM / mix) | Noise rate | Mod wave | Freq 2 | Strike | | Tone attack | Hold |
+| MOD2 row 3 | Mod wave | Noise filter | Mod pitch | Blendex 3 | | | Tone decay | Click |
+| MOD2 row 4 | Mod fine | Noise resonance | Mod fine | Freq 3 | | | Noise filter | Click type |
+| MOD2 row 5 | Transient | Transient | Transient | | | | Noise reso | Click tone |
+| MOD2 row 6 | Transient level | Transient level | Transient level | | | | Noise env | Bend |
+| MOD2 row 7 | Transient speed | Transient speed | Transient speed | | | | Noise attack | Bend time |
+| MOD2 row 8 (top) | | | Mod 2 wave | | | | Noise decay | Crush |
 
 On the Cyc engines the names follow each machine: Sweep / Contour are Pitch sweep / Mod envelope on Vtg Snr and Spacing crunch / Body envelope on clap eng, and Color / Shape are Inharm / Freq complex and Body char / Balance. Sweep and Contour sit on the pitch envelope's pads on every Cyc engine, though on Cyc Tone, Cyc Chord and clap eng they shape something else (see [Cyc engines](#cyc-engines)).
 
@@ -212,6 +214,7 @@ Every engine's continuous settings are Deluge parameters, so they can be paramet
 | DIIA | LFO rate | Vibrato | Weight | Alloy |
 | Cyc engines | Contour (Mod envelope, Body envelope) | Sweep (Pitch sweep, Spacing crunch) | Color (Inharm, Body char) | Shape (Freq complex, Balance) |
 | GIN | Mod rate | Mod amount | Mix | Noise freq |
+| ULTRAKIK | Sweep time | Sweep | Fold | Grit |
 
 The Cymbal / hat, DXIA and DIIA have no pitch envelope, so their mod rate / depth knobs keep the Deluge's usual LFO rate and vibrato. On the Cyc engines mod depth is now Sweep and mod rate Contour (before v1.16 it was the other way round), and Drive is the engine's drive, not Punch: 0 is clean, 100 is where it starts, 127 is full saturation. With Pad Guides off, the drum knobs keep the v1.11 layout (Cymbal / hat: transient speed / level; DXIA: Blendex 2 / 3; DIIA: Shape / Strike; Cyc: Sweep / Contour on rate / depth). The knobs are set whenever a sound loads or changes engine, so after switching Pad Guides, reload the song.
 
@@ -231,7 +234,7 @@ The LXR settings share parameters between engines: each voice's settings are sto
 
 **Pad Guides** (**GUID**) is a Community Features setting, on by default (new in v1.16).
 
-- **SHIFT glow.** In a clip on a drum synth (the synth, or the kit's selected row), holding **SHIFT** tints the MOD1 / MOD2 pads that have a setting soft pink, blended over the pad's own colour so notes still show. Press one and the pads stay lit while you edit the setting in the sound menu. Release SHIFT on the clip and they go back. There's no glow with AFFECT ENTIRE on in a kit, where SHIFT + pad edits the kit's FX.
+- **SHIFT glow.** In a clip on a drum synth (the synth, or the kit's selected row), holding **SHIFT** tints the MOD1 / MOD2 pads that have a setting soft pink (and ULTRAKIK's OSC1 pads), blended over the pad's own colour so notes still show. Press one and the pads stay lit while you edit the setting in the sound menu. Release SHIFT on the clip and they go back. There's no glow with AFFECT ENTIRE on in a kit, where SHIFT + pad edits the kit's FX.
 - **Gold knobs.** Drum synth rows use the layout above.
 - **Mod button pads.** Holding any gold knob button still shows its two settings' names, and now also flashes their shortcut pads: red for the top knob's, yellow for the bottom's. This works on every sound type, and on kit, audio clip and song FX. A setting with no pad (a learned MIDI CC, most patch cables) just shows its name. The flashing stops when you let go.
 
@@ -319,6 +322,71 @@ Cycle through them with **SHIFT + KIT** on a GIN kit (see [Kit presets](#kit-pre
 - Settings follow the knobs while a hit plays, where GIN fixes them at the hit.
 - A hit ends once both layers are 72 dB down (80 dB before v1.17).
 
+## ULTRAKIK
+
+**ULTRAKIK** (new in v1.21) is a kick engine. It starts as a thick, low thump with colour and grit already on and a short tail, and bends into long gliding 808s, hard 909s and fully broken kicks. It's synthesised, not a sample: put a sample on OSC2 if you want one on top.
+
+**How it works.** One oscillator, swept down from above by two pitch envelopes: **Punch**, a very fast spike of up to four octaves over a few milliseconds (the beater hitting the skin), and **Sweep**, a slower drop of up to five octaves (the boom). **Bend** then moves the pitch slowly over the hit, up to two octaves either way, for 808 slides and drops. **Snap** sets the phase it starts on: the further round, the harder the first edge hits. After the oscillator comes the amp (**Hold** at full level, then **Decay**), a sine wavefolder (**Fold**), the **Drive** stage, **Grit** riding on the driven peaks, the **Click**, the **Crush**er, and finally **Sub**: a clean sine of the body mixed under all of it, so the low end survives whatever you do above it. The amp sits before the drive, like a VCA into a pedal, so more drive keeps the body full for longer.
+
+Picked in SYNTH MODE it starts on its default preset, ULTRA. On a kit row it plays at C2 (about 65 Hz) from the kit's middle C. On a synth it plays at the note.
+
+| Setting | Range | Starts at | What it does |
+|---|---|---|---|
+| Decay | 40 ms to 8 s to fall 60 dB, 127 holds | 52 (about 0.6 s) | How long the hit rings. At 127 it holds while the note does, for gated 808s |
+| Drive | 0 to 36 dB | 60 (24 dB) | Gain into the drive stage. 0 is clean |
+| Pitch | Transpose | C2 on a kit row | The note the kick lands on |
+| Sweep | None to 5 octaves | 70 | How far above the note the sweep starts |
+| Sweep time | 2 ms to 250 ms | 40 | How fast it falls: short for a tight 909, long for a boomy drop |
+| Fold | Clean to many folds | 20 | A little rounds and fattens the body, more folds it into bright, BIA-style harmonics |
+| Grit | 0 to 127 | 25 | Darkened noise riding on the body's peaks: the rattle of a speaker pushed too far |
+| Punch | None to 4 octaves | 60 | The very fast pitch spike at the start |
+| Sub | 0 to 127 | 45 | Clean sine under the driven body |
+| Hold | 0 to 200 ms | 50 (about 30 ms) | Full level before the decay starts: the thump |
+| Click | 0 to 127 | 45 | Transient level |
+| Click type | Thud, Tick, Noise, Zap | Thud | Thud: a low passed noise thump. Tick: a short pulse, the 808 / 909 attack. Noise: a bright burst. Zap: a sine falling from kHz in a few ms |
+| Click tone | 0 to 127 | 60 | Dark and long to bright and short |
+| Bend | 24 semitones down to 24 up, 64 none | 64 | Slow pitch bend over the hit |
+| Bend time | 40 ms to 4 s | 64 (0.4 s) | How long the bend takes. It starts slowly and speeds up, so the attack stays put and the tail dives |
+| Crush | 0 to 127 | 0 | Sample rate down to about 700 Hz and bit depth down to 3 bits, on the body only (Sub stays clean) |
+| Body wave | Sine, Round, Tri, Saw | Sine | Round is a triangle shaped most of the way to a sine, like the 909's. Tri is hollower. Saw is buzzy, for hardstyle and gabber |
+| Snap | 0 to 90 degrees start phase | 64 (45 degrees) | 0 starts smooth, 127 starts on the peak for the hardest edge |
+| Drive type | Warm, Hard, Tube, Fuzz | Warm | Warm: soft clip, odd harmonics. Hard: hard clip, square and loudest. Tube: leans one way for even harmonics. Fuzz: adds the octave up and hard clips, ragged |
+
+The first twelve are parameters (lockable, automatable, modulatable). Crush, Bend time, Snap, Body wave, Drive type and Click type are row settings. Body wave, Snap and Drive type are on the OSC1 pads (PULSE WIDTH, RETRIGGER, FEEDBACK), and the presets on OSC1 WAVE INDEX; everything is in the Drum synth menu, and all but Crush, Bend time and Snap in the pad editor.
+
+**Presets.** Sixteen big kicks, clean and deep at the top of the list, crunchier and more broken further down. Hold SHIFT and press OSC1 WAVE INDEX (or go to **Kick preset** in the Drum synth menu), and turn SELECT: each turn loads the next preset straight away, so you can play the row while you go through them. Press SELECT to leave the list. A preset sets every ULTRAKIK setting and the row's envelope release; on a kit row it also sets the pitch, on a synth the kick plays at the note. FX are left alone.
+
+| # | Preset | Pitch on a kit row | What it is |
+|---|---|---|---|
+| 1 | DEEP 808 | C1 | Clean, long sine 808 with a little tube warmth and a soft tick |
+| 2 | GRIME SLIDE | C2, dives to C1 | Long 808 that slides down an octave over about 1.3 s |
+| 3 | BOOM ROOM | C1 | Slow, deep sweep from high up: a big round boom |
+| 4 | 909 THUMP | C2 | Round body, short tick, tight decay |
+| 5 | ULTRA | C2 | The default: thick, low thump with drive, fold, grit and a dark thud |
+| 6 | CLUB 909 | C2 | Round body into hard clip, bright tick, hard snap |
+| 7 | TUBE FAT | C2 | Triangle body into heavy tube drive, a little longer |
+| 8 | TRAP KNOCK | C1 | Long 808 pushed hard into tube drive |
+| 9 | HARDSTYLE | C2 | Saw body, heavy warm drive and fold, long tail |
+| 10 | DISTORTO | C2 | Hard clipped 909 with a noise burst and grit |
+| 11 | RUMBLE | C2 | Long, gritty and driven: the rattling tail of a techno rumble |
+| 12 | GABBER | C2 | Full drive into hard clip, folded, with a long, thick tail |
+| 13 | BITCRUSHER | C2 | Saw into hard clip, crushed, zap click |
+| 14 | FUZZ BOMB | C2 | Triangle into fuzz, heavy grit, a little crush |
+| 15 | FOLD STORM | C2 | Folded almost all the way, zap click, bright and metallic |
+| 16 | ANNIHILATE | C2, dives to C1 | Everything up: saw, fuzz, full fold and grit, crushed, dropping an octave in a quarter of a second |
+
+Every preset is tuned to C on a kit row, and the two that slide drop exactly an octave, so they land on C too. The long 808s sit on C1 (about 33 Hz), the rest on C2 (about 65 Hz). Move the row's Pitch to put them in another key.
+
+All sixteen peak within 1 dB of full scale, so moving between them doesn't jump in level.
+
+For a grime or trap 808 line, put ULTRAKIK on a synth with polyphony LEGATO and some portamento, set Decay to 127 (it holds while the note does), and overlap notes to slide.
+
+**Known issue.** On some rows of the Deluge's sample kits ULTRAKIK can stay silent when picked in SYNTH MODE. It plays on rows that are already a drum synth (an LXR, Cycles or GIN kit row) and on most sample kit rows.
+
+**Level.** Every setting peaks at about -1 dB, with a soft knee above that so the click and grit can't push it past full scale. Turning Drive up makes it louder without making it peak higher.
+
+**CPU.** About 1.4 times a Cyc Kik voice at the defaults (under 1% of the CPU per hit), and under 1.8 times with everything on, measured against Cyc Kik on a computer rather than on the Deluge. Each stage runs only while it's doing something: the click stops after its burst, grit once the body is too quiet to carry it, the sweep once it's over. A hit ends once it's 72 dB down, counting the drive's gain.
+
 ## CPU load
 
 **SHIFT + SELECT > CPU load** shows the audio engine's load while you play:
@@ -349,6 +417,8 @@ DXIA and DIIA are the TIA and IIA engines of the XIA engine set for the Model:Cy
 
 
 The Cyc engines (cyc.cpp) are original code, GPL-3.0-or-later.
+
+ULTRAKIK (ultrakik.cpp) is original code, GPL-3.0-or-later. Not affiliated with or endorsed by Noise Engineering, Ohm Force, Roland or Mutable Instruments.
 
 GIN (gin.cpp) is derived from the MIT licensed GIN synthesis core by SquareWave Studio and libpo32 by Eric Lewis; their copyright and licence notices are kept in gin.h, and the Deluge port is GPL-3.0-or-later. The kits (gin_kits.cpp) are original. Not affiliated with or endorsed by SquareWave Studio, Teenage Engineering or Sonic Charge; OP-1 and PO-32 are trademarks of Teenage Engineering. Elektron, Model:Cycles and Syntakt are trademarks of Elektron Music Machines; these engines are not affiliated with or endorsed by Elektron.
 

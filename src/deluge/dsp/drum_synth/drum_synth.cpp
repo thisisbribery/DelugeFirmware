@@ -137,6 +137,7 @@ void Patch::setPreset(Preset preset) {
 	params_[GIN_EQ_FREQ] = 64;
 	params_[GIN_EQ_GAIN] = 64;
 	params_[GIN_LEVEL] = 102;
+	setUltrakikBytes(ultrakik::kPresets[ultrakik::kDefaultPreset]);
 
 	switch (preset) {
 	case Preset::KICK:
@@ -227,6 +228,20 @@ void Patch::setXiaPreset(Engine engine, uint8_t variant) {
 	params_[XIA_PUNCH] = xiaPresetFor(engine, params_[XIA_VARIANT]).punch ? 1 : 0;
 }
 
+void Patch::setUltrakikBytes(const ultrakik::Preset& preset) {
+	params_[UK_WAVE] = static_cast<uint8_t>(preset.wave);
+	params_[UK_DRIVE_TYPE] = static_cast<uint8_t>(preset.driveType);
+	params_[UK_CLICK_TYPE] = static_cast<uint8_t>(preset.clickType);
+	params_[UK_CRUSH] = preset.crush;
+	params_[UK_BEND_TIME] = preset.bendTime;
+	params_[UK_SNAP] = preset.snap;
+}
+
+void Patch::setUltrakikPreset(int32_t preset) {
+	params_[ENGINE] = static_cast<uint8_t>(Engine::ULTRAKIK);
+	setUltrakikBytes(ultrakik::kPresets[std::clamp<int32_t>(preset, 0, ultrakik::kNumPresets - 1)]);
+}
+
 void Patch::setCycPreset(Engine engine) {
 	params_[ENGINE] = static_cast<uint8_t>(engine);
 	params_[XIA_PUNCH] = 0;
@@ -276,6 +291,18 @@ DrumControls ginControlsFor(const gin::KitSound& sound) {
 	return c;
 }
 
+DrumControls ultrakikControlsFor(int32_t preset) {
+	static_assert(static_cast<int32_t>(DrumControls::UK_SWEEP) == ultrakik::SWEEP
+	                  && static_cast<int32_t>(DrumControls::UK_SUB) == ultrakik::SUB,
+	              "ULTRAKIK's presets list their knobs in slot order");
+	const ultrakik::Preset& p = ultrakik::kPresets[std::clamp<int32_t>(preset, 0, ultrakik::kNumPresets - 1)];
+	DrumControls c;
+	for (int32_t i = 0; i < ultrakik::NUM_KNOBS; i++) {
+		c.values[i] = DrumControls::fromValue(p.knobs[i]);
+	}
+	return c;
+}
+
 RowSetup rowSetupForGinSound(const gin::KitSound& sound, bool choke) {
 	// Kit rows play at middle C
 	const float semitones = 12.f * log2f(sound.hz / 261.6256f);
@@ -317,6 +344,7 @@ constexpr std::array<std::array<uint8_t, 5>, static_cast<size_t>(cyc::Kind::NUM_
     {24, 25, 46, 37, 56},                // clap eng
 }};
 constexpr int32_t kCycDefaultDrive = 100;
+
 } // namespace
 
 DrumControls DrumControls::defaultsFor(Engine engine) {
@@ -325,6 +353,9 @@ DrumControls DrumControls::defaultsFor(Engine engine) {
 		return ginControlsFor(gin::defaultSound());
 	}
 	DrumControls c;
+	if (isUltrakik(engine)) {
+		return ultrakikControlsFor(ultrakik::kDefaultPreset);
+	}
 	if (isCyc(engine)) {
 		// The Cyc engines start where the originals do, their own amp decay included
 		const auto& d = kCycDefaults[static_cast<size_t>(cycKind(engine))];
@@ -385,6 +416,12 @@ uint8_t Patch::maxValue(Param p) {
 		return static_cast<uint8_t>(gin::ModMode::NUM_MODES) - 1;
 	case GIN_NOISE_ENV:
 		return static_cast<uint8_t>(gin::NoiseEnv::NUM_ENVS) - 1;
+	case UK_WAVE:
+		return static_cast<uint8_t>(ultrakik::Wave::NUM_WAVES) - 1;
+	case UK_DRIVE_TYPE:
+		return static_cast<uint8_t>(ultrakik::DriveType::NUM_TYPES) - 1;
+	case UK_CLICK_TYPE:
+		return static_cast<uint8_t>(ultrakik::Click::NUM_CLICKS) - 1;
 	case XIA_PUNCH:
 	case SNAPPY_DECAY:
 	case CONTROLS_VERSION:
@@ -441,6 +478,13 @@ bool Patch::isUsedBy(Param p, Engine engine) {
 		return isGin(engine);
 	case GIN_EQ_FREQ: // Now a control
 		return false;
+	case UK_WAVE:
+	case UK_DRIVE_TYPE:
+	case UK_CLICK_TYPE:
+	case UK_CRUSH:
+	case UK_BEND_TIME:
+	case UK_SNAP:
+		return isUltrakik(engine);
 	default:
 		return isXia(engine);
 	}
@@ -528,6 +572,9 @@ int32_t sharedControlSlot(Engine engine, StandardSlot slot) {
 		shared = {DrumControls::GIN_MOD_AMOUNT, DrumControls::GIN_MOD_RATE, DrumControls::GIN_MIX,
 		          DrumControls::GIN_NOISE_FREQ};
 		break;
+	case Engine::ULTRAKIK:
+		shared = {DrumControls::UK_SWEEP, DrumControls::UK_SWEEP_TIME, DrumControls::UK_FOLD, DrumControls::UK_GRIT};
+		break;
 	default: // The Cyc engines: Sweep, Contour, Color, Shape
 		shared = {DrumControls::CYC_MACRO3, DrumControls::CYC_MACRO4, DrumControls::CYC_MACRO1,
 		          DrumControls::CYC_MACRO2};
@@ -594,6 +641,17 @@ int8_t envelopeReleaseFor(float t60) {
 
 float lxrDecaySeconds(int32_t knob) {
 	return (knob >= 127) ? 1000.f : 0.03f * powf(400.f, static_cast<float>(knob) / 126.f);
+}
+
+int8_t ultrakikEnvelopeRelease(int32_t decayKnob, int32_t holdKnob) {
+	const float decay = ultrakik::ampDecaySeconds(static_cast<float>(decayKnob) / 127.f);
+	return envelopeReleaseFor(decay + ultrakik::holdSeconds(static_cast<float>(holdKnob) / 127.f));
+}
+
+RowSetup rowSetupForUltrakik(int32_t preset) {
+	const ultrakik::Preset& p = ultrakik::kPresets[std::clamp<int32_t>(preset, 0, ultrakik::kNumPresets - 1)];
+	return {p.transpose, 30, -1, false,
+	        5,           0,  50, ultrakikEnvelopeRelease(p.knobs[ultrakik::DECAY], p.knobs[ultrakik::HOLD])};
 }
 
 int8_t cycEnvelopeRelease(Engine engine, int32_t decayKnob, bool punch) {
@@ -684,6 +742,9 @@ RowSetup rowSetupForEngine(Engine engine, uint8_t variant) {
 	}
 	if (isGin(engine)) {
 		return rowSetupForGinSound(gin::defaultSound(), false);
+	}
+	if (isUltrakik(engine)) {
+		return rowSetupForUltrakik(ultrakik::kDefaultPreset);
 	}
 	return xiaPresetFor(engine, variant).row;
 }
@@ -1032,10 +1093,26 @@ void Voice::renderMetal(int32_t* out, int32_t n, int32_t& amplitude, int32_t amp
 void Voice::render(const Patch& patch, const DrumControls& controls, int32_t* buffer, int32_t numSamples,
                    uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement) {
 	updateSettings(patch, controls);
+	if (isUltrakik(settings_.engine)) {
+		if (!ultrakikReady_) {
+			xia_.ultrakik.reset();
+			ultrakikReady_ = true;
+			ginReady_ = false;
+			cycReady_ = false;
+			xiaEngine_ = Engine::DRUM;
+		}
+		if (pendingTrigger_) {
+			pendingTrigger_ = false;
+			xia_.ultrakik.trigger();
+		}
+		renderUltrakik(settingsFrom_, controls, buffer, numSamples, basePhaseIncrement, amplitude, amplitudeIncrement);
+		return;
+	}
 	if (isGin(settings_.engine)) {
 		if (!ginReady_) {
 			xia_.gin.reset();
 			ginReady_ = true;
+			ultrakikReady_ = false;
 			cycReady_ = false;
 			xiaEngine_ = Engine::DRUM;
 		}
@@ -1051,6 +1128,7 @@ void Voice::render(const Patch& patch, const DrumControls& controls, int32_t* bu
 			xia_.cyc.reset();
 			cycReady_ = true;
 			ginReady_ = false;
+			ultrakikReady_ = false;
 			xiaEngine_ = Engine::DRUM;
 		}
 		if (pendingTrigger_) {
@@ -1174,6 +1252,9 @@ bool Voice::quiet() const {
 	if (pendingTrigger_) {
 		return false;
 	}
+	if (isUltrakik(settings_.engine)) {
+		return ultrakikReady_ && xia_.ultrakik.level() < kQuietLevel;
+	}
 	if (isGin(settings_.engine)) {
 		return ginReady_ && xia_.gin.quiet();
 	}
@@ -1229,6 +1310,7 @@ void Voice::startXia(Engine engine) {
 	xiaEngine_ = engine;
 	cycReady_ = false;
 	ginReady_ = false;
+	ultrakikReady_ = false;
 	if (engine == Engine::TIA) {
 		xia::reset(xia_.tia);
 	}
@@ -1398,6 +1480,61 @@ void Voice::renderGin(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const Dru
 		remaining -= n;
 	}
 	xiaFinished_ = xia_.gin.finished();
+}
+
+} // namespace deluge::dsp::drum_synth
+
+// ULTRAKIK ------------------------------------------------------------------------------------------------------------
+
+namespace deluge::dsp::drum_synth {
+
+ultrakik::Settings ultrakikSettings(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const DrumControls& controls) {
+	auto knob = [&](int32_t slot) {
+		return static_cast<float>(std::clamp<int32_t>(DrumControls::toKnob(controls.values[slot]), 0, 0x7F00)) / 0x7F00;
+	};
+	ultrakik::Settings s;
+	s.sweep = knob(DrumControls::UK_SWEEP);
+	s.sweepTime = knob(DrumControls::UK_SWEEP_TIME);
+	s.fold = knob(DrumControls::UK_FOLD);
+	s.grit = knob(DrumControls::UK_GRIT);
+	s.drive = knob(DrumControls::UK_DRIVE);
+	s.click = knob(DrumControls::UK_CLICK);
+	s.clickTone = knob(DrumControls::UK_CLICK_TONE);
+	const int32_t bend = std::clamp<int32_t>(DrumControls::toKnob(controls.values[DrumControls::UK_BEND]), 0, 0x7F00);
+	s.bend = static_cast<float>(bend - 0x4000) / ((bend < 0x4000) ? 0x4000 : 0x3F00);
+	s.punch = knob(DrumControls::UK_PUNCH);
+	s.decay = knob(DrumControls::UK_DECAY);
+	s.hold = knob(DrumControls::UK_HOLD);
+	s.sub = knob(DrumControls::UK_SUB);
+	s.crush = static_cast<float>(p[Patch::UK_CRUSH]) / 127.f;
+	s.bendTime = static_cast<float>(p[Patch::UK_BEND_TIME]) / 127.f;
+	s.snap = static_cast<float>(p[Patch::UK_SNAP]) / 127.f;
+	s.wave = static_cast<ultrakik::Wave>(p[Patch::UK_WAVE]);
+	s.driveType = static_cast<ultrakik::DriveType>(p[Patch::UK_DRIVE_TYPE]);
+	s.clickType = static_cast<ultrakik::Click>(p[Patch::UK_CLICK_TYPE]);
+	return s;
+}
+
+void Voice::renderUltrakik(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const DrumControls& controls,
+                           int32_t* buffer, int32_t numSamples, uint32_t basePhaseIncrement, int32_t amplitude,
+                           int32_t amplitudeIncrement) {
+	const ultrakik::Settings s = ultrakikSettings(p, controls);
+	constexpr int32_t kChunk = 64;
+	std::array<int32_t, kChunk> chunk;
+	int32_t* out = buffer;
+	int32_t remaining = numSamples;
+	while (remaining > 0) {
+		const int32_t n = std::min(remaining, kChunk);
+		xia_.ultrakik.render(s, basePhaseIncrement, static_cast<float>(kSampleRate), chunk.data(), n);
+		for (int32_t i = 0; i < n; i++) {
+			amplitude += amplitudeIncrement;
+			// Halved like the Cyc engines, which leaves it q30 like the LXR engines'
+			out[i] += multiply_32x32_rshift32(chunk[i] >> 1, amplitude) << 2;
+		}
+		out += n;
+		remaining -= n;
+	}
+	xiaFinished_ = xia_.ultrakik.finished();
 }
 
 } // namespace deluge::dsp::drum_synth

@@ -175,7 +175,11 @@ inline void setDrumEngine(Engine engine, uint8_t variant = 0, bool fresh = false
 		return;
 	}
 
-	const deluge::dsp::drum_synth::RowSetup row = deluge::dsp::drum_synth::rowSetupForEngine(engine, variant);
+	deluge::dsp::drum_synth::RowSetup row = deluge::dsp::drum_synth::rowSetupForEngine(engine, variant);
+	// ULTRAKIK on a synth plays at the note, for 808 lines (and glides with portamento); a kit row drops to C2
+	if (deluge::dsp::drum_synth::isUltrakik(engine) && !soundEditor.editingKitRow()) {
+		row.transpose = 0;
+	}
 	applyRowSetup(row);
 	if (isXia(engine)) {
 		patch.setXiaPreset(engine, variant);
@@ -185,6 +189,9 @@ inline void setDrumEngine(Engine engine, uint8_t variant = 0, bool fresh = false
 	}
 	else if (isGin(engine)) {
 		patch.setGinSound(deluge::dsp::drum_synth::gin::defaultSound());
+	}
+	else if (deluge::dsp::drum_synth::isUltrakik(engine)) {
+		patch.setUltrakikPreset();
 	}
 	else {
 		patch.setPreset(deluge::dsp::drum_synth::presetForLxrEngine(engine));
@@ -281,10 +288,23 @@ public:
 	}
 };
 
-/// A GIN setting kept in the patch as a number, 0-127 (EQ gain, level). Menu edits only: not a patched param.
-class GinNumber final : public Integer {
+/// A continuous setting of ULTRAKIK
+class UltrakikControl final : public Control {
 public:
-	GinNumber(l10n::String name, Patch::Param param) : Integer(name), param_(param) {}
+	using Control::Control;
+
+	bool isRelevant(ModControllableAudio* modControllable, int32_t whichThing) const override {
+		const auto* sound = static_cast<Sound*>(modControllable);
+		return sound->sources[0].oscType == OscType::DRUM_SYNTH
+		       && deluge::dsp::drum_synth::isUltrakik(sound->sources[0].drumPatch.engine());
+	}
+};
+
+/// A drum synth setting kept in the patch as a number, 0-127: GIN's EQ gain and level, ULTRAKIK's crush, bend time and
+/// snap. Menu edits only: not a patched param.
+class PatchNumber final : public Integer {
+public:
+	PatchNumber(l10n::String name, Patch::Param param) : Integer(name), param_(param) {}
 
 	[[nodiscard]] int32_t getMaxValue() const override { return 127; }
 	[[nodiscard]] int32_t getMinValue() const override { return 0; }
@@ -297,6 +317,8 @@ public:
 private:
 	Patch::Param param_;
 };
+
+using GinNumber = PatchNumber;
 
 /// The LXR voices' drive and decay, which they share with every other engine's on the same pads and gold knobs
 class LxrCommonControl final : public Control {
@@ -400,6 +422,45 @@ public:
 	}
 };
 
+/// ULTRAKIK's body wave
+class UltrakikWave final : public Choice {
+public:
+	explicit UltrakikWave(l10n::String name) : Choice(name, Patch::UK_WAVE) {}
+
+	deluge::vector<std::string_view> getOptions(OptType optType) override {
+		(void)optType;
+		using enum l10n::String;
+		return {l10n::getView(STRING_FOR_SINE), l10n::getView(STRING_FOR_UK_ROUND), l10n::getView(STRING_FOR_UK_TRI),
+		        l10n::getView(STRING_FOR_SAW)};
+	}
+};
+
+/// ULTRAKIK's drive curve
+class UltrakikDriveType final : public Choice {
+public:
+	explicit UltrakikDriveType(l10n::String name) : Choice(name, Patch::UK_DRIVE_TYPE) {}
+
+	deluge::vector<std::string_view> getOptions(OptType optType) override {
+		(void)optType;
+		using enum l10n::String;
+		return {l10n::getView(STRING_FOR_UK_WARM), l10n::getView(STRING_FOR_UK_HARD), l10n::getView(STRING_FOR_UK_TUBE),
+		        l10n::getView(STRING_FOR_UK_FUZZ)};
+	}
+};
+
+/// ULTRAKIK's click
+class UltrakikClickType final : public Choice {
+public:
+	explicit UltrakikClickType(l10n::String name) : Choice(name, Patch::UK_CLICK_TYPE) {}
+
+	deluge::vector<std::string_view> getOptions(OptType optType) override {
+		(void)optType;
+		using enum l10n::String;
+		return {l10n::getView(STRING_FOR_UK_THUD), l10n::getView(STRING_FOR_UK_TICK), l10n::getView(STRING_FOR_NOISE),
+		        l10n::getView(STRING_FOR_UK_ZAP)};
+	}
+};
+
 /// What bends GIN's pitch: a decaying sweep, a sine LFO (FM at audio rates), or filtered noise
 class GinModMode final : public Choice {
 public:
@@ -468,6 +529,52 @@ public:
 		}
 		return options;
 	}
+};
+
+/// Puts one of ULTRAKIK's presets on this row: tuned to it on a kit row, at the note on a synth. Each turn of SELECT
+/// loads the next one, so the list can be played through while auditioning the row.
+class UltrakikPresetSelect final : public Selection {
+public:
+	using Selection::Selection;
+
+	void readCurrentValue() override { setValue(last_); }
+	void writeCurrentValue() override {
+		namespace uk = deluge::dsp::drum_synth::ultrakik;
+		const int32_t choice = std::clamp<int32_t>(getValue(), 0, uk::kNumPresets - 1);
+		last_ = choice;
+		deluge::dsp::drum_synth::RowSetup row = deluge::dsp::drum_synth::rowSetupForUltrakik(choice);
+		if (!soundEditor.editingKitRow()) {
+			row.transpose = 0;
+		}
+		applyRowSetup(row);
+		currentPatch().setUltrakikPreset(choice);
+		setControls(deluge::dsp::drum_synth::ultrakikControlsFor(choice));
+		setDrumKnobs(*soundEditor.currentSound, Engine::ULTRAKIK);
+		soundEditor.markInstrumentAsEdited();
+	}
+	bool isRelevant(ModControllableAudio* modControllable, int32_t whichThing) const override {
+		const auto* sound = static_cast<Sound*>(modControllable);
+		return sound->sources[0].oscType == OscType::DRUM_SYNTH
+		       && deluge::dsp::drum_synth::isUltrakik(sound->sources[0].drumPatch.engine());
+	}
+
+	deluge::vector<std::string_view> getOptions(OptType optType) override {
+		(void)optType;
+		namespace uk = deluge::dsp::drum_synth::ultrakik;
+		// "1 DEEP 808" and so on, so the place in the list shows
+		static std::array<std::array<char, 16>, uk::kNumPresets> names{};
+		deluge::vector<std::string_view> options;
+		for (int32_t i = 0; i < uk::kNumPresets; i++) {
+			if (names[i][0] == 0) {
+				snprintf(names[i].data(), names[i].size(), "%d %s", static_cast<int>(i + 1), uk::kPresets[i].name);
+			}
+			options.emplace_back(names[i].data());
+		}
+		return options;
+	}
+
+private:
+	static inline int32_t last_ = deluge::dsp::drum_synth::ultrakik::kDefaultPreset;
 };
 
 /// The steeper amp envelope, on any drum synth sound
