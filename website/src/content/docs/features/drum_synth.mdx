@@ -397,12 +397,14 @@ For a grime or trap 808 line, put ULTRAKIK on a synth with polyphony LEGATO and 
 
 **Gate out** (**GATE OUT**, new in v1.22) sends a kit's bottom four rows out of the Deluge's four gate outputs as they play: row 1 to gate 1, row 2 to gate 2, row 3 to gate 3, row 4 to gate 4. On the LXR and Cycles preset kits that's kick, snare, hat 1 and hat 2, so a modular or another drum machine can follow the kit.
 
-- **Turning it on.** In the kit's menu (with AFFECT ENTIRE on, after **Kit arp**), or at the end of the **Drum synth** menu on a drum synth row. It's off on new kits and saved with the song.
-- **One kit at a time.** Turning it on for one kit turns it off for every other kit in the song.
-- **Row gate** (**ROW GATE**, in the **Drum synth** menu after Gate out) picks the gate for that row: **Auto** (by row, as above), **Off**, or gate **1** to **4**. Two rows can share a gate. It's saved with the row.
+- **GATE** (changed in v1.22.2) is the first item in a kit row's menu: hold the row's audition pad, press SELECT, press SELECT again on **GATE** and turn to **OFF** or gate **1** to **4**. It shows the gate the row fires, on any sound row. Picking a gate on a kit that isn't on the gates puts that row alone on them. Turning the last row off takes the kit off the gates. Saved with the song.
+- **Gate out for the whole kit** (**GATE OUT**) is first in the kit's menu (AFFECT ENTIRE on). Turning it on with no rows on a gate starts from rows 1 to 4 on gates 1 to 4. It's off on new kits.
+- **One kit at a time.** Turning it on for one kit turns it off for every other kit in the song. Two rows can share a gate.
 - **Gate length.** A sound with a tail (a held note, a decay that holds) holds its gate for as long as the note plays. A one-shot hit sends a 12 ms trigger. A new hit drops the gate first, so every hit retriggers, and every gate stays high at least 12 ms so a module always sees it.
 - Any sound row in rows 1 to 4 fires a gate, samples included. MIDI and gate rows don't.
-- CV clips or a kit's GATE rows that use the same gate outputs still share them with Gate out, so keep them on different gates.
+- **The kit's gates are its own (from v1.22.2).** CV clips and a kit's GATE rows can't use a gate a Gate out row is on. A new CV clip skips CV channels whose gate is taken, and shows **no unused channels** if both gates 1 and 2 are. Move a row off gate 1 or 2 to free it.
+
+**Kicks send to the sidechain (from v1.22.2).** Cyc Kik, ULTRAKIK, the LXR kick and the GIN kick sounds send full to the sidechain. That happens when a preset kit loads, when one is picked on a row or a synth (SYNTH MODE, an ULTRAKIK preset, a GIN kick sound, the LXR kick preset), and when a kit or synth preset loads from the card (LXR drum and GIN sounds there only if named kick, kik or bd, as kick samples are). Picking something else lets go of the full send. Songs keep what they were saved with.
 
 ## CPU load
 

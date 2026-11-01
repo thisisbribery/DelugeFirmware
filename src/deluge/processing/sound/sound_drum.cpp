@@ -117,13 +117,17 @@ void SoundDrum::polyphonicExpressionEventOnChannelOrNote(int32_t newValue, int32
 	                                                whichCharacteristic);
 }
 
-void SoundDrum::gateOutNoteOn(ModelStackWithSoundFlags* modelStack) {
+int32_t SoundDrum::gateOutGate() {
 	if (kit == nullptr) {
-		return;
+		return -1;
 	}
-	int32_t gate = (gateOutChoice == GATE_BY_ROW)                 ? kit->gateOutFor(this)
-	               : (gateOutChoice == GATE_OFF || !kit->gateOut) ? -1
-	                                                              : gateOutChoice - GATE_OFF - 1;
+	return (gateOutChoice == GATE_BY_ROW)                 ? kit->gateOutFor(this)
+	       : (gateOutChoice == GATE_OFF || !kit->gateOut) ? -1
+	                                                      : gateOutChoice - GATE_OFF - 1;
+}
+
+void SoundDrum::gateOutNoteOn(ModelStackWithSoundFlags* modelStack) {
+	int32_t gate = gateOutGate();
 	if (gate >= 0) {
 		// Without a tail no note-off will come, so the gate is a trigger
 		drum_gates::noteOn(gate, this, !allowNoteTails(modelStack, true));

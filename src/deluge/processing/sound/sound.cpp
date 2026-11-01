@@ -229,7 +229,8 @@ void Sound::setupAsSample(ParamManagerForTimeline* paramManager) {
 
 void Sound::setupAsDrumSynth(ParamManagerForTimeline* paramManager, deluge::dsp::drum_synth::Preset preset,
                              deluge::dsp::drum_synth::Engine cycEngine,
-                             const deluge::dsp::drum_synth::gin::KitSound* ginSound, bool ginChoke) {
+                             const deluge::dsp::drum_synth::gin::KitSound* ginSound,
+                             deluge::dsp::drum_synth::gin::KitRow ginRow) {
 	using deluge::dsp::drum_synth::Preset;
 	const bool gin = ginSound != nullptr || deluge::dsp::drum_synth::isGin(cycEngine);
 	const bool cyc = deluge::dsp::drum_synth::isCyc(cycEngine);
@@ -238,12 +239,15 @@ void Sound::setupAsDrumSynth(ParamManagerForTimeline* paramManager, deluge::dsp:
 	    (ginSound != nullptr) ? *ginSound : deluge::dsp::drum_synth::gin::defaultSound();
 
 	const deluge::dsp::drum_synth::RowSetup row =
-	    gin                 ? deluge::dsp::drum_synth::rowSetupForGinSound(ginKitSound, ginChoke)
+	    gin                 ? deluge::dsp::drum_synth::rowSetupForGinSound(ginKitSound, ginRow)
 	    : (cyc || ultrakik) ? deluge::dsp::drum_synth::rowSetupForEngine(cycEngine)
 	                        : deluge::dsp::drum_synth::rowSetupFor(preset);
 
 	polyphonic = row.choke ? PolyphonyMode::CHOKE : PolyphonyMode::AUTO;
 	lpfMode = FilterMode::TRANSISTOR_24DB;
+	if (row.kick) {
+		sideChainSendLevel = kSideChainSendFull;
+	}
 
 	sources[0].oscType = OscType::DRUM_SYNTH;
 	if (gin) {
@@ -442,6 +446,20 @@ void Sound::setupAsBlankSynth(ParamManager* paramManager, bool is_dx) {
 	setupDefaultExpressionPatching(paramManager);
 
 	doneReadingFromFile();
+}
+
+void Sound::sendKickToSidechain(char const* name) {
+	using namespace deluge::dsp::drum_synth;
+	if (sources[0].oscType != OscType::DRUM_SYNTH) {
+		return;
+	}
+	const Engine engine = sources[0].drumPatch.engine();
+	// The LXR drum voice and GIN play toms and more too, so those go by name, as kick samples do
+	const bool named =
+	    name != nullptr && (strcasestr(name, "kick") || strcasestr(name, "kik") || strcasestr(name, "bd"));
+	if (engine == Engine::CYC_KIK || isUltrakik(engine) || ((engine == Engine::DRUM || isGin(engine)) && named)) {
+		sideChainSendLevel = kSideChainSendFull;
+	}
 }
 
 void Sound::setDrumSynthKnobs(deluge::dsp::drum_synth::Engine engine) {

@@ -68,6 +68,8 @@ public:
 	CVEngine();
 	void init();
 	void sendNote(bool on, uint8_t channel, int16_t note = -32768);
+	/// Kit gate out's own gate switching, the only one allowed on a gate a kit has taken (see drum_gates)
+	void sendDrumGate(bool on, uint8_t channel);
 	/// A note-on with a set voltage (0 to 65535) instead of the note's own. The note is kept for matching its note-off.
 	void sendNoteVoltage(uint8_t channel, int16_t note, int32_t voltage);
 	void setGateType(uint8_t whichGate, GateType value);
@@ -116,6 +118,7 @@ public:
 	}
 
 private:
+	void sendNoteNow(bool on, uint8_t channel, int16_t note);
 	void recalculateCVChannelVoltage(uint8_t channel);
 	void switchGateOff(int32_t channel);
 	void switchGateOn(int32_t channel, int32_t doInstantlyIfPossible = false);

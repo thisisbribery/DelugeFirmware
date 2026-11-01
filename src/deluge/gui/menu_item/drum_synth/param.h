@@ -107,6 +107,13 @@ inline void applyRowSetup(const deluge::dsp::drum_synth::RowSetup& row) {
 	sound.polyphonic = row.choke ? PolyphonyMode::CHOKE : PolyphonyMode::AUTO;
 	sound.sources[0].transpose = row.transpose;
 	sound.sources[0].setCents(row.cents);
+	// Kicks send full to the sidechain; anything else lets go of a full send a kick left behind
+	if (row.kick) {
+		sound.sideChainSendLevel = Sound::kSideChainSendFull;
+	}
+	else if (sound.sideChainSendLevel == Sound::kSideChainSendFull) {
+		sound.sideChainSendLevel = 0;
+	}
 
 	auto user = [](int32_t p, int32_t value) { setSoundParam(p, getParamFromUserValue(p, value)); };
 	user(params::LOCAL_ENV_0_ATTACK, 0);
@@ -503,7 +510,7 @@ public:
 		const int32_t choice = std::clamp<int32_t>(getValue(), 0, gin::kNumKits * gin::kNumKitSounds - 1);
 		const int32_t row = choice % gin::kNumKitSounds;
 		const gin::KitSound& sound = gin::kKits[choice / gin::kNumKitSounds].sounds[row];
-		applyRowSetup(deluge::dsp::drum_synth::rowSetupForGinSound(sound, row == gin::HAT1 || row == gin::HAT2));
+		applyRowSetup(deluge::dsp::drum_synth::rowSetupForGinSound(sound, static_cast<gin::KitRow>(row)));
 		currentPatch().setGinSound(sound);
 		setControls(deluge::dsp::drum_synth::ginControlsFor(sound));
 		setDrumKnobs(*soundEditor.currentSound, Engine::GIN);

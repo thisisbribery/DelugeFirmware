@@ -1422,6 +1422,7 @@ void Kit::setGateOut(bool on) {
 	}
 	gateOut = on;
 	drum_gates::allOff();
+	drum_gates::takeGates(gateOutMask());
 }
 
 int32_t Kit::gateOutFor(Drum* drum) {
@@ -1436,6 +1437,50 @@ int32_t Kit::gateOutFor(Drum* drum) {
 		index = getDrumIndex(drum);
 	}
 	return (index >= 0 && index < NUM_GATE_CHANNELS) ? index : -1;
+}
+
+uint32_t Kit::gateOutMask() {
+	uint32_t mask = 0;
+	for (Drum* thisDrum = firstDrum; thisDrum != nullptr; thisDrum = thisDrum->next) {
+		if (thisDrum->type == DrumType::SOUND) {
+			int32_t gate = static_cast<SoundDrum*>(thisDrum)->gateOutGate();
+			if (gate >= 0) {
+				mask |= 1u << gate;
+			}
+		}
+	}
+	return mask;
+}
+
+void Kit::resetRowGates() {
+	for (Drum* thisDrum = firstDrum; thisDrum != nullptr; thisDrum = thisDrum->next) {
+		if (thisDrum->type == DrumType::SOUND) {
+			static_cast<SoundDrum*>(thisDrum)->gateOutChoice = SoundDrum::GATE_BY_ROW;
+		}
+	}
+}
+
+void Kit::setRowGate(SoundDrum* drum, int32_t gate) {
+	drum->gateOutNoteOff(true);
+	if (gate < 0) {
+		drum->gateOutChoice = SoundDrum::GATE_OFF;
+		// The last row off lets go of the gates
+		if (gateOut && gateOutMask() == 0) {
+			setGateOut(false);
+		}
+		return;
+	}
+	if (!gateOut) {
+		// Picked on one row: only that row fires
+		for (Drum* thisDrum = firstDrum; thisDrum != nullptr; thisDrum = thisDrum->next) {
+			if (thisDrum->type == DrumType::SOUND) {
+				static_cast<SoundDrum*>(thisDrum)->gateOutChoice = SoundDrum::GATE_OFF;
+			}
+		}
+		setGateOut(true);
+	}
+	drum->gateOutChoice = SoundDrum::GATE_OFF + 1 + gate;
+	drum_gates::takeGates(gateOutMask());
 }
 
 GateDrum* Kit::getGateDrumForChannel(int32_t gateChannel) {

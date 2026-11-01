@@ -415,11 +415,15 @@ paramManagersMissing:
 		for (Drum* thisDrum = ((Kit*)newInstrument)->firstDrum; thisDrum; thisDrum = thisDrum->next) {
 			if (thisDrum->type == DrumType::SOUND) {
 				song->applyLoadedSaturationDrives((SoundDrum*)thisDrum);
+				((SoundDrum*)thisDrum)->sendKickToSidechain(thisDrum->drumName.c_str());
 			}
 		}
 	}
 	if (newInstrument->type == OutputType::KIT || newInstrument->type == OutputType::SYNTH) {
 		song->applyLoadedSaturationDrives((ModControllableAudio*)newInstrument->toModControllable());
+	}
+	if (newInstrument->type == OutputType::SYNTH) {
+		((SoundInstrument*)newInstrument)->sendKickToSidechain(name->get());
 	}
 
 	// Kit files never hold the kit's own name, so a presetName read from one (saved on v1.12 to v1.19) was its Kit
@@ -628,6 +632,7 @@ Error StorageManager::loadSynthToDrum(Song* song, InstrumentClip* clip, bool may
 		}
 	}
 	song->applyLoadedSaturationDrives(newDrum); // From presets saved before saturation was a param
+	newDrum->sendKickToSidechain(name->get());
 
 	// The caller owns whatever drum this replaces - it may still be referenced by NoteRows in several Clips, so it's up
 	// to the caller to move those over before deleting it

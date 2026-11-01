@@ -19,6 +19,7 @@
 #include "gui/menu_item/selection.h"
 #include "gui/menu_item/toggle.h"
 #include "gui/ui/sound_editor.h"
+#include "model/drum/drum_gates.h"
 #include "model/instrument/kit.h"
 #include "model/song/song.h"
 #include "processing/sound/sound.h"
@@ -26,8 +27,8 @@
 
 namespace deluge::gui::menu_item {
 
-/// Kit gate out: rows 1-4 of the current kit also fire gate outs 1-4. For the whole kit, so it shows on any drum synth
-/// row and in the kit's own menu. Switching it on takes the gates from any other kit.
+/// Kit gate out, in the kit's own menu: rows 1-4 of the current kit fire gate outs 1-4 (or each row's own pick).
+/// Switching it on takes the gates from any other kit.
 class KitGateOut final : public Toggle {
 public:
 	using Toggle::Toggle;
@@ -39,41 +40,40 @@ public:
 		Kit* kit = getCurrentKit();
 		if (kit != nullptr) {
 			kit->setGateOut(this->getValue());
+			// Every row had been switched off: start again from rows 1-4 on gates 1-4
+			if (kit->gateOut && kit->gateOutMask() == 0) {
+				kit->resetRowGates();
+				drum_gates::takeGates(kit->gateOutMask());
+			}
 			soundEditor.markInstrumentAsEdited();
 		}
 	}
 	bool isRelevant(ModControllableAudio* modControllable, int32_t whichThing) const override {
-		if (getCurrentKit() == nullptr) {
-			return false;
-		}
-		if (soundEditor.editingKitRow()) {
-			const auto* sound = static_cast<Sound*>(modControllable);
-			return sound->sources[0].oscType == OscType::DRUM_SYNTH;
-		}
-		return true;
+		return getCurrentKit() != nullptr;
 	}
 };
 
-/// Which gate this kit row fires while Gate out is on: Auto (rows 1-4 = gates 1-4), Off, or gate 1-4
+/// GATE, first in a kit row's menu: the gate out this row fires as it sounds, off or 1-4. Picking a gate on a kit
+/// without gate out puts this row alone on the gates (taking them from any other kit).
 class KitRowGate final : public Selection {
 public:
 	using Selection::Selection;
 	void readCurrentValue() override {
-		this->setValue(static_cast<SoundDrum*>(soundEditor.currentSound)->gateOutChoice);
+		this->setValue(static_cast<SoundDrum*>(soundEditor.currentSound)->gateOutGate() + 1);
 	}
 	void writeCurrentValue() override {
-		static_cast<SoundDrum*>(soundEditor.currentSound)->gateOutChoice = this->getValue();
-		soundEditor.markInstrumentAsEdited();
+		Kit* kit = getCurrentKit();
+		if (kit != nullptr) {
+			kit->setRowGate(static_cast<SoundDrum*>(soundEditor.currentSound), this->getValue() - 1);
+			soundEditor.markInstrumentAsEdited();
+		}
 	}
 	bool isRelevant(ModControllableAudio* modControllable, int32_t whichThing) const override {
-		const auto* sound = static_cast<Sound*>(modControllable);
-		return getCurrentKit() != nullptr && soundEditor.editingKitRow()
-		       && sound->sources[0].oscType == OscType::DRUM_SYNTH;
+		return getCurrentKit() != nullptr && soundEditor.editingKitRow();
 	}
 	deluge::vector<std::string_view> getOptions(OptType optType) override {
 		(void)optType;
-		using enum l10n::String;
-		return {l10n::getView(STRING_FOR_AUTO), l10n::getView(STRING_FOR_OFF), "1", "2", "3", "4"};
+		return {l10n::getView(l10n::String::STRING_FOR_OFF), "1", "2", "3", "4"};
 	}
 };
 

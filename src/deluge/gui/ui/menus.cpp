@@ -1703,8 +1703,6 @@ PLACE_SDRAM_BSS menu_item::Submenu drumSynthMenu{
         &ukHoldMenu,
         &ukDecayMenu,
         &drumSnappyDecayMenu,
-        &kitGateOutMenu,
-        &kitRowGateMenu,
     },
 };
 
@@ -2174,6 +2172,7 @@ PLACE_SDRAM_BSS Submenu soundEditorRootMenu{
 PLACE_SDRAM_BSS Submenu soundEditorRootMenuDrum{
     STRING_FOR_SOUND,
     {
+        &kitRowGateMenu,
         &drum_synth::drumSynthEditor, // Only shown on drum synth sounds
         &drumSnappyDecayMenu,         // Only shown on drum synth sounds
         &soundEditorRootDrumActionsMenu,
@@ -2512,10 +2511,10 @@ PLACE_SDRAM_BSS Submenu settingsActionsSubmenu{
 PLACE_SDRAM_BSS menu_item::Submenu soundEditorRootMenuKitGlobalFX{
     STRING_FOR_KIT_GLOBAL_FX,
     {
+        &kitGateOutMenu,
         &kitGlobalFXActionsMenu,
         &kitClipMasterMenu,
         &kitArpMenu,
-        &kitGateOutMenu,
         &audioCompMenu,
         &globalFiltersMenu,
         &kitFXMenu,

@@ -20,6 +20,7 @@
 #include "definitions_cxx.hpp"
 #include "hid/display/display.h"
 #include "io/debug/log.h"
+#include "model/drum/drum_gates.h"
 #include "processing/engines/audio_engine.h"
 #include "util/comparison.h"
 #include "util/functions.h"
@@ -193,6 +194,18 @@ void CVEngine::switchGateOn(int32_t channel, int32_t doInstantlyIfPossible) {
 
 // note -32768 means switch "all notes off", or switch on without changing actual CV voltage output
 void CVEngine::sendNote(bool on, uint8_t channel, int16_t note) {
+	// A kit's Gate out has this gate: CV tracks and GATE rows keep off it
+	if (drum_gates::isReserved(channel)) {
+		return;
+	}
+	sendNoteNow(on, channel, note);
+}
+
+void CVEngine::sendDrumGate(bool on, uint8_t channel) {
+	sendNoteNow(on, channel, ALL_NOTES_OFF);
+}
+
+void CVEngine::sendNoteNow(bool on, uint8_t channel, int16_t note) {
 
 	// If this gate channel is reserved for a special purpose, don't do anything
 	if (gateChannels[channel].mode == GateType::SPECIAL) {
@@ -240,7 +253,7 @@ void CVEngine::sendNote(bool on, uint8_t channel, int16_t note) {
 }
 
 void CVEngine::sendNoteVoltage(uint8_t channel, int16_t note, int32_t voltage) {
-	if (gateChannels[channel].mode == GateType::SPECIAL) {
+	if (gateChannels[channel].mode == GateType::SPECIAL || drum_gates::isReserved(channel)) {
 		return;
 	}
 	if (channel < NUM_PHYSICAL_CV_CHANNELS) {

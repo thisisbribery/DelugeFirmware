@@ -215,6 +215,7 @@ struct RowSetup {
 	int8_t release = 40;
 	int8_t engineDecay = -1; ///< The LXR voices' own decay (DrumControls::COMMON_DECAY, 0-127), or -1 to leave it
 	int8_t cents = 0;        ///< Fine tune, for GIN rows tuned to their sound
+	bool kick = false;       ///< A kick: sends full to the sidechain
 };
 
 /// Envelope 1 release (a user value) that lets a sound falling 60 dB in t60 seconds ring out after its note ends: five
@@ -252,8 +253,9 @@ RowSetup rowSetupForUltrakik(int32_t preset);
 /// Envelope 1 release (a user value, 0 to 50) for a Cyc engine at its own decay knob (see envelopeReleaseFor)
 int8_t cycEnvelopeRelease(Engine engine, int32_t decayKnob, bool punch);
 
-/// A GIN kit sound's row: tuned to the sound's pitch, with the release fitted to its longer layer's decay
-RowSetup rowSetupForGinSound(const gin::KitSound& sound, bool choke);
+/// A GIN kit sound's row: tuned to the sound's pitch, with the release fitted to its longer layer's decay. The kit row
+/// it sits on decides whether it chokes (the hats) or sends to the sidechain (the kick).
+RowSetup rowSetupForGinSound(const gin::KitSound& sound, gin::KitRow kitRow);
 
 /// Any engine, as picked in SYNTH MODE (or a preset kit row), with its default settings. The LXR voices as their kit
 /// rows, DXIA and DIIA as their presets. The Cyc engines play at the note, as the Cycles does at its default tune.

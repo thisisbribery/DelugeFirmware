@@ -37,6 +37,8 @@ public:
 	static constexpr uint8_t GATE_BY_ROW = 0;
 	static constexpr uint8_t GATE_OFF = 1;
 	uint8_t gateOutChoice = GATE_BY_ROW;
+	/// The gate out (0-3) this row fires as it sounds, or -1
+	int32_t gateOutGate();
 
 	SoundDrum() : Drum(DrumType::SOUND) {}
 

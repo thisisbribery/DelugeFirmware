@@ -17,6 +17,8 @@
 
 #include "model/drum/drum_gates.h"
 #include "definitions_cxx.hpp"
+#include "model/instrument/kit.h"
+#include "model/song/song.h"
 #include "processing/engines/audio_engine.h"
 #include "processing/engines/cv_engine.h"
 
@@ -34,7 +36,7 @@ Gate gates[NUM_GATE_CHANNELS];
 
 void switchOff(int32_t g) {
 	gates[g] = Gate{};
-	cvEngine.sendNote(false, g, ALL_NOTES_OFF);
+	cvEngine.sendDrumGate(false, g);
 }
 
 bool heldLongEnough(int32_t g) {
@@ -50,10 +52,10 @@ void noteOn(int32_t gate, void const* owner, bool oneShot) {
 	// A new hit while the gate is still up: drop it first, so the module sees a fresh edge (the CV engine holds the
 	// new gate back for its minimum off time)
 	if (gates[gate].owner != nullptr) {
-		cvEngine.sendNote(false, gate, ALL_NOTES_OFF);
+		cvEngine.sendDrumGate(false, gate);
 	}
 	gates[gate] = Gate{owner, AudioEngine::audioSampleTimer, oneShot, oneShot};
-	cvEngine.sendNote(true, gate, ALL_NOTES_OFF);
+	cvEngine.sendDrumGate(true, gate);
 }
 
 void noteOff(void const* owner, bool force) {
@@ -80,6 +82,36 @@ void allOff() {
 	for (int32_t g = 0; g < NUM_GATE_CHANNELS; g++) {
 		if (gates[g].owner != nullptr) {
 			switchOff(g);
+		}
+	}
+}
+
+uint32_t reservedMask() {
+	if (currentSong == nullptr) {
+		return 0;
+	}
+	for (Output* output = currentSong->firstOutput; output != nullptr; output = output->next) {
+		if (output->type == OutputType::KIT && static_cast<Kit*>(output)->gateOut) {
+			return static_cast<Kit*>(output)->gateOutMask();
+		}
+	}
+	return 0;
+}
+
+bool isReserved(int32_t gate) {
+	return (reservedMask() >> gate) & 1;
+}
+
+bool blocksCVChannel(int32_t slot) {
+	// CV tracks on channel 1 or 2 use that gate, on both (slot 2) gates 1 and 2
+	const uint32_t needs = (slot >= NUM_PHYSICAL_CV_CHANNELS) ? 0b11 : 1u << slot;
+	return (reservedMask() & needs) != 0;
+}
+
+void takeGates(uint32_t mask) {
+	for (int32_t g = 0; g < NUM_GATE_CHANNELS; g++) {
+		if (((mask >> g) & 1) && gates[g].owner == nullptr) {
+			cvEngine.sendDrumGate(false, g); // Whatever else held it up
 		}
 	}
 }

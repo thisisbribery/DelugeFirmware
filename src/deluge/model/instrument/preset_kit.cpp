@@ -111,8 +111,8 @@ SoundDrum* makeDrum(const Row& row, PresetKit kit, ParamManagerForTimeline& para
 	if (row.ginRow >= 0) {
 		const auto& kitSounds =
 		    dsp::drum_synth::gin::kKits[std::clamp<int32_t>(builtInKit, 0, dsp::drum_synth::gin::kNumKits - 1)].sounds;
-		const bool hat = row.ginRow == dsp::drum_synth::gin::HAT1 || row.ginRow == dsp::drum_synth::gin::HAT2;
-		drum->setupAsDrumSynth(&paramManager, row.preset, row.cycEngine, &kitSounds[row.ginRow], hat);
+		drum->setupAsDrumSynth(&paramManager, row.preset, row.cycEngine, &kitSounds[row.ginRow],
+		                       static_cast<dsp::drum_synth::gin::KitRow>(row.ginRow));
 		// The kit's balance is in each sound's GIN level; the row volume stays where the Deluge starts it
 	}
 	else {

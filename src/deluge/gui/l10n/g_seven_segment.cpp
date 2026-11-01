@@ -608,7 +608,7 @@ PLACE_SDRAM_DATA Language seven_segment{
         {STRING_FOR_UK_TRI, "TRI"},
         {STRING_FOR_UK_PRESET, "KPRE"},
         {STRING_FOR_KIT_GATE_OUT, "GATE OUT"},
-        {STRING_FOR_ROW_GATE, "ROW GATE"},
+        {STRING_FOR_ROW_GATE, "GATE"},
         {STRING_FOR_CYC_AMP_DECAY, "DEC"},
         {STRING_FOR_NEW_KIT_TYPE, "NEW"},
         {STRING_FOR_SYNTH_INSTRUMENT, "INST"},

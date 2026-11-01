@@ -34,5 +34,12 @@ void noteOff(void const* owner, bool force = false);
 void allOff();
 /// Once per audio routine: ends triggers and gates held up to their minimum length
 void tick();
+/// The gates the song's gate kit has taken, one bit each. CV tracks and GATE rows can't use them.
+uint32_t reservedMask();
+bool isReserved(int32_t gate);
+/// Whether a CV track on this channel slot (0, 1, or 2 = both) would need a gate the gate kit has
+bool blocksCVChannel(int32_t slot);
+/// The gate kit has just taken these gates: drop any still held up by something else
+void takeGates(uint32_t mask);
 
 } // namespace drum_gates

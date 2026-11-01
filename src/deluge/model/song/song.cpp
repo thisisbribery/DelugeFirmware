@@ -40,6 +40,7 @@
 #include "model/clip/clip_instance.h"
 #include "model/clip/instrument_clip.h"
 #include "model/consequence/consequence_clip_existence.h"
+#include "model/drum/drum_gates.h"
 #include "model/instrument/cv_instrument.h"
 #include "model/instrument/default_instruments.h"
 #include "model/instrument/kit.h"
@@ -5422,6 +5423,8 @@ Instrument* Song::getNonAudioInstrumentToSwitchTo(OutputType newOutputType, Avai
 		if (availabilityRequirement == Availability::ANY) {
 			break;
 		}
+		// A kit's Gate out holds this channel's gate
+		else if (newOutputType == OutputType::CV && drum_gates::blocksCVChannel(newSlot)) {}
 		else if (availabilityRequirement == Availability::INSTRUMENT_AVAILABLE_IN_SESSION) {
 			if (!newInstrument || !getClipWithOutput(newInstrument, true)) {
 				break;

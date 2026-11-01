@@ -45,6 +45,12 @@ public:
 	void setGateOut(bool on);
 	/// The gate out (0-3) a row set to "by row" fires as it sounds, or -1
 	int32_t gateOutFor(Drum* drum);
+	/// The gate outs this kit's rows fire, one bit each (none while gateOut is off)
+	uint32_t gateOutMask();
+	/// Every row back to "by row": rows 1-4 on gates 1-4
+	void resetRowGates();
+	/// Set one row's gate out: -1 = off, else 0-3. Taking a gate on a kit without gate out puts this row alone on it.
+	void setRowGate(SoundDrum* drum, int32_t gate);
 
 	Drum* getNextDrum(Drum* fromSoundSource);
 	Drum* getPrevDrum(Drum* fromSoundSource);

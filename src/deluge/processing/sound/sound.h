@@ -142,6 +142,7 @@ public:
 	alignas(8) ModKnob modKnobs[kNumModButtons][kNumPhysicalModKnobs];
 
 	int32_t sideChainSendLevel = 0;
+	static constexpr int32_t kSideChainSendFull = 2147483647;
 
 	PolyphonyMode polyphonic = PolyphonyMode::POLY;
 	uint8_t maxVoiceCount = 8;
@@ -268,10 +269,15 @@ public:
 	virtual void gateOutNoteOff(bool force) {}
 	void setupAsSample(ParamManagerForTimeline* paramManager);
 	/// A kit row on an LXR voice from preset, or, given a Cyc engine, on that engine at the note as the Cycles plays
-	/// it, or given a GIN kit sound (or Engine::GIN for the default one), on GIN tuned to that sound
+	/// it, or given a GIN kit sound (or Engine::GIN for the default one), on GIN tuned to that sound, as it sits on
+	/// ginRow of its kit
 	void setupAsDrumSynth(ParamManagerForTimeline* paramManager, deluge::dsp::drum_synth::Preset preset,
 	                      deluge::dsp::drum_synth::Engine cycEngine = deluge::dsp::drum_synth::Engine::NUM_ENGINES,
-	                      const deluge::dsp::drum_synth::gin::KitSound* ginSound = nullptr, bool ginChoke = false);
+	                      const deluge::dsp::drum_synth::gin::KitSound* ginSound = nullptr,
+	                      deluge::dsp::drum_synth::gin::KitRow ginRow = deluge::dsp::drum_synth::gin::KICK);
+	/// A preset just loaded from a file: a kick drum synth (Cyc Kik, ULTRAKIK, or an LXR drum or GIN sound named as a
+	/// kick) sends full to the sidechain
+	void sendKickToSidechain(char const* name);
 	/// The gold knobs every drum synth engine shares, laid out like the Cycles': attack / release = drive / decay, mod
 	/// rate / depth = the sweep's speed and depth, Custom 2 / Custom 3 = two voicing settings. Any other engine value
 	/// puts the Deluge's defaults back.

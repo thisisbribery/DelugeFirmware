@@ -303,7 +303,7 @@ DrumControls ultrakikControlsFor(int32_t preset) {
 	return c;
 }
 
-RowSetup rowSetupForGinSound(const gin::KitSound& sound, bool choke) {
+RowSetup rowSetupForGinSound(const gin::KitSound& sound, gin::KitRow kitRow) {
 	// Kit rows play at middle C
 	const float semitones = 12.f * log2f(sound.hz / 261.6256f);
 	const int32_t whole = static_cast<int32_t>(std::floor(semitones + 0.5f));
@@ -320,8 +320,10 @@ RowSetup rowSetupForGinSound(const gin::KitSound& sound, bool choke) {
 		const float noise = attack(sound.noiseAttack) + decay(sound.noiseDecay);
 		t60 = std::max(t60, (sound.noiseEnv == gin::NoiseEnv::LINEAR) ? noise * (2.f / 3.f) : noise);
 	}
+	const bool choke = kitRow == gin::HAT1 || kitRow == gin::HAT2;
 	RowSetup row{static_cast<int16_t>(whole), 30, -1, choke, 5, 0, 50, envelopeReleaseFor(t60)};
 	row.cents = static_cast<int8_t>(cents);
+	row.kick = kitRow == gin::KICK;
 	return row;
 }
 
@@ -650,8 +652,10 @@ int8_t ultrakikEnvelopeRelease(int32_t decayKnob, int32_t holdKnob) {
 
 RowSetup rowSetupForUltrakik(int32_t preset) {
 	const ultrakik::Preset& p = ultrakik::kPresets[std::clamp<int32_t>(preset, 0, ultrakik::kNumPresets - 1)];
-	return {p.transpose, 30, -1, false,
-	        5,           0,  50, ultrakikEnvelopeRelease(p.knobs[ultrakik::DECAY], p.knobs[ultrakik::HOLD])};
+	RowSetup row{p.transpose, 30, -1, false,
+	             5,           0,  50, ultrakikEnvelopeRelease(p.knobs[ultrakik::DECAY], p.knobs[ultrakik::HOLD])};
+	row.kick = true;
+	return row;
 }
 
 int8_t cycEnvelopeRelease(Engine engine, int32_t decayKnob, bool punch) {
@@ -691,8 +695,11 @@ XiaPreset xiaPreset(std::array<uint8_t, 8> slots, int16_t transpose, int8_t env2
 
 RowSetup rowSetupFor(Preset preset) {
 	switch (preset) {
-	case Preset::KICK:
-		return lxrRow(-29, 100, -1, false); // G1, about 49 Hz
+	case Preset::KICK: {
+		RowSetup row = lxrRow(-29, 100, -1, false); // G1, about 49 Hz
+		row.kick = true;
+		return row;
+	}
 	case Preset::SNARE:
 		return lxrRow(-6, 90, -1, false); // F#3, about 185 Hz
 	case Preset::CLOSED_HAT:
@@ -738,10 +745,12 @@ RowSetup rowSetupForEngine(Engine engine, uint8_t variant) {
 	}
 	if (isCyc(engine)) {
 		const auto& d = kCycDefaults[static_cast<size_t>(cycKind(engine))];
-		return {0, 30, -1, false, 5, 0, 50, cycEnvelopeRelease(engine, d[4], false)};
+		RowSetup row{0, 30, -1, false, 5, 0, 50, cycEnvelopeRelease(engine, d[4], false)};
+		row.kick = engine == Engine::CYC_KIK;
+		return row;
 	}
 	if (isGin(engine)) {
-		return rowSetupForGinSound(gin::defaultSound(), false);
+		return rowSetupForGinSound(gin::defaultSound(), gin::KICK);
 	}
 	if (isUltrakik(engine)) {
 		return rowSetupForUltrakik(ultrakik::kDefaultPreset);
