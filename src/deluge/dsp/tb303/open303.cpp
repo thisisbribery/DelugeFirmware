@@ -228,13 +228,14 @@ void TeeBeeFilter::setSampleRate(float sampleRate) {
 void TeeBeeFilter::setResonance(float percent) {
 	float r = 0.01f * percent;
 	resonanceSkewed = (1.f - std::exp(-3.f * r)) / (1.f - std::exp(-3.f));
+	updateDirt();
 }
 
 TeeBeeFilter::Coefficients TeeBeeFilter::coefficientsFor(float cutoff) const {
 	float wc = twoPiOverSampleRate * std::clamp(cutoff, 200.f, 20000.f);
 	float r = resonanceSkewed;
 
-	if (classic_) {
+	if (mode_ != FilterMode::LP18) {
 		// Ala mystran and kunn, from the KVR thread
 		float fx = wc * (0.70710678f / (2.f * kPiF));
 		float b0 = (0.00045522346f + 6.1922189f * fx) / (1.f + 12.358354f * fx + 4.4156345f * (fx * fx));
@@ -260,6 +261,21 @@ TeeBeeFilter::Coefficients TeeBeeFilter::coefficientsFor(float cutoff) const {
 	tmp = wc2 * tmp + -1.666668203490468e-01f * wc + 1.000000012124230e+00f;
 	tmp = wc2 * tmp + 3.999999999650040e+00f * wc + 4.000000000000113e+00f;
 	return {1.f + a1, a1, r * tmp, 1.f};
+}
+
+void TeeBeeFilter::setDrive(float drive) {
+	dirtBoost = std::pow(10.f, 1.2f * drive * std::sqrt(drive));
+	updateDirt();
+}
+
+void TeeBeeFilter::updateDirt() {
+	// At 0 a plain note sits in the soft part of the curve, so it stays close to CLASSIC until the resonance gets loud.
+	// Up to 24 dB more input, held back at the bottom so the first half of the knob stays usable. Once the clipper
+	// takes over, the resonance stops pulling the passband down and the level shoots up with the input (about 23 dB
+	// over the knob, from half resonance up), so most of that comes back off, more the more resonance there is. It
+	// gets 8 to 12 dB louder in all.
+	dirtIn = 0.5f * dirtBoost;
+	dirtOut = 4.f * std::pow(dirtBoost, -0.6f * std::sqrt(resonanceSkewed));
 }
 
 void TeeBeeFilter::reset() {
@@ -288,14 +304,15 @@ void Open303::setControls(Controls const& newControls) {
 	// Open303 applies these at once, so the filter jumps to them rather than gliding. The cutoff knob counts too, as it
 	// moves the envelope's scaling and offset.
 	if (resonanceChanged || newControls.cutoff != controls.cutoff || newControls.envMod != controls.envMod
-	    || newControls.classicFilter != controls.classicFilter) {
+	    || newControls.filterMode != controls.filterMode) {
 		filterJump = true;
 	}
 	controls = newControls;
 	if (resonanceChanged || !sounding) {
 		filter.setResonance(controls.resonance);
 	}
-	filter.setClassic(controls.classicFilter);
+	filter.setMode(controls.filterMode);
+	filter.setDrive(controls.drive);
 	pitchSlewCoeff = leakyCoeff(controls.slideTime, kSampleRate);
 	ampDecayCoeff = envelopeCoeff(controls.ampDecay, kSampleRate);
 	calculateEnvModScalerAndOffset();
@@ -429,7 +446,7 @@ void Open303::reset() {
 	ampDeClicker.reset();
 }
 
-template <bool classic>
+template <FilterMode mode>
 void Open303::renderVoice(std::span<int32_t> buffer, float gain) {
 	// Glide the cutoff across the buffer so turning the knob doesn't zipper
 	const int32_t size = (int32_t)buffer.size();
@@ -437,9 +454,9 @@ void Open303::renderVoice(std::span<int32_t> buffer, float gain) {
 
 	// Drive, the drum synth engines' curve. A plain note peaks near 1 and an accent near 3, so a quarter of that into
 	// the clipper keeps plain notes clean at low settings and lets accents bite first. Half the drive gain is taken
-	// back off, so it gets dirtier much faster than it gets louder.
+	// back off, so it gets dirtier much faster than it gets louder. DIRT takes the drive into the filter instead.
 	constexpr float kDriveIn = 0.25f;
-	const bool driven = controls.drive > 0.f;
+	const bool driven = mode != FilterMode::DIRT && controls.drive > 0.f;
 	const float driveGain = drum_synth::cyc::driveGainFor(controls.drive);
 	const float driveIn = kDriveIn * driveGain;
 	const float driveOut = 1.f / (kDriveIn * std::sqrt(driveGain));
@@ -537,7 +554,7 @@ void Open303::renderVoice(std::span<int32_t> buffer, float gain) {
 					out = sawLevel * readTable(saw, index, frac) + squareLevel * readTable(square, index, frac);
 				}
 				out = inputHighpass.process(-out);
-				out = ladder.process<classic>(out);
+				out = ladder.process<mode>(out);
 				out = decimator.process(out);
 			}
 			out = allpass.process(out);
@@ -567,11 +584,16 @@ void Open303::render(std::span<int32_t> buffer, float gain) {
 		return;
 	}
 
-	if (filter.isClassic()) {
-		renderVoice<true>(buffer, gain);
-	}
-	else {
-		renderVoice<false>(buffer, gain);
+	switch (filter.mode()) {
+	case FilterMode::CLASSIC:
+		renderVoice<FilterMode::CLASSIC>(buffer, gain);
+		break;
+	case FilterMode::LP18:
+		renderVoice<FilterMode::LP18>(buffer, gain);
+		break;
+	case FilterMode::DIRT:
+		renderVoice<FilterMode::DIRT>(buffer, gain);
+		break;
 	}
 
 	// Gone quiet, so stop rendering until the next note

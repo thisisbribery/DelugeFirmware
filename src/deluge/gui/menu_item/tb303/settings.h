@@ -38,16 +38,23 @@ public:
 	}
 };
 
-/// The TB-303 ladder model, or Open303's plain 18 dB lowpass
+/// The filter choices, in FilterMode order: the TB-303 ladder model, Open303's plain 18 dB lowpass, the ladder with
+/// dirt
+inline deluge::vector<std::string_view> filterOptions() {
+	return {l10n::getView(l10n::String::STRING_FOR_TB303), l10n::getView(l10n::String::STRING_FOR_TB303_FILTER_LP18),
+	        l10n::getView(l10n::String::STRING_FOR_TB303_FILTER_DIRT)};
+}
+
 class Filter final : public Selection {
 public:
 	using Selection::Selection;
-	void readCurrentValue() override { this->setValue(soundEditor.currentSound->tb303ClassicFilter ? 0 : 1); }
-	void writeCurrentValue() override { soundEditor.currentSound->tb303ClassicFilter = this->getValue() == 0; }
+	void readCurrentValue() override { this->setValue((int32_t)soundEditor.currentSound->tb303FilterMode); }
+	void writeCurrentValue() override {
+		soundEditor.currentSound->tb303FilterMode = (deluge::dsp::tb303::FilterMode)this->getValue();
+	}
 	deluge::vector<std::string_view> getOptions(OptType optType) override {
 		(void)optType;
-		return {l10n::getView(l10n::String::STRING_FOR_TB303),
-		        l10n::getView(l10n::String::STRING_FOR_TB303_FILTER_LP18)};
+		return filterOptions();
 	}
 	bool isRelevant(ModControllableAudio* modControllable, int32_t whichThing) const override {
 		return isTb303(modControllable);

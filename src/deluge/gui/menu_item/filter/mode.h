@@ -20,6 +20,7 @@
 #include "gui/l10n/l10n.h"
 #include "gui/menu_item/filter/info.h"
 #include "gui/menu_item/selection.h"
+#include "gui/menu_item/tb303/settings.h"
 #include "gui/ui/sound_editor.h"
 #include "model/instrument/kit.h"
 #include "model/mod_controllable/mod_controllable_audio.h"
@@ -35,10 +36,21 @@ class FilterModeSelection final : public Selection {
 public:
 	FilterModeSelection(deluge::l10n::String newName, deluge::l10n::String newTitle, FilterSlot slot_)
 	    : Selection{newName, newTitle}, info{slot_, FilterParamType::MODE} {}
-	void readCurrentValue() override { this->setValue(info.getModeValue()); }
+	void readCurrentValue() override {
+		if (is303()) {
+			this->setValue((int32_t)soundEditor.currentSound->tb303FilterMode);
+			return;
+		}
+		this->setValue(info.getModeValue());
+	}
 	bool usesAffectEntire() override { return true; }
 	void writeCurrentValue() override {
 		auto current_value = this->getValue();
+
+		if (is303()) {
+			soundEditor.currentSound->tb303FilterMode = (deluge::dsp::tb303::FilterMode)current_value;
+			return;
+		}
 
 		// If affect-entire button held, do whole kit
 		if (currentUIMode == UI_MODE_HOLDING_AFFECT_ENTIRE_IN_SOUND_EDITOR && soundEditor.editingKitRow()) {
@@ -62,6 +74,9 @@ public:
 	deluge::vector<std::string_view> getOptions(OptType optType) override {
 		using enum l10n::String;
 		bool shortOpt = optType == OptType::SHORT;
+		if (is303()) {
+			return tb303::filterOptions();
+		}
 		if (info.getSlot() == FilterSlot::HPF) {
 			return {
 			    l10n::getView(shortOpt ? STRING_FOR_SVF_BAND_SHORT : STRING_FOR_SVF_BAND),
@@ -81,6 +96,12 @@ public:
 	}
 
 private:
+	/// The 303 doesn't use the Deluge's filters, so on a 303 the LPF mode picks the 303's own filter instead
+	bool is303() const {
+		return info.getSlot() == FilterSlot::LPF && tb303::isTb303(soundEditor.currentModControllable)
+		       && soundEditor.currentSound != nullptr;
+	}
+
 	FilterInfo info;
 };
 

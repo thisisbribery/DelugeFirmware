@@ -35,6 +35,7 @@
  */
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <span>
@@ -55,19 +56,22 @@ bool built();
 const float* get(Wave wave, int32_t table);
 } // namespace wavetables
 
+/// The filter models. DIRT is ours rather than Open303's: the TB-303 ladder with a saturating input stage.
+enum class FilterMode : uint8_t { CLASSIC, LP18, DIRT };
+
 /// The front panel, plus Devil Fish style extras. Times are in ms and amounts in percent, as on Open303.
 struct Controls {
-	float cutoff = 500.f;      // Hz, 314 to 2394 on the panel
-	float resonance = 50.f;    // %
-	float envMod = 25.f;       // %
-	float decay = 400.f;       // ms, 200 to 2000 on the panel
-	float accent = 50.f;       // %
-	float waveform = 0.f;      // 0 saw to 1 square
-	float slideTime = 60.f;    // ms, the time constant of the glide, as Open303 sets it up
-	float ampDecay = 1230.f;   // ms
-	float ampSustain = 0.f;    // 0 to 1
-	float drive = 0.f;         // 0 to 1, into the drum synth engines' soft clipper. 0 is clean
-	bool classicFilter = true; // The TB-303 ladder model, or Open303's plain 18 dB lowpass
+	float cutoff = 500.f;    // Hz, 314 to 2394 on the panel
+	float resonance = 50.f;  // %
+	float envMod = 25.f;     // %
+	float decay = 400.f;     // ms, 200 to 2000 on the panel
+	float accent = 50.f;     // %
+	float waveform = 0.f;    // 0 saw to 1 square
+	float slideTime = 60.f;  // ms, the time constant of the glide, as Open303 sets it up
+	float ampDecay = 1230.f; // ms
+	float ampSustain = 0.f;  // 0 to 1
+	float drive = 0.f;       // 0 to 1. Into the filter on DIRT, else into the drum synth engines' soft clipper after it
+	FilterMode filterMode = FilterMode::DIRT;
 };
 
 class OnePole {
@@ -138,7 +142,8 @@ private:
 	std::array<std::array<float, 2>, 6> state{};
 };
 
-/// Open303's TeeBeeFilter: a ladder with a highpass in its feedback path
+/// Open303's TeeBeeFilter: a ladder with a highpass in its feedback path. Open303 leaves it linear (its saturation is
+/// commented out, as a todo), so DIRT adds one.
 class TeeBeeFilter {
 public:
 	struct Coefficients {
@@ -147,8 +152,10 @@ public:
 
 	void setSampleRate(float sampleRate);
 	void setResonance(float percent);
-	void setClassic(bool classic) { classic_ = classic; }
-	bool isClassic() const { return classic_; }
+	void setMode(FilterMode mode) { mode_ = mode; }
+	FilterMode mode() const { return mode_; }
+	/// DIRT's drive knob, 0 to 1
+	void setDrive(float drive);
 	Coefficients coefficientsFor(float cutoff) const;
 
 	/// Glides the coefficients from where they are to target over the next numSamples calls to step()
@@ -174,15 +181,25 @@ public:
 		now = {now.b0 + step_.b0, now.a1 + step_.a1, now.k + step_.k, now.g + step_.g};
 	}
 
-	template <bool classic>
+	template <FilterMode mode>
 	[[gnu::always_inline]] inline float process(float in) {
-		if constexpr (classic) {
+		if constexpr (mode == FilterMode::CLASSIC) {
 			float y0 = in - feedbackHighpass.process(now.k * y4);
 			y1 += 2.f * now.b0 * (y0 - y1 + y2);
 			y2 += now.b0 * (y1 - 2.f * y2 + y3);
 			y3 += now.b0 * (y2 - 2.f * y3 + y4);
 			y4 += now.b0 * (y3 - 2.f * y4);
 			return 2.f * now.g * y4;
+		}
+		else if constexpr (mode == FilterMode::DIRT) {
+			// The classic ladder, with the input and the resonance meeting in a saturating stage, as at a diode
+			// ladder's input pair. Driven harder, the resonance squashes and growls instead of ringing clean.
+			float y0 = dirt(dirtIn * in - feedbackHighpass.process(now.k * y4));
+			y1 += 2.f * now.b0 * (y0 - y1 + y2);
+			y2 += now.b0 * (y1 - 2.f * y2 + y3);
+			y3 += now.b0 * (y2 - 2.f * y3 + y4);
+			y4 += now.b0 * (y3 - 2.f * y4);
+			return dirtOut * now.g * y4;
 		}
 		else {
 			float y0 = 0.125f * in - feedbackHighpass.process(now.k * y4);
@@ -196,12 +213,26 @@ public:
 	void reset();
 
 private:
+	/// Cubic soft clip, flat at +-1 from +-1.5, with a little offset for even harmonics (the offset's DC is taken back
+	/// out, so silence stays silent)
+	[[gnu::always_inline]] static inline float dirt(float x) {
+		constexpr float kBias = 0.2f;
+		constexpr float kBiasOut = kBias - (4.f / 27.f) * kBias * kBias * kBias;
+		x = std::clamp(x + kBias, -1.5f, 1.5f);
+		return x - (4.f / 27.f) * x * x * x - kBiasOut;
+	}
+
+	void updateDirt();
+
 	Coefficients now{0.f, 0.f, 0.f, 1.f};
 	Coefficients step_{};
 	float y1 = 0.f, y2 = 0.f, y3 = 0.f, y4 = 0.f;
 	float resonanceSkewed = 0.f;
 	float twoPiOverSampleRate = 0.f;
-	bool classic_ = true;
+	FilterMode mode_ = FilterMode::DIRT;
+	float dirtBoost = 1.f; // The drive's input gain over DIRT's at 0
+	float dirtIn = 0.5f;
+	float dirtOut = 4.f;
 	OnePole feedbackHighpass;
 };
 
@@ -241,7 +272,7 @@ public:
 	void render(std::span<int32_t> buffer, float gain);
 
 private:
-	template <bool classic>
+	template <FilterMode mode>
 	void renderVoice(std::span<int32_t> buffer, float gain);
 	void triggerNote(int32_t note, bool accent);
 	void slideToNote(int32_t note, bool accent);

@@ -1044,6 +1044,7 @@ PLACE_SDRAM_DATA Language english{
         {STRING_FOR_TB303_SLIDE, "Slide time"},
         {STRING_FOR_TB303_FILTER, "Filter"},
         {STRING_FOR_TB303_FILTER_LP18, "18 dB"},
+        {STRING_FOR_TB303_FILTER_DIRT, "Dirt"},
         {STRING_FOR_TB303_DRIVE, "Drive"},
         {STRING_FOR_TB303_AMP_DECAY, "Amp decay"},
         {STRING_FOR_LXR_KIT, "LXR"},

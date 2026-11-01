@@ -1612,7 +1612,8 @@ Error Sound::readTagFromFileOrError(Deserializer& reader, char const* tagName, P
 	}
 
 	else if (!strcmp(tagName, "tb303Filter")) {
-		tb303ClassicFilter = reader.readTagOrAttributeValueInt() == 0;
+		tb303FilterMode = (deluge::dsp::tb303::FilterMode)std::clamp<int32_t>(
+		    reader.readTagOrAttributeValueInt(), 0, (int32_t)deluge::dsp::tb303::FilterMode::DIRT);
 		reader.exitTag("tb303Filter");
 	}
 
@@ -3607,7 +3608,7 @@ void Sound::setupTb303Defaults(ParamManager* paramManager) {
 	set(kTb303SlideParam, tb303ExpKnobPosition(60.f, kTb303SlideMin, kTb303SlideMax));
 	set(kTb303DriveParam, 0.f);
 	set(kTb303AmpDecayParam, 0.5f);
-	tb303ClassicFilter = true;
+	tb303FilterMode = deluge::dsp::tb303::FilterMode::DIRT;
 }
 
 void Sound::renderTb303(ParamManagerForTimeline* paramManager, std::span<q31_t> buffer) {
@@ -3628,7 +3629,7 @@ void Sound::renderTb303(ParamManagerForTimeline* paramManager, std::span<q31_t> 
 	const float ampDecay = tb303Knob(patchedParams, kTb303AmpDecayParam);
 	controls.ampDecay = kTb303AmpDecayMin * std::pow(kTb303AmpDecayMid / kTb303AmpDecayMin, 2.f * ampDecay);
 	controls.ampSustain = (ampDecay >= 0.98f) ? 1.f : 0.f;
-	controls.classicFilter = tb303ClassicFilter;
+	controls.filterMode = tb303FilterMode;
 	tb303_->setControls(controls);
 	tb303_->setPitchOffset((float)transpose + (float)cents * 0.01f);
 	tb303_->render(buffer, kOutputGain);
@@ -4775,8 +4776,9 @@ void Sound::writeToFile(Serializer& writer, bool savingSong, ParamManager* param
 	}
 
 	writer.writeAttribute("mode", (char*)synthModeToString(synthMode));
-	if (synthMode == SynthMode::TB303 && !tb303ClassicFilter) {
-		writer.writeAttribute("tb303Filter", 1);
+	// Always written, as no attribute means CLASSIC (files from before DIRT)
+	if (synthMode == SynthMode::TB303) {
+		writer.writeAttribute("tb303Filter", (int32_t)tb303FilterMode);
 	}
 
 	if (transpose != 0) {

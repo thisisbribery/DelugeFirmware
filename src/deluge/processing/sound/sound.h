@@ -355,7 +355,9 @@ public:
 	bool ensureTb303();
 	/// Sets this sound's 303 knobs, and the gold knobs, to a starting acid sound
 	void setupTb303Defaults(ParamManager* paramManager);
-	bool tb303ClassicFilter = true; // The TB-303 ladder model, or Open303's plain 18 dB lowpass
+	// The TB-303 ladder model, Open303's plain 18 dB lowpass, or the ladder with dirt. Songs from before DIRT load as
+	// CLASSIC; a fresh 303 starts on DIRT.
+	deluge::dsp::tb303::FilterMode tb303FilterMode = deluge::dsp::tb303::FilterMode::CLASSIC;
 
 	/// @brief Get the number of active voices
 	[[nodiscard]] size_t numActiveVoices() const { return voices_.size(); }
