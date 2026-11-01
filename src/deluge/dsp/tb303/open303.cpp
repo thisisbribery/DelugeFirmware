@@ -18,7 +18,6 @@
  */
 #include "dsp/tb303/open303.h"
 #include "definitions.h"
-#include "dsp/drum_synth/cyc.h"
 #include <algorithm>
 #include <bit>
 #include <cmath>
@@ -228,7 +227,6 @@ void TeeBeeFilter::setSampleRate(float sampleRate) {
 void TeeBeeFilter::setResonance(float percent) {
 	float r = 0.01f * percent;
 	resonanceSkewed = (1.f - std::exp(-3.f * r)) / (1.f - std::exp(-3.f));
-	updateDirt();
 }
 
 TeeBeeFilter::Coefficients TeeBeeFilter::coefficientsFor(float cutoff) const {
@@ -261,21 +259,6 @@ TeeBeeFilter::Coefficients TeeBeeFilter::coefficientsFor(float cutoff) const {
 	tmp = wc2 * tmp + -1.666668203490468e-01f * wc + 1.000000012124230e+00f;
 	tmp = wc2 * tmp + 3.999999999650040e+00f * wc + 4.000000000000113e+00f;
 	return {1.f + a1, a1, r * tmp, 1.f};
-}
-
-void TeeBeeFilter::setDrive(float drive) {
-	dirtBoost = std::pow(10.f, 1.2f * drive * std::sqrt(drive));
-	updateDirt();
-}
-
-void TeeBeeFilter::updateDirt() {
-	// At 0 a plain note sits in the soft part of the curve, so it stays close to CLASSIC until the resonance gets loud.
-	// Up to 24 dB more input, held back at the bottom so the first half of the knob stays usable. Once the clipper
-	// takes over, the resonance stops pulling the passband down and the level shoots up with the input (about 23 dB
-	// over the knob, from half resonance up), so most of that comes back off, more the more resonance there is. It
-	// gets 8 to 12 dB louder in all.
-	dirtIn = 0.5f * dirtBoost;
-	dirtOut = 4.f * std::pow(dirtBoost, -0.6f * std::sqrt(resonanceSkewed));
 }
 
 void TeeBeeFilter::reset() {
@@ -312,7 +295,8 @@ void Open303::setControls(Controls const& newControls) {
 		filter.setResonance(controls.resonance);
 	}
 	filter.setMode(controls.filterMode);
-	filter.setDrive(controls.drive);
+	setDrive(controls.drive);
+	mainEnvCoeff = std::exp(-1.f / (0.001f * (accented ? 0.5f : 1.f) * controls.decay * kSampleRate));
 	pitchSlewCoeff = leakyCoeff(controls.slideTime, kSampleRate);
 	ampDecayCoeff = envelopeCoeff(controls.ampDecay, kSampleRate);
 	calculateEnvModScalerAndOffset();
@@ -341,10 +325,21 @@ float Open303::noteToFrequency(int32_t note) const {
 	return 8.1757989156437073f * std::exp(0.057762265046662109f * ((float)note + pitchOffset));
 }
 
+void Open303::setDrive(float drive) {
+	// Up to 30 dB into the clipper, evenly in dB. At 0 a plain note peaks near 0.4, barely touching the curve, and an
+	// accent near 1.2. The level out undoes the gain while the clipper is soft, then levels off as it flattens, so the
+	// pattern's level holds, and 3 dB goes on top over the knob. The tone lowpass closes from 12 kHz to 4 kHz as it
+	// goes up, to keep the fizz down.
+	driveIn = 0.4f * std::pow(10.f, 1.5f * drive);
+	driveOut = std::sqrt(1.f / (driveIn * driveIn) + 0.35f * 0.35f) * std::pow(10.f, 0.15f * drive);
+	driveToneCoeff = 1.f - std::exp(-2.f * kPiF * 12000.f * std::pow(1.f / 3.f, drive) / (kSampleRate * kOversampling));
+}
+
 void Open303::setAccentState(bool accent) {
+	accented = accent;
 	accentGain = accent ? 0.01f * controls.accent : 0.f;
-	// Accented notes have a fixed 200 ms filter decay
-	mainEnvCoeff = std::exp(-1.f / (0.001f * (accent ? 200.f : controls.decay) * kSampleRate));
+	// Accented notes' filter decay is half the knob's, 200 ms at the default, as on a 303
+	mainEnvCoeff = std::exp(-1.f / (0.001f * (accent ? 0.5f : 1.f) * controls.decay * kSampleRate));
 	ampReleaseCoeff = envelopeCoeff(accent ? 50.f : 1.f, kSampleRate);
 	// The accent's jump in envelope, or a new note's, lands at once, as on Open303
 	filterJump = true;
@@ -360,6 +355,7 @@ void Open303::triggerNote(int32_t note, bool accent) {
 		notch.reset();
 		antiAlias.reset();
 		ampDeClicker.reset();
+		driveLowIn = driveLowOut = driveTone = 0.f;
 	}
 	setAccentState(accent);
 	oscFreq = noteToFrequency(note);
@@ -444,6 +440,7 @@ void Open303::reset() {
 	notch.reset();
 	antiAlias.reset();
 	ampDeClicker.reset();
+	driveLowIn = driveLowOut = driveTone = 0.f;
 }
 
 template <FilterMode mode>
@@ -452,14 +449,18 @@ void Open303::renderVoice(std::span<int32_t> buffer, float gain) {
 	const int32_t size = (int32_t)buffer.size();
 	const float cutoffStep = (controls.cutoff - cutoffNow) / (float)size;
 
-	// Drive, the drum synth engines' curve. A plain note peaks near 1 and an accent near 3, so a quarter of that into
-	// the clipper keeps plain notes clean at low settings and lets accents bite first. Half the drive gain is taken
-	// back off, so it gets dirtier much faster than it gets louder. DIRT takes the drive into the filter instead.
-	constexpr float kDriveIn = 0.25f;
-	const bool driven = mode != FilterMode::DIRT && controls.drive > 0.f;
-	const float driveGain = drum_synth::cyc::driveGainFor(controls.drive);
-	const float driveIn = kDriveIn * driveGain;
-	const float driveOut = 1.f / (kDriveIn * std::sqrt(driveGain));
+	// Drive: an overdrive pedal after the filter, run oversampled so it doesn't alias. The lows are cut 6 dB on the way
+	// into the clipper and put back after it, so the bass stays full but doesn't turn to mush, and accents, louder,
+	// bite first. A plain note peaks near 1 and an accent near 3.
+	constexpr float kDriveLowCut = 0.5f;
+	constexpr float kDriveLowCoeff = 2.f * kPiF * 250.f / (kSampleRate * kOversampling);
+	const bool driven = controls.drive > 0.f;
+	const float drivePre = driveIn;
+	const float drivePost = driveOut;
+	const float toneCoeff = driveToneCoeff;
+	float lowIn = driveLowIn;
+	float lowOut = driveLowOut;
+	float tone = driveTone;
 
 	// Fully saw or fully square only needs the one wavetable
 	const float blend = controls.waveform;
@@ -555,15 +556,22 @@ void Open303::renderVoice(std::span<int32_t> buffer, float gain) {
 				}
 				out = inputHighpass.process(-out);
 				out = ladder.process<mode>(out);
+				if (driven) {
+					float x = out * amp * drivePre;
+					lowIn += kDriveLowCoeff * (x - lowIn);
+					x = overdrive(x - kDriveLowCut * lowIn);
+					x += kDriveLowCut * lowOut;
+					lowOut += kDriveLowCoeff * (x - lowOut);
+					tone += toneCoeff * (x - tone);
+					out = tone * drivePost;
+				}
 				out = decimator.process(out);
 			}
 			out = allpass.process(out);
 			out = highpass2.process(out);
 			out = notch.process(out);
-			out *= amp;
-
-			if (driven) {
-				out = drum_synth::cyc::driveCurve(out * driveIn) * driveOut;
+			if (!driven) {
+				out *= amp;
 			}
 			out *= gain;
 			*sample++ += (int32_t)std::clamp(out, -2147483520.f, 2147483520.f);
@@ -576,6 +584,9 @@ void Open303::renderVoice(std::span<int32_t> buffer, float gain) {
 	filter = ladder;
 	antiAlias = decimator;
 	lastAmp = amp;
+	driveLowIn = lowIn;
+	driveLowOut = lowOut;
+	driveTone = tone;
 	cutoffNow = controls.cutoff;
 }
 

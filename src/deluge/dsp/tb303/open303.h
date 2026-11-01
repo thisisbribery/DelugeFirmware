@@ -64,13 +64,13 @@ struct Controls {
 	float cutoff = 500.f;    // Hz, 314 to 2394 on the panel
 	float resonance = 50.f;  // %
 	float envMod = 25.f;     // %
-	float decay = 400.f;     // ms, 200 to 2000 on the panel
+	float decay = 400.f;     // ms, 200 to 2000 on the panel (about 30 to 2800 on the Deluge)
 	float accent = 50.f;     // %
 	float waveform = 0.f;    // 0 saw to 1 square
 	float slideTime = 60.f;  // ms, the time constant of the glide, as Open303 sets it up
 	float ampDecay = 1230.f; // ms
 	float ampSustain = 0.f;  // 0 to 1
-	float drive = 0.f;       // 0 to 1. Into the filter on DIRT, else into the drum synth engines' soft clipper after it
+	float drive = 0.f;       // 0 to 1, an overdrive after the filter
 	FilterMode filterMode = FilterMode::DIRT;
 };
 
@@ -154,8 +154,6 @@ public:
 	void setResonance(float percent);
 	void setMode(FilterMode mode) { mode_ = mode; }
 	FilterMode mode() const { return mode_; }
-	/// DIRT's drive knob, 0 to 1
-	void setDrive(float drive);
 	Coefficients coefficientsFor(float cutoff) const;
 
 	/// Glides the coefficients from where they are to target over the next numSamples calls to step()
@@ -193,13 +191,14 @@ public:
 		}
 		else if constexpr (mode == FilterMode::DIRT) {
 			// The classic ladder, with the input and the resonance meeting in a saturating stage, as at a diode
-			// ladder's input pair. Driven harder, the resonance squashes and growls instead of ringing clean.
-			float y0 = dirt(dirtIn * in - feedbackHighpass.process(now.k * y4));
+			// ladder's input pair. A plain note sits in the soft part of the curve, and loud resonance squashes and
+			// growls instead of ringing clean.
+			float y0 = dirt(0.5f * in - feedbackHighpass.process(now.k * y4));
 			y1 += 2.f * now.b0 * (y0 - y1 + y2);
 			y2 += now.b0 * (y1 - 2.f * y2 + y3);
 			y3 += now.b0 * (y2 - 2.f * y3 + y4);
 			y4 += now.b0 * (y3 - 2.f * y4);
-			return dirtOut * now.g * y4;
+			return 4.f * now.g * y4;
 		}
 		else {
 			float y0 = 0.125f * in - feedbackHighpass.process(now.k * y4);
@@ -222,17 +221,12 @@ private:
 		return x - (4.f / 27.f) * x * x * x - kBiasOut;
 	}
 
-	void updateDirt();
-
 	Coefficients now{0.f, 0.f, 0.f, 1.f};
 	Coefficients step_{};
 	float y1 = 0.f, y2 = 0.f, y3 = 0.f, y4 = 0.f;
 	float resonanceSkewed = 0.f;
 	float twoPiOverSampleRate = 0.f;
 	FilterMode mode_ = FilterMode::DIRT;
-	float dirtBoost = 1.f; // The drive's input gain over DIRT's at 0
-	float dirtIn = 0.5f;
-	float dirtOut = 4.f;
 	OnePole feedbackHighpass;
 };
 
@@ -245,8 +239,7 @@ public:
 
 	Open303();
 
-	/// Picks up the latest controls. Cutoff, envelope modulation, resonance, accent and waveform act at once;
-	/// decay and slide act from the next note, as on Open303.
+	/// Picks up the latest controls. All act at once, except accent, which acts from the next note.
 	void setControls(Controls const& controls);
 
 	void noteOn(int32_t note, int32_t velocity);
@@ -279,6 +272,15 @@ private:
 	void releaseNote();
 	void setAccentState(bool accent);
 	void calculateEnvModScalerAndOffset();
+	void setDrive(float drive);
+	/// The overdrive's clipper: a tanh-like soft clip, flat at +-1 from +-3, with an offset for even harmonics (the
+	/// offset's DC is taken back out, so silence stays silent)
+	[[gnu::always_inline]] static inline float overdrive(float x) {
+		constexpr float kBias = 0.2f;
+		constexpr float kBiasOut = kBias * (27.f + kBias * kBias) / (27.f + 9.f * kBias * kBias);
+		x = std::clamp(x + kBias, -3.f, 3.f);
+		return x * (27.f + x * x) / (27.f + 9.f * x * x) - kBiasOut;
+	}
 	float noteToFrequency(int32_t note) const;
 
 	Controls controls;
@@ -295,6 +297,7 @@ private:
 	float envScaler = 1.f;
 	float envOffset = 0.f;
 	float accentGain = 0.f;
+	bool accented = false; // The note playing is accented
 	bool sounding = false;
 	bool filterJump = true; // The next coefficient update jumps rather than glides: a new note, accent or knob move
 
@@ -314,6 +317,15 @@ private:
 	float lastAmp = 0.f; // After the declicker
 	bool ampAttackPending = false;
 	bool ampNoteOn = false;
+
+	// Overdrive: gain in and out, the tone lowpass's coefficient, and the state of the low shelf around the clipper
+	// and of the tone lowpass
+	float driveIn = 1.f;
+	float driveOut = 1.f;
+	float driveToneCoeff = 1.f;
+	float driveLowIn = 0.f;
+	float driveLowOut = 0.f;
+	float driveTone = 0.f;
 
 	// Leaky integrators
 	float pitchSlew = 440.f;

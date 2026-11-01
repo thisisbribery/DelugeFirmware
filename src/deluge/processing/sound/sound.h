@@ -85,11 +85,15 @@ constexpr int32_t kTb303SlideParam = deluge::modulation::params::LOCAL_MODULATOR
 // 1230 ms, which an osc 1 wavetable position left at its default gives older 303 sounds.
 constexpr int32_t kTb303DriveParam = deluge::modulation::params::LOCAL_MODULATOR_1_FEEDBACK;
 constexpr int32_t kTb303AmpDecayParam = deluge::modulation::params::LOCAL_OSC_A_WAVE_INDEX;
-// Ranges, in Hz and ms. Cutoff and decay are the 303 panel's.
+// Ranges, in Hz and ms. Cutoff is the 303 panel's.
 constexpr float kTb303CutoffMin = 314.f;
 constexpr float kTb303CutoffMax = 2394.f;
-constexpr float kTb303DecayMin = 200.f;
-constexpr float kTb303DecayMax = 2000.f;
+// Decay sets how much of the filter envelope is left at the end of a 16th at 130 bpm: 3% at the bottom (about 30 ms)
+// to 96% at the top (about 2.8 s), so it changes a pattern evenly across the knob. On the 303 panel's exponential
+// 200 to 2000 ms, everything from the middle up sounded the same on 16ths.
+constexpr float kTb303DecayNote = 115.f;
+constexpr float kTb303DecayLeftMin = 0.03f;
+constexpr float kTb303DecayLeftMax = 0.96f;
 constexpr float kTb303SlideMin = 10.f;
 constexpr float kTb303SlideMax = 300.f;
 constexpr float kTb303AmpDecayMin = 60.f;
@@ -358,9 +362,9 @@ public:
 	bool ensureTb303();
 	/// Sets this sound's 303 knobs, and the gold knobs, to a starting acid sound
 	void setupTb303Defaults(ParamManager* paramManager);
-	// The TB-303 ladder model, Open303's plain 18 dB lowpass, or the ladder with dirt. Songs from before DIRT load as
-	// CLASSIC; a fresh 303 starts on DIRT.
-	deluge::dsp::tb303::FilterMode tb303FilterMode = deluge::dsp::tb303::FilterMode::CLASSIC;
+	// The TB-303 ladder model, Open303's plain 18 dB lowpass, or the ladder with dirt. Every 303 starts on DIRT,
+	// including ones saved before it.
+	deluge::dsp::tb303::FilterMode tb303FilterMode = deluge::dsp::tb303::FilterMode::DIRT;
 
 	/// @brief Get the number of active voices
 	[[nodiscard]] size_t numActiveVoices() const { return voices_.size(); }

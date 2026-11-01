@@ -2060,18 +2060,20 @@ PLACE_SDRAM_BSS tb303::Menu tb303Menu{
 
 // In 303 mode these pads take over from the FM operators' and the LPF's. The params sit where the automation view's
 // grid already puts them, and OSC1 and the mod FX pads follow the drum synth layout: RETRIGGER accent, PULSE WIDTH
-// saw-square, FEEDBACK drive, WAVE INDEX amp decay, mod FX rate / depth the filter envelope's decay / depth. The first
-// pad for an item is the one that blinks.
+// saw-square, FEEDBACK drive, WAVE INDEX amp decay, mod FX rate / depth the filter envelope's decay / depth. The
+// Deluge's own filter drive (LPF MORPH) and envelope decay pads, which do nothing else on a 303, reach its drive and
+// decays too: ENV1 DECAY the amp decay, ENV2 DECAY the filter envelope's. The first pad for an item is the one that
+// blinks.
 struct Tb303Shortcut {
 	uint8_t x;
 	uint8_t y;
 	MenuItem* item;
 };
 PLACE_SDRAM_DATA Tb303Shortcut tb303Shortcuts[] = {
-    {8, 7, &tb303CutoffMenu},   {8, 6, &tb303ResonanceMenu}, {4, 0, &tb303EnvModMenu}, {5, 0, &tb303DecayMenu},
-    {2, 4, &tb303AccentMenu},   {2, 3, &tb303WaveformMenu},  {2, 5, &tb303DriveMenu},  {2, 6, &tb303AmpDecayMenu},
-    {3, 5, &tb303WaveformMenu}, {4, 5, &tb303SlideMenu},     {5, 5, &tb303FilterMenu}, {12, 7, &tb303DecayMenu},
-    {12, 6, &tb303EnvModMenu},
+    {8, 7, &tb303CutoffMenu},   {8, 6, &tb303ResonanceMenu}, {4, 0, &tb303EnvModMenu},   {5, 0, &tb303DecayMenu},
+    {2, 4, &tb303AccentMenu},   {2, 3, &tb303WaveformMenu},  {2, 5, &tb303DriveMenu},    {2, 6, &tb303AmpDecayMenu},
+    {3, 5, &tb303WaveformMenu}, {4, 5, &tb303SlideMenu},     {5, 5, &tb303FilterMenu},   {12, 7, &tb303DecayMenu},
+    {12, 6, &tb303EnvModMenu},  {8, 4, &tb303DriveMenu},     {8, 2, &tb303AmpDecayMenu}, {9, 2, &tb303DecayMenu},
 };
 
 MenuItem* tb303ShortcutAt(int32_t x, int32_t y) {

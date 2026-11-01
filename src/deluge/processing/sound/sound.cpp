@@ -3596,6 +3596,14 @@ float tb303ExpKnob(float position, float min, float max) {
 float tb303ExpKnobPosition(float value, float min, float max) {
 	return std::log(value / min) / std::log(max / min);
 }
+
+float tb303Decay(float position) {
+	return -kTb303DecayNote / std::log(kTb303DecayLeftMin + (kTb303DecayLeftMax - kTb303DecayLeftMin) * position);
+}
+
+float tb303DecayPosition(float ms) {
+	return (std::exp(-kTb303DecayNote / ms) - kTb303DecayLeftMin) / (kTb303DecayLeftMax - kTb303DecayLeftMin);
+}
 } // namespace
 
 void Sound::setupTb303Defaults(ParamManager* paramManager) {
@@ -3606,7 +3614,7 @@ void Sound::setupTb303Defaults(ParamManager* paramManager) {
 	set(params::LOCAL_LPF_FREQ, tb303ExpKnobPosition(500.f, kTb303CutoffMin, kTb303CutoffMax));
 	set(params::LOCAL_LPF_RESONANCE, 0.65f);
 	set(kTb303EnvModParam, 0.45f);
-	set(kTb303DecayParam, tb303ExpKnobPosition(400.f, kTb303DecayMin, kTb303DecayMax));
+	set(kTb303DecayParam, tb303DecayPosition(400.f));
 	set(kTb303AccentParam, 0.6f);
 	set(kTb303WaveformParam, 0.f);
 	set(kTb303SlideParam, tb303ExpKnobPosition(60.f, kTb303SlideMin, kTb303SlideMax));
@@ -3624,7 +3632,7 @@ void Sound::renderTb303(ParamManagerForTimeline* paramManager, std::span<q31_t> 
 	controls.cutoff = tb303ExpKnob(tb303Knob(patchedParams, params::LOCAL_LPF_FREQ), kTb303CutoffMin, kTb303CutoffMax);
 	controls.resonance = 100.f * tb303Knob(patchedParams, params::LOCAL_LPF_RESONANCE);
 	controls.envMod = 100.f * tb303Knob(patchedParams, kTb303EnvModParam);
-	controls.decay = tb303ExpKnob(tb303Knob(patchedParams, kTb303DecayParam), kTb303DecayMin, kTb303DecayMax);
+	controls.decay = tb303Decay(tb303Knob(patchedParams, kTb303DecayParam));
 	controls.accent = 100.f * tb303Knob(patchedParams, kTb303AccentParam);
 	controls.waveform = tb303Knob(patchedParams, kTb303WaveformParam);
 	controls.slideTime = tb303ExpKnob(tb303Knob(patchedParams, kTb303SlideParam), kTb303SlideMin, kTb303SlideMax);
@@ -4780,7 +4788,7 @@ void Sound::writeToFile(Serializer& writer, bool savingSong, ParamManager* param
 	}
 
 	writer.writeAttribute("mode", (char*)synthModeToString(synthMode));
-	// Always written, as no attribute means CLASSIC (files from before DIRT)
+	// Always written, so a file says which filter it was made on
 	if (synthMode == SynthMode::TB303) {
 		writer.writeAttribute("tb303Filter", (int32_t)tb303FilterMode);
 	}
