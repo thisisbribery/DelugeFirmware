@@ -39,6 +39,7 @@
 #include "io/midi/midi_engine.h"
 #include "io/midi/midi_queue.h"
 #include "memory/general_memory_allocator.h"
+#include "model/drum/drum_gates.h"
 #include "model/instrument/kit.h"
 #include "model/mod_controllable/mod_controllable_audio.h"
 #include "model/sample/sample_recorder.h"
@@ -770,6 +771,7 @@ bool calledFromScheduler = false;
 	windowSamplesBeforeLappingPlayHead = numSamples;
 	setMIDIDueAtWindowOffset(0);
 
+	drum_gates::tick();
 	flushMIDIGateBuffers();
 	setDireness(numSamples);
 

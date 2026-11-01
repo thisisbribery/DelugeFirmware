@@ -23,6 +23,7 @@
 #include "mem_functions.h"
 #include "model/action/action_logger.h"
 #include "model/clip/clip.h"
+#include "model/drum/drum_gates.h"
 #include "model/instrument/kit.h"
 #include "model/song/song.h"
 #include "model/voice/voice.h"
@@ -42,6 +43,12 @@ bool SoundDrum::readTagFromFile(Deserializer& reader, char const* tagName) {
 		                ? static_cast<deluge::dsp::drum_synth::PresetKit>(kit)
 		                : deluge::dsp::drum_synth::PresetKit::NONE;
 		reader.exitTag("presetKit");
+	}
+	else if (!strcmp(tagName, "rowGate")) {
+		const int32_t choice = reader.readTagOrAttributeValueInt();
+		gateOutChoice =
+		    choice >= GATE_OFF && choice <= GATE_OFF + NUM_GATE_CHANNELS ? static_cast<uint8_t>(choice) : GATE_BY_ROW;
+		reader.exitTag("rowGate");
 	}
 	else if (readDrumTagFromFile(reader, tagName)) {
 		// Delegation is also considered a success.
@@ -110,7 +117,25 @@ void SoundDrum::polyphonicExpressionEventOnChannelOrNote(int32_t newValue, int32
 	                                                whichCharacteristic);
 }
 
+void SoundDrum::gateOutNoteOn(ModelStackWithSoundFlags* modelStack) {
+	if (kit == nullptr) {
+		return;
+	}
+	int32_t gate = (gateOutChoice == GATE_BY_ROW)                 ? kit->gateOutFor(this)
+	               : (gateOutChoice == GATE_OFF || !kit->gateOut) ? -1
+	                                                              : gateOutChoice - GATE_OFF - 1;
+	if (gate >= 0) {
+		// Without a tail no note-off will come, so the gate is a trigger
+		drum_gates::noteOn(gate, this, !allowNoteTails(modelStack, true));
+	}
+}
+
+void SoundDrum::gateOutNoteOff(bool force) {
+	drum_gates::noteOff(this, force);
+}
+
 void SoundDrum::killAllVoices() {
+	gateOutNoteOff(true);
 	Sound::killAllVoices();
 	arpeggiator.reset();
 }
@@ -140,6 +165,9 @@ void SoundDrum::writeToFile(Serializer& writer, bool savingSong, ParamManager* p
 	writeDrumTagsToFile(writer);
 	if (presetKit != deluge::dsp::drum_synth::PresetKit::NONE) {
 		writer.writeAttribute("presetKit", static_cast<int32_t>(presetKit));
+	}
+	if (gateOutChoice != GATE_BY_ROW) {
+		writer.writeAttribute("rowGate", gateOutChoice);
 	}
 
 	Sound::writeToFile(writer, savingSong, paramManager, &arpSettings, path.get());

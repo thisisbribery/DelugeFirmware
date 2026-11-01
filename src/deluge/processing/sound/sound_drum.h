@@ -32,6 +32,12 @@ public:
 	/// The preset kit (SHIFT + KIT) this row was made by, or NONE for a row added any other way. Saved with the row.
 	deluge::dsp::drum_synth::PresetKit presetKit = deluge::dsp::drum_synth::PresetKit::NONE;
 
+	/// Kit gate out, which gate this row fires: GATE_BY_ROW (rows 1-4 = gates 1-4), GATE_OFF, or 2-5 = gates 1-4.
+	/// Saved with the row.
+	static constexpr uint8_t GATE_BY_ROW = 0;
+	static constexpr uint8_t GATE_OFF = 1;
+	uint8_t gateOutChoice = GATE_BY_ROW;
+
 	SoundDrum() : Drum(DrumType::SOUND) {}
 
 	using Sound::allowNoteTails;
@@ -41,6 +47,8 @@ public:
 	void killAllVoices() override;
 
 	bool isDrum() override { return true; }
+	void gateOutNoteOn(ModelStackWithSoundFlags* modelStack) override;
+	void gateOutNoteOff(bool force) override;
 	void noteOn(ModelStackWithThreeMainThings* modelStack, uint8_t velocity, int16_t const* mpeValues,
 	            int32_t fromMIDIChannel = MIDI_CHANNEL_NONE, uint32_t sampleSyncLength = 0, int32_t ticksLate = 0,
 	            uint32_t samplesLate = 0) override;

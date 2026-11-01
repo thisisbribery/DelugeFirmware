@@ -2078,6 +2078,8 @@ void Sound::noteOnPostArpeggiator(ModelStackWithSoundFlags* modelStack, int32_t 
 
 	lastNoteCode = noteCodePostArp; // Store for porta. We store that at both note-on and note-off.
 
+	gateOutNoteOn(modelStack);
+
 	// Send midi out for sound drums
 	if (outputMidiChannel != MIDI_CHANNEL_NONE) {
 		int32_t outputNoteCode = noteCodePostArp;
@@ -2164,6 +2166,8 @@ void Sound::allNotesOff(ModelStackWithThreeMainThings* modelStack, ArpeggiatorBa
 
 // noteCode = ALL_NOTES_OFF (default) means stop *any* voice, regardless of noteCode
 void Sound::noteOffPostArpeggiator(ModelStackWithSoundFlags* modelStack, int32_t noteCode) {
+	gateOutNoteOff(false);
+
 	// Send midi note offs out for specific notes,
 	// but only if the type of sound allows note tails (if not, note off was already sent right after its note on)
 	if (outputMidiChannel != MIDI_CHANNEL_NONE && allowNoteTails(modelStack, true)) {

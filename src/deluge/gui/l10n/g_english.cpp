@@ -682,6 +682,8 @@ PLACE_SDRAM_DATA Language english{
         {STRING_FOR_UK_ZAP, "Zap"},
         {STRING_FOR_UK_TRI, "Tri"},
         {STRING_FOR_UK_PRESET, "Kick preset"},
+        {STRING_FOR_KIT_GATE_OUT, "Gate out"},
+        {STRING_FOR_ROW_GATE, "Row gate"},
         {STRING_FOR_CYC_AMP_DECAY, "Amp decay"},
         {STRING_FOR_NEW_KIT_TYPE, "New kit"},
         {STRING_FOR_SYNTH_INSTRUMENT, "Instrument"},

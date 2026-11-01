@@ -389,6 +389,17 @@ For a grime or trap 808 line, put ULTRAKIK on a synth with polyphony LEGATO and 
 
 **CPU.** About 1.4 times a Cyc Kik voice at the defaults (under 1% of the CPU per hit), and under 1.8 times with everything on, measured against Cyc Kik on a computer rather than on the Deluge. Each stage runs only while it's doing something: the click stops after its burst, grit once the body is too quiet to carry it, the sweep once it's over. A hit ends once it's 72 dB down, counting the drive's gain.
 
+## Gate out
+
+**Gate out** (**GATE OUT**, new in v1.22) sends a kit's bottom four rows out of the Deluge's four gate outputs as they play: row 1 to gate 1, row 2 to gate 2, row 3 to gate 3, row 4 to gate 4. On the LXR and Cycles preset kits that's kick, snare, hat 1 and hat 2, so a modular or another drum machine can follow the kit.
+
+- **Turning it on.** In the kit's menu (with AFFECT ENTIRE on, after **Kit arp**), or at the end of the **Drum synth** menu on a drum synth row. It's off on new kits and saved with the song.
+- **One kit at a time.** Turning it on for one kit turns it off for every other kit in the song.
+- **Row gate** (**ROW GATE**, in the **Drum synth** menu after Gate out) picks the gate for that row: **Auto** (by row, as above), **Off**, or gate **1** to **4**. Two rows can share a gate. It's saved with the row.
+- **Gate length.** A sound with a tail (a held note, a decay that holds) holds its gate for as long as the note plays. A one-shot hit sends a 12 ms trigger. A new hit drops the gate first, so every hit retriggers, and every gate stays high at least 12 ms so a module always sees it.
+- Any sound row in rows 1 to 4 fires a gate, samples included. MIDI and gate rows don't.
+- CV clips or a kit's GATE rows that use the same gate outputs still share them with Gate out, so keep them on different gates.
+
 ## CPU load
 
 **SHIFT + SELECT > CPU load** shows the audio engine's load while you play:

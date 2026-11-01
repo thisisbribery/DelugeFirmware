@@ -94,6 +94,7 @@
 #include "gui/menu_item/integer_range.h"
 #include "gui/menu_item/key_range.h"
 #include "gui/menu_item/keyboard/layout.h"
+#include "gui/menu_item/kit_gate_out.h"
 #include "gui/menu_item/lfo/sync.h"
 #include "gui/menu_item/lfo/type.h"
 #include "gui/menu_item/master_transpose.h"
@@ -1615,6 +1616,8 @@ PLACE_SDRAM_BSS drum_synth::UltrakikClickType ukClickTypeMenu{STRING_FOR_UK_CLIC
 PLACE_SDRAM_BSS drum_synth::PatchNumber ukCrushMenu{STRING_FOR_UK_CRUSH, DrumParam::UK_CRUSH};
 PLACE_SDRAM_BSS drum_synth::PatchNumber ukBendTimeMenu{STRING_FOR_UK_BEND_TIME, DrumParam::UK_BEND_TIME};
 PLACE_SDRAM_BSS drum_synth::PatchNumber ukSnapMenu{STRING_FOR_UK_SNAP, DrumParam::UK_SNAP};
+PLACE_SDRAM_BSS KitGateOut kitGateOutMenu{STRING_FOR_KIT_GATE_OUT};
+PLACE_SDRAM_BSS KitRowGate kitRowGateMenu{STRING_FOR_ROW_GATE};
 // Items the current engine doesn't use hide themselves
 PLACE_SDRAM_BSS menu_item::Submenu drumSynthMenu{
     STRING_FOR_DRUM_SYNTH,
@@ -1700,6 +1703,8 @@ PLACE_SDRAM_BSS menu_item::Submenu drumSynthMenu{
         &ukHoldMenu,
         &ukDecayMenu,
         &drumSnappyDecayMenu,
+        &kitGateOutMenu,
+        &kitRowGateMenu,
     },
 };
 
@@ -2508,6 +2513,7 @@ PLACE_SDRAM_BSS menu_item::Submenu soundEditorRootMenuKitGlobalFX{
         &kitGlobalFXActionsMenu,
         &kitClipMasterMenu,
         &kitArpMenu,
+        &kitGateOutMenu,
         &audioCompMenu,
         &globalFiltersMenu,
         &kitFXMenu,

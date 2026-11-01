@@ -40,6 +40,11 @@ public:
 	/// On a preset kit (LXR, Cycles): the preset last kept from its Kit presets list, the file name without .XML, or
 	/// "*" for Default. Empty if none was. Saved with the kit.
 	String presetName;
+	/// Kit gate out: rows 1-4 also fire gate outs 1-4. Only one kit in the song has it on. Saved with the song.
+	bool gateOut = false;
+	void setGateOut(bool on);
+	/// The gate out (0-3) a row set to "by row" fires as it sounds, or -1
+	int32_t gateOutFor(Drum* drum);
 
 	Drum* getNextDrum(Drum* fromSoundSource);
 	Drum* getPrevDrum(Drum* fromSoundSource);

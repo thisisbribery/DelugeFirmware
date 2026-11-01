@@ -30,6 +30,7 @@
 #include "memory/general_memory_allocator.h"
 #include "model/clip/instrument_clip.h"
 #include "model/drum/drum.h"
+#include "model/drum/drum_gates.h"
 #include "model/drum/gate_drum.h"
 #include "model/drum/midi_drum.h"
 #include "model/drum/non_audio_drum.h"
@@ -120,6 +121,10 @@ bool Kit::writeDataToFile(Serializer& writer, Clip* clipForSavingOutputOnly, Son
 	// Not "presetName": that's the kit's own name (Instrument::writeDataToFile)
 	if (!presetName.isEmpty()) {
 		writer.writeAttribute("kitPreset", presetName.get());
+	}
+	// Only in songs: a kit file loaded into a song that already has a gate kit would make two
+	if (gateOut && clipForSavingOutputOnly == nullptr) {
+		writer.writeAttribute("gateOut", 1);
 	}
 
 	writer.writeOpeningTagEnd();
@@ -307,6 +312,10 @@ doReadDrum:
 		else if (!strcmp(tagName, "kitPreset")) {
 			reader.readTagOrAttributeValueString(&presetName);
 			reader.exitTag("kitPreset");
+		}
+		else if (!strcmp(tagName, "gateOut")) {
+			gateOut = reader.readTagOrAttributeValueInt() != 0;
+			reader.exitTag("gateOut");
 		}
 		else if (!strcmp(tagName, "presetName")) {
 			// The kit's own name, which the song's clips find it by. v1.12 to v1.19 also saved the Kit presets entry
@@ -1395,6 +1404,38 @@ void Kit::noteOffPreKitArp(ModelStackWithThreeMainThings* modelStack, Drum* drum
 			thisNoteRow->drum->noteOff(modelStack, velocity);
 		}
 	}
+}
+
+void Kit::setGateOut(bool on) {
+	if (on) {
+		// One kit at a time: the others let go of the gates
+		for (Output* output = currentSong->firstOutput; output != nullptr; output = output->next) {
+			if (output->type == OutputType::KIT && output != this) {
+				static_cast<Kit*>(output)->gateOut = false;
+			}
+		}
+		for (Output* output = currentSong->firstHibernatingInstrument; output != nullptr; output = output->next) {
+			if (output->type == OutputType::KIT && output != this) {
+				static_cast<Kit*>(output)->gateOut = false;
+			}
+		}
+	}
+	gateOut = on;
+	drum_gates::allOff();
+}
+
+int32_t Kit::gateOutFor(Drum* drum) {
+	if (!gateOut) {
+		return -1;
+	}
+	int32_t index = -1;
+	if (activeClip != nullptr) {
+		static_cast<InstrumentClip*>(activeClip)->getNoteRowForDrum(drum, &index);
+	}
+	else {
+		index = getDrumIndex(drum);
+	}
+	return (index >= 0 && index < NUM_GATE_CHANNELS) ? index : -1;
 }
 
 GateDrum* Kit::getGateDrumForChannel(int32_t gateChannel) {

@@ -259,6 +259,9 @@ public:
 	[[nodiscard]] SynthMode getSynthMode() const { return synthMode; }
 
 	virtual bool isDrum() { return false; }
+	/// Kit gate out (SoundDrum): a note of this sound began / ended after the arpeggiator
+	virtual void gateOutNoteOn(ModelStackWithSoundFlags* modelStack) {}
+	virtual void gateOutNoteOff(bool force) {}
 	void setupAsSample(ParamManagerForTimeline* paramManager);
 	/// A kit row on an LXR voice from preset, or, given a Cyc engine, on that engine at the note as the Cycles plays
 	/// it, or given a GIN kit sound (or Engine::GIN for the default one), on GIN tuned to that sound
