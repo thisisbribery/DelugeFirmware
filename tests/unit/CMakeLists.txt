@@ -84,6 +84,8 @@ file(GLOB_RECURSE deluge_SOURCES
         ../../src/deluge/dsp/drum_synth/gin_kits.cpp
         ../../src/deluge/dsp/drum_synth/ultrakik.cpp
         ../../src/deluge/dsp/drum_synth/ultrakik_presets.cpp
+        # For FFT magnitude tests
+        ../../src/deluge/util/fast_pythag.cpp
 )
 
 add_executable(UnitTests
@@ -113,6 +115,8 @@ add_executable(UnitTests
         xia_tests.cpp
         cyc_tests.cpp
         ultrakik_tests.cpp
+        fast_pythag_tests.cpp
+        tick_interpolation_tests.cpp
 )
 add_test(NAME UnitTests
         COMMAND UnitTests)

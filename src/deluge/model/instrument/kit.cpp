@@ -948,10 +948,10 @@ void Kit::choke() {
 	}
 }
 
-void Kit::resyncLFOs() {
+void Kit::resyncLFOs(bool reset_state) {
 	for (Drum* thisDrum = firstDrum; thisDrum; thisDrum = thisDrum->next) {
 		if (thisDrum && thisDrum->type == DrumType::SOUND) {
-			((SoundDrum*)thisDrum)->resyncGlobalLFOs();
+			((SoundDrum*)thisDrum)->resyncGlobalLFOs(reset_state);
 		}
 	}
 }
@@ -1349,6 +1349,7 @@ void Kit::noteOnPreKitArp(ModelStackWithThreeMainThings* modelStack, Drum* drum,
 		}
 
 		// If kit arp not bypassed, execute instruction
+		kitInstruction.sampleSyncLengthOn = sampleSyncLength;
 		arpeggiator.noteOn(arpSettings, drumIndex, velocity, &kitInstruction, fromMIDIChannel, mpeValues);
 		if (kitInstruction.arpNoteOn != nullptr && kitInstruction.arpNoteOn->noteCodeOnPostArp[0] != ARP_NOTE_NONE) {
 			// Set the invertReverse flag for the drum arpeggiator

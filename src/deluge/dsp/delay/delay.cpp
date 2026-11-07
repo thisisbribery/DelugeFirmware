@@ -354,9 +354,7 @@ void Delay::process(std::span<StereoSample> buffer, const State& delayWorkingSta
 	}
 
 	if (analog) {
-		for (StereoSample& sample : working_buffer) {
-			ir_processor.process(sample, sample);
-		}
+		ir_processor.process(working_buffer);
 	}
 
 	// Tone filters what's read back, before it's split into output and feedback, so each repeat goes through it
@@ -371,12 +369,24 @@ void Delay::process(std::span<StereoSample> buffer, const State& delayWorkingSta
 
 	auto applyLevel = [&](std::span<StereoSample> samples, int32_t level) {
 		if (analog) {
-			for (StereoSample& sample : samples) {
-				// Reduce headroom, since this sounds ok with analog sim
-				sample.l = getTanHUnknown(multiply_32x32_rshift32(sample.l, level), delayWorkingState.analog_saturation)
-				           << 2;
-				sample.r = getTanHUnknown(multiply_32x32_rshift32(sample.r, level), delayWorkingState.analog_saturation)
-				           << 2;
+			// Reduce headroom, since this sounds ok with analog sim. The saturation amount is fixed for the whole
+			// buffer, so pick the tanh once rather than switching on it for every sample
+			auto saturate = [&]<typename TanH>(TanH tanH) {
+				for (StereoSample& sample : samples) {
+					sample.l = tanH(multiply_32x32_rshift32(sample.l, level)) << 2;
+					sample.r = tanH(multiply_32x32_rshift32(sample.r, level)) << 2;
+				}
+			};
+			switch (delayWorkingState.analog_saturation) {
+			case 8:
+				saturate([](int32_t input) { return getTanH<8>(input); });
+				break;
+			case 5:
+				saturate([](int32_t input) { return getTanH<5>(input); });
+				break;
+			default:
+				saturate([&](int32_t input) { return getTanHUnknown(input, delayWorkingState.analog_saturation); });
+				break;
 			}
 		}
 		else {
