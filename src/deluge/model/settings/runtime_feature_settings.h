@@ -77,6 +77,7 @@ enum RuntimeFeatureSettingType : uint32_t {
 	TapTempoAction,
 	EndlessRecord,
 	PadGuides,
+	ElektronLocks,
 	MaxElement // Keep as boundary
 };
 

@@ -21,6 +21,7 @@
 #include "fatfs.hpp"
 #include "gui/colour/colour.h"
 #include "gui/context_menu/kit_presets.h"
+#include "gui/context_menu/midi_track_type.h"
 #include "gui/context_menu/new_kit_type.h"
 #include "gui/context_menu/stem_export/cancel_stem_export.h"
 #include "gui/context_menu/synth_instrument.h"
@@ -82,6 +83,7 @@
 #include "model/settings/runtime_feature_settings.h"
 #include "model/song/song.h"
 #include "modulation/automation/auto_param.h"
+#include "modulation/automation/elektron_locks.h"
 #include "modulation/params/param_manager.h"
 #include "modulation/params/param_node.h"
 #include "modulation/params/param_set.h"
@@ -564,16 +566,14 @@ ActionResult InstrumentClipView::buttonAction(deluge::hid::Button b, bool on, bo
 			}
 
 			if (currentUIMode == UI_MODE_NONE) {
-				changeOutputType(OutputType::MIDI_OUT);
-
-				// Drop out of scale mode if the clip is now routed to MIDI transpose,
-				// and the transposer is set to chromatic.
-				InstrumentClip* clip = getCurrentInstrumentClip();
-				if (clip->output->type == OutputType::MIDI_OUT
-				    && MIDITranspose::controlMethod == MIDITransposeControlMethod::CHROMATIC
-				    && ((NonAudioInstrument*)clip->output)->getChannel() == MIDI_CHANNEL_TRANSPOSE) {
-					exitScaleMode();
-					clip->inScaleMode = false;
+				// SHIFT + MIDI: a MIDI track or an MKIT. The menu does the changing.
+				if (Buttons::isShiftButtonPressed() && getCurrentUI() == getRootUI()) {
+					if (context_menu::midiTrackType.setupAndCheckAvailability()) {
+						openUI(&context_menu::midiTrackType);
+					}
+				}
+				else {
+					changeToMIDIOutput();
 				}
 			}
 			else if (currentUIMode == UI_MODE_ADDING_DRUM_NOTEROW || currentUIMode == UI_MODE_AUDITIONING) {
@@ -2156,6 +2156,75 @@ bool InstrumentClipView::createNewDrumSynthKit(deluge::dsp::drum_synth::PresetKi
 	return true;
 }
 
+void InstrumentClipView::changeToMIDIOutput() {
+	changeOutputType(OutputType::MIDI_OUT);
+
+	// Drop out of scale mode if the clip is now routed to MIDI transpose,
+	// and the transposer is set to chromatic.
+	InstrumentClip* clip = getCurrentInstrumentClip();
+	if (clip->output->type == OutputType::MIDI_OUT
+	    && MIDITranspose::controlMethod == MIDITransposeControlMethod::CHROMATIC
+	    && ((NonAudioInstrument*)clip->output)->getChannel() == MIDI_CHANNEL_TRANSPOSE) {
+		exitScaleMode();
+		clip->inScaleMode = false;
+	}
+}
+
+bool InstrumentClipView::createNewMIDIKit(deluge::midi_kit::Layout layout) {
+	using namespace deluge::midi_kit;
+
+	// A clip's notes can't move between a kit and a melodic track
+	InstrumentClip* clip = getCurrentInstrumentClip();
+	if (getCurrentOutputType() != OutputType::KIT && (!clip->isEmpty() || !clip->output->isEmpty())) {
+		display->displayPopup(deluge::l10n::get(deluge::l10n::String::STRING_FOR_MIDI_KIT_NEEDS_EMPTY_CLIP));
+		return false;
+	}
+	if (!InstrumentClipMinder::createNewInstrument(OutputType::KIT, false)) {
+		return false;
+	}
+	recalculateColours();
+
+	char modelStackMemory[MODEL_STACK_MAX_SIZE];
+	ModelStackWithTimelineCounter* modelStack = currentSong->setupModelStackWithCurrentClip(modelStackMemory);
+	clip = getCurrentInstrumentClip();
+	Kit* kit = getCurrentKit();
+	Drum* firstDrum = nullptr;
+
+	for (int32_t i = 0; i < kNumRows; i++) {
+		int32_t noteRowIndex = i;
+		NoteRow* noteRow = (i < clip->noteRows.getNumElements()) ? clip->noteRows.getElement(i) : nullptr;
+		if (noteRow == nullptr || noteRow->drum != nullptr) {
+			noteRow = clip->createNewNoteRowForKit(modelStack, false, &noteRowIndex);
+		}
+		auto* newDrum =
+		    (noteRow != nullptr) ? static_cast<MIDIDrum*>(StorageManager::createNewDrum(DrumType::MIDI)) : nullptr;
+		if (newDrum == nullptr) {
+			display->displayError(Error::INSUFFICIENT_RAM);
+			break;
+		}
+		const Row row = rowFor(layout, i);
+		newDrum->channel = row.channel;
+		newDrum->note = row.note;
+
+		kit->addDrum(newDrum);
+		ModelStackWithNoteRow* modelStackWithNoteRow = modelStack->addNoteRow(noteRowIndex, noteRow);
+		ParamManager paramManager;
+		noteRow->setDrum(newDrum, kit, modelStackWithNoteRow, nullptr, &paramManager);
+
+		if (firstDrum == nullptr) {
+			firstDrum = newDrum;
+		}
+	}
+
+	kit->beenEdited();
+	if (firstDrum != nullptr) {
+		setSelectedDrum(firstDrum, true);
+	}
+	display->consoleText(deluge::l10n::get(deluge::l10n::String::STRING_FOR_NEW_MIDI_KIT_CREATED));
+	uiNeedsRendering(this);
+	return true;
+}
+
 bool InstrumentClipView::changeOutputType(OutputType newOutputType) {
 
 	if (getCurrentOutputType() == newOutputType) {
@@ -3008,6 +3077,9 @@ void InstrumentClipView::editPadAction(bool state, uint8_t yDisplay, uint8_t xDi
 					// If new note...
 					if (squareType == SQUARE_NEW_NOTE) {
 
+						// Elektron P-locks: a new note inside a lock plays the unlocked value
+						deluge::plock::noteAdded(modelStackWithNoteRow, firstNote->pos, action);
+
 						// Mono CV: one note per column, so the new note clears its column on every other row
 						if (clip->isMono()) {
 							clearOtherMonoRows(noteRow, squareStart, squareWidth, action);
@@ -3034,10 +3106,10 @@ void InstrumentClipView::editPadAction(bool state, uint8_t yDisplay, uint8_t xDi
 
 					// Can only set the mod region after setting the selected drum! Otherwise the params' currentValues
 					// don't end up right
-					view.setModRegion(
-					    firstNote->pos,
-					    std::max((uint32_t)distanceToNextNote + lastNote->pos - firstNote->pos, squareWidth),
-					    modelStackWithNoteRow->noteRowId);
+					view.setModRegion(firstNote->pos,
+					                  deluge::plock::lockLength(std::max(
+					                      (uint32_t)distanceToNextNote + lastNote->pos - firstNote->pos, squareWidth)),
+					                  modelStackWithNoteRow->noteRowId);
 
 					// Now that we're holding a note down, get set up for if the user wants to edit its MPE values.
 					for (int32_t t = 0; t < MPE_RECORD_LENGTH_FOR_NOTE_EDITING; t++) {
@@ -3103,8 +3175,27 @@ void InstrumentClipView::editPadAction(bool state, uint8_t yDisplay, uint8_t xDi
 
 				int32_t wrapEditLevel = clip->getWrapEditLevel();
 
-				noteRow->clearArea(squareStart, getSquareWidth(xDisplay, modelStackWithNoteRow->getLoopLength()),
-				                   modelStackWithNoteRow, action, wrapEditLevel);
+				const int32_t squareWidthHere = getSquareWidth(xDisplay, modelStackWithNoteRow->getLoopLength());
+
+				// Elektron P-locks: the notes going, so their locks can go with them
+				std::array<int32_t, 8> deletedPositions;
+				int32_t numDeleted = 0;
+				if (deluge::plock::active()) {
+					for (int32_t n = noteRow->notes.search(squareStart, GREATER_OR_EQUAL);
+					     n < noteRow->notes.getNumElements() && numDeleted < (int32_t)deletedPositions.size(); n++) {
+						const int32_t notePos = noteRow->notes.getElement(n)->pos;
+						if (notePos >= squareStart + squareWidthHere) {
+							break;
+						}
+						deletedPositions[numDeleted++] = notePos;
+					}
+				}
+
+				noteRow->clearArea(squareStart, squareWidthHere, modelStackWithNoteRow, action, wrapEditLevel);
+
+				for (int32_t n = 0; n < numDeleted; n++) {
+					deluge::plock::noteDeleted(modelStackWithNoteRow, deletedPositions[n], action);
+				}
 
 				noteRow->clearMPEUpUntilNextNote(modelStackWithNoteRow, squareStart, wrapEditLevel, true);
 
@@ -3178,6 +3269,10 @@ void InstrumentClipView::endAllEditPadPresses() {
 
 void InstrumentClipView::checkIfAllEditPadPressesEnded(bool mayRenderSidebar) {
 	if (numEditPadPresses == 0) {
+		// Elektron P-locks: with the transport stopped, back to the unlocked value
+		if (view.modLength) {
+			deluge::plock::stepReleased(view.modPos);
+		}
 		view.setModRegion();
 		exitUIMode(UI_MODE_NOTES_PRESSED);
 		actionLogger.closeAction(ActionType::NOTE_EDIT);
@@ -7829,7 +7924,7 @@ abandonModRegion:
 		// view.setModRegion(newPos, max((uint32_t)distanceToNextNote + lastNote->pos - firstNote->pos,
 		// squareWidth));
 		// // This is what happens with initial press, kinda different...
-		view.setModRegion(newPos, distanceToNextNote, modelStackWithNoteRow->noteRowId);
+		view.setModRegion(newPos, deluge::plock::lockLength(distanceToNextNote), modelStackWithNoteRow->noteRowId);
 	}
 
 	uiNeedsRendering(this, 0xFFFFFFFF, 0);

@@ -53,8 +53,9 @@ public:
 		static auto y = l10n::getView(STRING_FOR_PATCH_SOURCE_Y);
 		static auto a = l10n::getView(STRING_FOR_PATCH_SOURCE_AFTERTOUCH);
 		static auto v = l10n::getView(STRING_FOR_VELOCITY);
+		static auto l = l10n::getView(STRING_FOR_CV2_LOCK);
 
-		return {o, y, a, v};
+		return {o, y, a, v, l};
 	}
 	bool isRelevant(ModControllableAudio* modControllable, int32_t whichThing) const override {
 		// not relevant for cv

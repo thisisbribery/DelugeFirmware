@@ -66,6 +66,7 @@ public:
 	                  bool maySetupPatching) final;
 	void nudgeNonInterpolatingNodesAtPos(int32_t pos, int32_t offset, int32_t lengthBeforeLoop, Action* action,
 	                                     ModelStackWithParamCollection* modelStack) final;
+	void forEachAutomatedParam(ModelStackWithParamCollection* modelStack, AutoParamVisitor visit, void* context) final;
 	void paramHasAutomationNow(ParamCollectionSummary* summary, int32_t p);
 	void paramHasNoAutomationNow(ModelStackWithParamCollection const* modelStack, int32_t p);
 

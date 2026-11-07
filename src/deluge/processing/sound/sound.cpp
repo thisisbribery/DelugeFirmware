@@ -32,6 +32,7 @@
 #include "model/action/action.h"
 #include "model/action/action_logger.h"
 #include "model/clip/instrument_clip.h"
+#include "model/drum/drum_gates.h"
 #include "model/instrument/kit.h"
 #include "model/model_stack.h"
 #include "model/sample/sample.h"
@@ -2114,9 +2115,9 @@ void Sound::noteOnPostArpeggiator(ModelStackWithSoundFlags* modelStack, int32_t 
 		midiEngine.sendNote(this, true, outputNoteCode, velocity, outputMidiChannel, 0);
 
 		// If the note doesn't have a tail (for ONCE samples for example and if ARP is OFF), we will never get a noteOff
-		// event to be called by the sequencer, so we need to "off" the note right now
+		// event to be called by the sequencer, so the note is ended after a trigger's length
 		if (!allowNoteTails(modelStack, true)) {
-			midiEngine.sendNote(this, false, outputNoteCode, kDefaultNoteOffVelocity, outputMidiChannel, 0);
+			drum_gates::midiOneShot(this, outputNoteCode, outputMidiChannel);
 		}
 	}
 }

@@ -1220,6 +1220,16 @@ PLACE_SDRAM_DATA Language english{
         {STRING_FOR_DEFAULT_HORIZONTAL_MENU, "Horizontal Menu"},
         {STRING_FOR_CHORD_KEYBOARD_MODE_ROW, "Chord Row Mode"},
         {STRING_FOR_CHORD_KEYBOARD_MODE_COLUMN, "Chord Column Mode"},
+        {STRING_FOR_MIDI_TRACK_TYPE, "MIDI track"},
+        {STRING_FOR_MIDI_KIT, "MIDI kit"},
+        {STRING_FOR_MIDI_KIT_LAYOUT, "MIDI kit layout"},
+        {STRING_FOR_MIDI_KIT_ONE_CHANNEL, "1 channel, GM drums"},
+        {STRING_FOR_MIDI_KIT_SIXTEEN_CHANNELS, "16 channels"},
+        {STRING_FOR_MIDI_KIT_BLANK, "Blank"},
+        {STRING_FOR_NEW_MIDI_KIT_CREATED, "New MIDI kit created"},
+        {STRING_FOR_MIDI_KIT_NEEDS_EMPTY_CLIP, "Clip must be empty"},
+        {STRING_FOR_CV2_LOCK, "Lock (semitones)"},
+        {STRING_FOR_COMMUNITY_FEATURE_ELEKTRON_LOCKS, "Elektron P-locks"},
     },
 };
 } // namespace deluge::l10n::built_in

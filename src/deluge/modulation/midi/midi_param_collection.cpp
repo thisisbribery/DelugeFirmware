@@ -269,6 +269,17 @@ void MIDIParamCollection::grabValuesFromPos(uint32_t pos, ModelStackWithParamCol
 	}
 }
 
+void MIDIParamCollection::forEachAutomatedParam(ModelStackWithParamCollection* modelStack, AutoParamVisitor visit,
+                                                void* context) {
+	// Backwards, as a visit may remove a param that's left with nothing in it
+	for (int32_t i = params.getNumElements() - 1; i >= 0; i--) {
+		MIDIParam* midiParam = params.getElement(i);
+		if (midiParam->param.isAutomated()) {
+			visit(modelStack->addAutoParam(midiParam->cc, &midiParam->param), context);
+		}
+	}
+}
+
 void MIDIParamCollection::nudgeNonInterpolatingNodesAtPos(int32_t pos, int32_t offset, int32_t lengthBeforeLoop,
                                                           Action* action, ModelStackWithParamCollection* modelStack) {
 

@@ -217,6 +217,11 @@ void RuntimeFeatureSettings::init() {
 	SetupOnOffSetting(settings[RuntimeFeatureSettingType::PadGuides], STRING_FOR_COMMUNITY_FEATURE_PAD_GUIDES,
 	                  "padGuides", RuntimeFeatureStateToggle::On);
 
+	// ElektronLocks: a lock made by holding a step and turning a knob stays on that step. New notes play the unlocked
+	// value, deleting a note takes its locks with it, and letting go of the step puts the unlocked value back.
+	SetupOnOffSetting(settings[RuntimeFeatureSettingType::ElektronLocks], STRING_FOR_COMMUNITY_FEATURE_ELEKTRON_LOCKS,
+	                  "elektronLocks", RuntimeFeatureStateToggle::Off);
+
 	// AlternativeTapTempoBehaviour
 	SetupOnOffSetting(settings[RuntimeFeatureSettingType::AlternativeTapTempoBehaviour],
 	                  STRING_FOR_COMMUNITY_FEATURE_ALTERNATIVE_TAP_TEMPO_BEHAVIOUR, "alternativeTapTempoBehaviour",

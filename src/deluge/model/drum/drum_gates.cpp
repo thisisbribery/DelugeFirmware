@@ -17,6 +17,7 @@
 
 #include "model/drum/drum_gates.h"
 #include "definitions_cxx.hpp"
+#include "io/midi/midi_engine.h"
 #include "model/instrument/kit.h"
 #include "model/song/song.h"
 #include "processing/engines/audio_engine.h"
@@ -116,10 +117,48 @@ void takeGates(uint32_t mask) {
 	}
 }
 
+namespace {
+struct MIDIOneShot {
+	Sound const* sound;
+	uint32_t onTime;
+	uint8_t note;
+	uint8_t channel;
+};
+constexpr int32_t kMaxMIDIOneShots = 16;
+MIDIOneShot midiOneShots[kMaxMIDIOneShots];
+int32_t numMIDIOneShots = 0;
+
+void midiOneShotOff(MIDIOneShot const& oneShot) {
+	midiEngine.sendNote(oneShot.sound, false, oneShot.note, kDefaultNoteOffVelocity, oneShot.channel, 0);
+}
+} // namespace
+
+void midiOneShot(Sound const* sound, int32_t note, int32_t channel) {
+	// Retriggering the same note ends the earlier one first
+	for (int32_t i = 0; i < numMIDIOneShots; i++) {
+		if (midiOneShots[i].note == note && midiOneShots[i].channel == channel) {
+			midiOneShots[i] = midiOneShots[--numMIDIOneShots];
+			break;
+		}
+	}
+	if (numMIDIOneShots == kMaxMIDIOneShots) {
+		midiOneShotOff(midiOneShots[0]);
+		midiOneShots[0] = midiOneShots[--numMIDIOneShots];
+	}
+	midiOneShots[numMIDIOneShots++] = {sound, AudioEngine::audioSampleTimer, static_cast<uint8_t>(note),
+	                                   static_cast<uint8_t>(channel)};
+}
+
 void tick() {
 	for (int32_t g = 0; g < NUM_GATE_CHANNELS; g++) {
 		if (gates[g].offPending && heldLongEnough(g)) {
 			switchOff(g);
+		}
+	}
+	for (int32_t i = 0; i < numMIDIOneShots; i++) {
+		if (AudioEngine::audioSampleTimer - midiOneShots[i].onTime >= kTriggerSamples) {
+			midiOneShotOff(midiOneShots[i]);
+			midiOneShots[i--] = midiOneShots[--numMIDIOneShots];
 		}
 	}
 }

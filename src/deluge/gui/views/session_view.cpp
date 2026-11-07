@@ -1521,6 +1521,31 @@ ActionResult SessionView::verticalScrollOneSquare(int32_t direction) {
 	return ActionResult::DEALT_WITH;
 }
 
+// Section pads show each track's type by how they move (see trackTypeBrightness). Refreshed from the graphics
+// routine, which only runs while the pads' UART has room, so it can't hold up anything else.
+void SessionView::animateTrackTypes() {
+	if (currentSong->sessionLayout != SessionLayoutType::SessionLayoutTypeRows || getCurrentUI() != this
+	    || PadLEDs::renderingLock || view.midiLearnFlashOn) {
+		return;
+	}
+	// Every other routine (about 30 a second) is smooth enough
+	static uint32_t lastTime = 0;
+	if (AudioEngine::audioSampleTimer - lastTime < (kSampleRate / 32)) {
+		return;
+	}
+	lastTime = AudioEngine::audioSampleTimer;
+
+	bool changed = false;
+	for (int32_t y = 0; y < kDisplayHeight; y++) {
+		const RGB before = PadLEDs::image[y][kDisplayWidth + 1];
+		drawSectionSquare(y, PadLEDs::image[y]);
+		changed = changed || !(PadLEDs::image[y][kDisplayWidth + 1] == before);
+	}
+	if (changed) {
+		PadLEDs::sendOutSidebarColours();
+	}
+}
+
 bool SessionView::renderSidebar(uint32_t whichRows, RGB image[][kDisplayWidth + kSideBarWidth],
                                 uint8_t occupancyMask[][kDisplayWidth + kSideBarWidth]) {
 	if (!image) {
@@ -1559,6 +1584,43 @@ void SessionView::drawStatusSquare(uint8_t yDisplay, RGB thisImage[]) {
 	}
 }
 
+namespace {
+/// Where the beat is, 0-255 over numBeats quarter notes: from the playhead while playing, else at the song's tempo
+uint32_t beatPhase(int32_t numBeats) {
+	const uint64_t quarterNote = currentSong->getQuarterNoteLength();
+	uint64_t position;
+	uint64_t period;
+	if (playbackHandler.isEitherClockActive()) {
+		position = static_cast<uint64_t>(std::max<int64_t>(playbackHandler.getActualSwungTickCount(), 0));
+		period = quarterNote * numBeats;
+	}
+	else {
+		position = AudioEngine::audioSampleTimer;
+		period = ((currentSong->timePerTimerTickBig * quarterNote) >> 32) * numBeats;
+	}
+	return (period == 0) ? 0 : static_cast<uint32_t>((position % period) * 256 / period);
+}
+
+/// Section pads move with the type of track: kits flash on the beat, synths pulse gently, MIDI pings bright and fades
+/// over each beat (a sawtooth), CV and audio stay solid
+uint8_t trackTypeBrightness(OutputType type) {
+	constexpr uint32_t kLow = 50;
+	switch (type) {
+	case OutputType::KIT:
+		return (beatPhase(1) < 40) ? 255 : kLow;
+	case OutputType::SYNTH: {
+		const uint32_t phase = beatPhase(2);
+		const uint32_t triangle = (phase < 128) ? phase * 2 : (255 - phase) * 2;
+		return kLow + (triangle * triangle / 255) * (255 - kLow) / 255; // Eased, so it breathes
+	}
+	case OutputType::MIDI_OUT:
+		return 255 - beatPhase(1) * (255 - kLow) / 255;
+	default:
+		return 255;
+	}
+}
+} // namespace
+
 void SessionView::drawSectionSquare(uint8_t yDisplay, RGB thisImage[]) {
 	RGB& thisColour = thisImage[kDisplayWidth + 1];
 
@@ -1580,6 +1642,9 @@ void SessionView::drawSectionSquare(uint8_t yDisplay, RGB thisImage[]) {
 			if (view.midiLearnFlashOn && currentSong
 			    && view.learnedThing == &currentSong->sections[clip->section].launchMIDICommand) {
 				thisColour = thisColour.dim();
+			}
+			else {
+				thisColour = thisColour.adjust(trackTypeBrightness(clip->output->type), 1);
 			}
 		}
 	}
@@ -2225,6 +2290,9 @@ void SessionView::graphicsRoutine() {
 
 	if (view.potentiallyRenderVUMeter(PadLEDs::image)) {
 		PadLEDs::sendOutSidebarColours();
+	}
+	else {
+		animateTrackTypes();
 	}
 
 	if (display->haveOLED()) {

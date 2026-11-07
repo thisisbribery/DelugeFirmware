@@ -54,6 +54,8 @@ public:
 	void grabValuesFromPos(uint32_t pos, ModelStackWithParamCollection* modelStack) override;
 	void nudgeNonInterpolatingNodesAtPos(int32_t pos, int32_t offset, int32_t lengthBeforeLoop, Action* action,
 	                                     ModelStackWithParamCollection* modelStack) override;
+	void forEachAutomatedParam(ModelStackWithParamCollection* modelStack, AutoParamVisitor visit,
+	                           void* context) override;
 	ModelStackWithAutoParam* getAutoParamFromId(ModelStackWithParamId* modelStack, bool allowCreation = true) override;
 	static int32_t autoparamValueToCC(int32_t newValue);
 

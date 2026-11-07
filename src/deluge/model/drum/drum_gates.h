@@ -19,6 +19,8 @@
 
 #include <cstdint>
 
+class Sound;
+
 /// Kit gate out: the bottom four rows of one kit (kick, snare, hat 1, hat 2 on the preset kits) fire gate outs 1-4 as
 /// they sound. A gate follows the note when the sound has a note tail, else it's a short trigger, and is always held
 /// long enough for a module to see it.
@@ -34,6 +36,9 @@ void noteOff(void const* owner, bool force = false);
 void allOff();
 /// Once per audio routine: ends triggers and gates held up to their minimum length
 void tick();
+/// A sound with no note tail sent MIDI note on: send its note off once it has been held a trigger's length, rather
+/// than straight after the note on, which some gear ignores
+void midiOneShot(Sound const* sound, int32_t note, int32_t channel);
 /// The gates the song's gate kit has taken, one bit each. CV tracks and GATE rows can't use them.
 uint32_t reservedMask();
 bool isReserved(int32_t gate);

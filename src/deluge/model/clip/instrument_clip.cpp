@@ -34,6 +34,7 @@
 #include "model/consequence/consequence_note_row_mute.h"
 #include "model/consequence/consequence_scale_add_note.h"
 #include "model/drum/drum_name.h"
+#include "model/drum/midi_drum.h"
 #include "model/instrument/cv_instrument.h"
 #include "model/instrument/default_instruments.h"
 #include "model/instrument/midi_instrument.h"
@@ -997,6 +998,10 @@ void InstrumentClip::playAutofillHit(ModelStackWithTimelineCounter* modelStack, 
 	if (soundDrum) {
 		oldTranspose = soundDrum->transpose;
 		soundDrum->transpose = std::clamp<int32_t>(oldTranspose + semitones, -96, 96);
+	}
+	// A MIDI row sends its note shifted instead
+	if (semitones && noteRow->drum->type == DrumType::MIDI) {
+		static_cast<MIDIDrum*>(noteRow->drum)->nextNoteShift = std::clamp<int32_t>(semitones, -48, 48);
 	}
 	sendPendingNoteOn(modelStack, &pendingNoteOn);
 	if (soundDrum) {
@@ -2684,21 +2689,19 @@ someError:
 			keyboardState.inKey.scrollOffset = reader.readTagOrAttributeValueInt();
 		}
 
+		// No exitTag in these: the loop does it once for every tag. A second one backed out of the whole clip, losing
+		// the rest of it (notes included) and every clip after it in the song (v1.2 to v1.22.2)
 		else if (!strcmp(tagName, "monoMode")) {
 			monoMode = reader.readTagOrAttributeValueInt() != 0;
-			reader.exitTag("monoMode");
 		}
 		else if (!strcmp(tagName, "monoCustom")) {
 			monoCustom = reader.readTagOrAttributeValueInt() != 0;
-			reader.exitTag("monoCustom");
 		}
 		else if (!strcmp(tagName, "monoGate")) {
 			monoGatePercent = std::clamp<int32_t>(reader.readTagOrAttributeValueInt(), 1, 100);
-			reader.exitTag("monoGate");
 		}
 		else if (!strncmp(tagName, "monoV", 5) && tagName[5] >= '0' && tagName[5] < '0' + kMonoNumRows && !tagName[6]) {
 			monoCustomMillivolts[tagName[5] - '0'] = std::clamp<int32_t>(reader.readTagOrAttributeValueInt(), 0, 10000);
-			reader.exitTag();
 		}
 		else if (!strcmp(tagName, "inKeyRowInterval")) {
 			keyboardState.inKey.rowInterval = reader.readTagOrAttributeValueInt();

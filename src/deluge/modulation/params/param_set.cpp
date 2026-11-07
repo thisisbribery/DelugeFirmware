@@ -332,6 +332,15 @@ void ParamSet::deleteTime(ModelStackWithParamCollection* modelStack, int32_t sta
 	FOR_EACH_PARAM_END
 }
 
+void ParamSet::forEachAutomatedParam(ModelStackWithParamCollection* modelStack, AutoParamVisitor visit, void* context) {
+
+	FOR_EACH_FLAGGED_PARAM(modelStack->summary->whichParamsAreAutomated);
+
+	visit(modelStack->addAutoParam(p, &params[p]), context);
+
+	FOR_EACH_PARAM_END
+}
+
 void ParamSet::nudgeNonInterpolatingNodesAtPos(int32_t pos, int32_t offset, int32_t lengthBeforeLoop, Action* action,
                                                ModelStackWithParamCollection* modelStack) {
 

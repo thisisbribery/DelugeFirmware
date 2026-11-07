@@ -59,6 +59,7 @@ Setting menuSyncScalingAction(RuntimeFeatureSettingType::SyncScalingAction);
 Setting menuTapTempoAction(RuntimeFeatureSettingType::TapTempoAction);
 Setting menuEndlessRecord(RuntimeFeatureSettingType::EndlessRecord);
 SettingToggle menuPadGuides(RuntimeFeatureSettingType::PadGuides);
+SettingToggle menuElektronLocks(RuntimeFeatureSettingType::ElektronLocks);
 DevSysexSetting menuDevSysexAllowed(RuntimeFeatureSettingType::DevSysexAllowed);
 SettingToggle menuHighlightIncomingNotes(RuntimeFeatureSettingType::HighlightIncomingNotes);
 SettingToggle menuDisplayNornsLayout(RuntimeFeatureSettingType::DisplayNornsLayout);
@@ -102,6 +103,7 @@ std::array<MenuItem*, RuntimeFeatureSettingType::MaxElement - kNonTopLevelSettin
     &menuTapTempoAction,
     &menuEndlessRecord,
     &menuPadGuides,
+    &menuElektronLocks,
     &menuHorizontalMenus,
     &menuRoundedCorners,
     &menuTrimFromStartOfAudioClip,

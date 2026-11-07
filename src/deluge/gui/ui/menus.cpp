@@ -112,6 +112,7 @@
 #include "gui/menu_item/midi/device_send_clock.h"
 #include "gui/menu_item/midi/device_send_thru.h"
 #include "gui/menu_item/midi/devices.h"
+#include "gui/menu_item/midi/drum_row.h"
 #include "gui/menu_item/midi/follow/follow_channel.h"
 #include "gui/menu_item/midi/follow/follow_feedback_automation.h"
 #include "gui/menu_item/midi/follow/follow_feedback_channel_type.h"
@@ -2173,6 +2174,7 @@ PLACE_SDRAM_BSS Submenu soundEditorRootMenuDrum{
     STRING_FOR_SOUND,
     {
         &kitRowGateMenu,
+        &outputMidiSubmenu,
         &drum_synth::drumSynthEditor, // Only shown on drum synth sounds
         &drumSnappyDecayMenu,         // Only shown on drum synth sounds
         &soundEditorRootDrumActionsMenu,
@@ -2201,7 +2203,6 @@ PLACE_SDRAM_BSS Submenu soundEditorRootMenuDrum{
         &drumBendRangeMenu,
         &patchCablesMenu,
         &sequenceDirectionMenu,
-        &outputMidiSubmenu,
     },
 };
 
@@ -2292,8 +2293,13 @@ PLACE_SDRAM_BSS note_row::IterancePreset noteRowIteranceMenu{STRING_FOR_NOTE_ROW
 PLACE_SDRAM_BSS note_row::Fill noteRowFillMenu{STRING_FOR_NOTE_ROW_EDITOR_FILL};
 
 // Root menu for Note Row Editor
+PLACE_SDRAM_BSS midi::drum_row::Channel midiDrumRowChannelMenu{STRING_FOR_CHANNEL, STRING_FOR_CHANNEL};
+PLACE_SDRAM_BSS midi::drum_row::Note midiDrumRowNoteMenu{STRING_FOR_NOTE, STRING_FOR_NOTE};
+
 PLACE_SDRAM_BSS HorizontalMenu noteRowEditorRootMenu{STRING_FOR_NOTE_ROW_EDITOR,
                                                      {
+                                                         &midiDrumRowChannelMenu, // MIDI rows only
+                                                         &midiDrumRowNoteMenu,
                                                          &sequenceDirectionMenu,
                                                          &noteRowProbabilityMenu,
                                                          &noteRowIteranceMenu,
@@ -2340,6 +2346,8 @@ PLACE_SDRAM_BSS menu_item::Submenu soundEditorRootMenuMIDIOrCV{
 PLACE_SDRAM_BSS menu_item::Submenu soundEditorRootMenuMidiDrum{
     STRING_FOR_MIDI,
     {
+        &midiDrumRowChannelMenu,
+        &midiDrumRowNoteMenu,
         &soundEditorRootDrumActionsMenu,
         &arpMenuMIDIOrCV,
         &randomizerMenu,

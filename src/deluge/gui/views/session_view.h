@@ -70,6 +70,7 @@ public:
 	int32_t getClipPlaceOnScreen(Clip* clip);
 	void drawStatusSquare(uint8_t yDisplay, RGB thisImage[]);
 	void drawSectionSquare(uint8_t yDisplay, RGB thisImage[]);
+	void animateTrackTypes();
 	bool calculateZoomPinSquares(uint32_t oldScroll, uint32_t newScroll, uint32_t newZoom, uint32_t oldZoom) override;
 	uint32_t getMaxLength() override;
 	bool setupScroll(uint32_t oldScroll) override;

@@ -18,6 +18,7 @@
 #pragma once
 
 #include "model/drum/non_audio_drum.h"
+#include <algorithm>
 
 class MIDIDrum final : public NonAudioDrum {
 public:
@@ -45,4 +46,10 @@ public:
 
 	uint8_t note;
 	int8_t noteEncoderCurrentOffset;
+	/// Semitones the next note on is shifted by (Autofill's pitched hits). The note off goes out shifted the same.
+	int8_t nextNoteShift = 0;
+
+private:
+	int8_t noteShift_ = 0;
+	int32_t shifted(int32_t noteCode) const { return std::clamp<int32_t>(noteCode + noteShift_, 0, kMaxMIDIValue); }
 };

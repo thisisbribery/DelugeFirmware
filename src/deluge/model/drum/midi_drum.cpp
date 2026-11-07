@@ -33,6 +33,8 @@ MIDIDrum::MIDIDrum() : NonAudioDrum(DrumType::MIDI) {
 
 void MIDIDrum::noteOn(ModelStackWithThreeMainThings* modelStack, uint8_t velocity, int16_t const* mpeValues,
                       int32_t fromMIDIChannel, uint32_t sampleSyncLength, int32_t ticksLate, uint32_t samplesLate) {
+	noteShift_ = nextNoteShift;
+	nextNoteShift = 0;
 	ArpeggiatorSettings* arpSettings = getArpSettings();
 	ArpReturnInstruction instruction;
 	// Run everything by the Arp...
@@ -70,12 +72,13 @@ void MIDIDrum::noteOff(ModelStackWithThreeMainThings* modelStack, int32_t veloci
 void MIDIDrum::noteOnPostArp(int32_t noteCodePostArp, ArpNote* arpNote, int32_t noteIndex) {
 	NonAudioDrum::noteOnPostArp(noteCodePostArp, arpNote, noteIndex);
 	lastVelocity = arpNote->velocity;
-	midiEngine.sendNote(this, true, noteCodePostArp, arpNote->velocity, channel, kMIDIOutputFilterNoMPE);
+	midiEngine.sendNote(this, true, shifted(noteCodePostArp), arpNote->velocity, channel, kMIDIOutputFilterNoMPE);
 }
 
 void MIDIDrum::noteOffPostArp(int32_t noteCodePostArp) {
 	NonAudioDrum::noteOffPostArp(noteCodePostArp);
-	midiEngine.sendNote(this, false, noteCodePostArp, kDefaultNoteOffVelocity, channel, kMIDIOutputFilterNoMPE);
+	midiEngine.sendNote(this, false, shifted(noteCodePostArp), kDefaultNoteOffVelocity, channel,
+	                    kMIDIOutputFilterNoMPE);
 }
 
 void MIDIDrum::killAllVoices() {

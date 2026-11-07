@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include "model/instrument/midi_kit.h"
+
 #include "definitions_cxx.hpp"
 #include "dsp/drum_synth/drum_synth.h"
 #include "gui/views/clip_view.h"
@@ -225,6 +227,10 @@ public:
 	void drawNoteCode(uint8_t yDisplay);
 	bool createNewInstrument(OutputType instrumentType, bool is_fm = false);
 	bool createNewDrumSynthKit(deluge::dsp::drum_synth::PresetKit type);
+	/// MKIT: a new kit of sixteen MIDI rows laid out as asked, on an empty clip
+	bool createNewMIDIKit(deluge::midi_kit::Layout layout);
+	/// The MIDI button: this clip to a MIDI track
+	void changeToMIDIOutput();
 	/// Whether kit was made as a preset kit (LXR or Cycles) and has had other rows added since. Swapping it for a new
 	/// kit would leave those rows without their sounds, so SHIFT + KIT refuses.
 	static bool presetKitHasAddedRows(Kit* kit);

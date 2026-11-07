@@ -21,6 +21,7 @@
 #include "modulation/params/param_set.h"
 #include "processing/engines/cv_engine.h"
 #include "storage/storage_manager.h"
+#include <algorithm>
 #include <cstring>
 
 CVInstrument::CVInstrument() : NonAudioInstrument(OutputType::CV) {
@@ -194,8 +195,35 @@ void CVInstrument::sendMonophonicExpressionEvent(int32_t dimension) {
 		break;
 	case CVMode::velocity:
 		break;
+	case CVMode::lock:
+		if (dimension == Expression::Y_SLIDE_TIMBRE) {
+			// The knob's 0-127 straight to semitones
+			const int32_t semitones = std::clamp<int32_t>(new_value >> 8, 0, 120);
+			cvEngine.sendVoltageOut(1, std::clamp<int32_t>(millivoltsToCV(semitones * 1000 / 12), 0, 65535));
+		}
+		break;
 	}
+}
+
+ModelStackWithAutoParam* CVInstrument::getParamFromModEncoder(int32_t whichModEncoder,
+                                                              ModelStackWithThreeMainThings* modelStack,
+                                                              bool allowCreation) {
+	if (cvmode[1] != CVMode::lock || !modelStack->paramManager) {
+		return NonAudioInstrument::getParamFromModEncoder(whichModEncoder, modelStack, allowCreation);
+	}
+	modelStack->paramManager->ensureExpressionParamSetExists(); // Allowed to fail
+	ParamCollectionSummary* summary = modelStack->paramManager->getExpressionParamSetSummary();
+	if (!summary->paramCollection) {
+		return modelStack->addParamCollectionAndId(nullptr, nullptr, 0)->addAutoParam(nullptr); // "No param"
+	}
+	ModelStackWithParamId* modelStackWithParamId =
+	    modelStack->addParamCollectionAndId(summary->paramCollection, summary, Expression::Y_SLIDE_TIMBRE);
+	return summary->paramCollection->getAutoParamFromId(modelStackWithParamId, allowCreation);
 }
 void CVInstrument::setCV2Mode(CVMode mode) {
 	cvmode[1] = mode;
+	// LOCK takes over CV2 straight away, from where the knobs are
+	if (mode == CVMode::lock) {
+		sendMonophonicExpressionEvent(Expression::Y_SLIDE_TIMBRE);
+	}
 }

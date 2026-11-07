@@ -23,7 +23,9 @@
 class ParamManagerForTimeline;
 class ModelStackWithThreeMainThings;
 class ModelStackWithSoundFlags;
-enum class CVMode : uint8_t { off, pitch, mod, aftertouch, velocity };
+/// lock: CV2 follows the gold knobs in semitones (1 V per octave, 0 V with the knobs at zero), so holding a step and
+/// turning a knob locks CV2 for that step
+enum class CVMode : uint8_t { off, pitch, mod, aftertouch, velocity, lock };
 enum class GateMode : uint8_t { off, gate, trigger };
 enum CVInstrumentMode { one, two, both };
 constexpr int32_t kNumCVInstrumentChannels = both + 1;
@@ -85,6 +87,10 @@ public:
 		}
 	}
 	CVMode getCV2Mode() { return cvmode[1]; }
+
+	/// CV2 LOCK: both gold knobs turn the Y expression param, which CV2 follows in semitones
+	ModelStackWithAutoParam* getParamFromModEncoder(int32_t whichModEncoder, ModelStackWithThreeMainThings* modelStack,
+	                                                bool allowCreation = true) override;
 
 	void setCV2Mode(CVMode mode);
 

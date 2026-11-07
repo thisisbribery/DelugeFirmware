@@ -66,6 +66,10 @@ public:
 	virtual void deleteAllAutomation(Action* action, ModelStackWithParamCollection* modelStack) = 0;
 	virtual void nudgeNonInterpolatingNodesAtPos(int32_t pos, int32_t offset, int32_t lengthBeforeLoop, Action* action,
 	                                             ModelStackWithParamCollection* modelStack) = 0;
+	/// Calls visit for every automated param. Elektron P-locks uses it to keep each lock on its note.
+	using AutoParamVisitor = void (*)(ModelStackWithAutoParam* modelStack, void* context);
+	virtual void forEachAutomatedParam(ModelStackWithParamCollection* modelStack, AutoParamVisitor visit,
+	                                   void* context) {}
 	virtual void
 	notifyParamModifiedInSomeWay(ModelStackWithAutoParam const* modelStack, int32_t oldValue, bool automationChanged,
 	                             bool automatedBefore,
