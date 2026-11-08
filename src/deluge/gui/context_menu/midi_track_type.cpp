@@ -22,6 +22,7 @@
 #include "gui/views/instrument_clip_view.h"
 #include "hid/buttons.h"
 #include "hid/display/display.h"
+#include "model/instrument/midi_instrument.h"
 #include "model/song/song.h"
 
 namespace deluge::gui::context_menu {
@@ -41,8 +42,9 @@ std::span<char const*> MIDITrackType::getOptions() {
 		                                l10n::get(STRING_FOR_MIDI_KIT_BLANK)};
 		return {layouts, midi_kit::kNumLayouts};
 	}
-	static char const* types[] = {l10n::get(STRING_FOR_MIDI), l10n::get(STRING_FOR_MIDI_KIT)};
-	return {types, 2};
+	static char const* types[] = {l10n::get(STRING_FOR_MIDI), l10n::get(STRING_FOR_MIDI_KIT),
+	                              l10n::get(STRING_FOR_MIDI_LOOP_TRACK)};
+	return {types, 3};
 }
 
 bool MIDITrackType::setupAndCheckAvailability() {
@@ -81,6 +83,7 @@ bool MIDITrackType::acceptCurrentOption() {
 	}
 
 	const bool midiKit = choosingLayout_;
+	const bool loopTrack = !choosingLayout_ && currentOption == 2;
 	const auto layout = static_cast<midi_kit::Layout>(currentOption);
 	display->setNextTransitionDirection(-1);
 	close();
@@ -90,6 +93,14 @@ bool MIDITrackType::acceptCurrentOption() {
 	}
 	else {
 		instrumentClipView.changeOutputType(OutputType::MIDI_OUT);
+		// LOOP: a MIDI track that takes its channel from the first note played into it and doesn't echo it back
+		if (loopTrack && getCurrentOutputType() == OutputType::MIDI_OUT) {
+			auto* midiInstrument = static_cast<MIDIInstrument*>(getCurrentOutput());
+			midiInstrument->echo = MIDIEcho::OFF;
+			midiInstrument->loopAutoBind = true;
+			midiInstrument->midiInput.clear();
+			display->displayPopup(l10n::get(l10n::String::STRING_FOR_NEW_MIDI_LOOP_TRACK));
+		}
 	}
 	return true;
 }

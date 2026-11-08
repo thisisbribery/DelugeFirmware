@@ -22,8 +22,9 @@
 
 namespace deluge::gui::context_menu {
 
-/// Shown by SHIFT + MIDI in clip view: a MIDI track (the default), or MKIT, a kit of sixteen MIDI rows that kit
-/// patterns and Autofill play. Picking MKIT then asks for its layout (see model/instrument/midi_kit.h).
+/// Shown by SHIFT + MIDI in clip view: a MIDI track (the default), MKIT, a kit of sixteen MIDI rows that kit
+/// patterns and Autofill play, or LOOP, a MIDI track for a synth that plays into the Deluge (ECHO off, channel
+/// taken from the first note). Picking MKIT then asks for its layout (see model/instrument/midi_kit.h).
 /// SHIFT + MIDI again or turning SELECT moves on, SELECT or MIDI accepts, BACK cancels.
 class MIDITrackType final : public ContextMenu {
 public:

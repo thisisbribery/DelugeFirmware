@@ -761,6 +761,10 @@ isMPEZone:
 			learnedThing->cable = &cable;
 			learnedThing->noteOrCC = note;                    // used for low note in kits
 			instrumentPressedForMIDILearn->beenEdited(false); // Why again?
+			// A LOOP track learned by hand doesn't wait for its first note any more
+			if (instrumentPressedForMIDILearn->type == OutputType::MIDI_OUT) {
+				static_cast<MIDIInstrument*>(instrumentPressedForMIDILearn)->loopAutoBind = false;
+			}
 
 			if (instrumentPressedForMIDILearn->type == OutputType::SYNTH) {
 				currentSong->grabVelocityToLevelFromMIDICableAndSetupPatchingForAllParamManagersForInstrument(

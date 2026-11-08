@@ -495,6 +495,12 @@ void MidiEngine::sendPolyphonicAftertouch(MIDISource source, int32_t channel, in
 }
 
 void MidiEngine::sendMidi(MIDISource source, MIDIMessage message, int32_t filter, bool sendUSB) {
+	// MIDI loop tracks: no echo of live CCs, bends or aftertouch (see liveEchoBlock)
+	if (liveEchoBlock && source.source_ == liveEchoBlock && message.statusType != 0b1000
+	    && message.statusType != 0b1001) {
+		return;
+	}
+
 	if (eventStackTop_ == eventStack_.end()) {
 		// We're somehow 16 messages deep, reject this message.
 		return;

@@ -154,6 +154,11 @@ public:
 	/// @param len number of bytes in data
 	void midiSysexReceived(MIDICable& cable, uint8_t* data, int32_t len);
 
+	/// MIDI loop tracks: while a MIDI track with ECHO off handles live input, this is that track, and sendMidi() drops
+	/// its CCs, bends and aftertouch so the synth playing in doesn't get its own moves back. Notes are left to
+	/// MIDIInstrument, which tracks them per note so a note-off never goes missing.
+	void const* liveEchoBlock = nullptr;
+
 private:
 	uint8_t serialMidiInput[3];
 	uint8_t numSerialMidiInput;

@@ -39,6 +39,10 @@ public:
 
 	virtual void ccReceivedFromInputMIDIChannel(int32_t cc, int32_t value, ModelStackWithTimelineCounter* modelStack) {}
 
+	/// MIDI loop tracks: non-null while this instrument must not echo live input back out (MIDI tracks with ECHO off).
+	/// The received*() handlers below hand it to MidiEngine::liveEchoBlock for as long as they run.
+	virtual void const* liveEchoBlockKey() { return nullptr; }
+
 	bool writeMelodicInstrumentAttributesToFile(Serializer& writer, Clip* clipForSavingOutputOnly, Song* song);
 	void writeMelodicInstrumentTagsToFile(Serializer& writer, Clip* clipForSavingOutputOnly, Song* song);
 	bool readTagFromFile(Deserializer& reader, char const* tagName) override;

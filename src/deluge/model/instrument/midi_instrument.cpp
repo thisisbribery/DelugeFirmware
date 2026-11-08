@@ -32,6 +32,7 @@
 #include "modulation/midi/midi_param.h"
 #include "modulation/midi/midi_param_collection.h"
 #include "modulation/params/param_set.h"
+#include "playback/playback_handler.h"
 #include "storage/storage_manager.h"
 #include "util/d_stringbuf.h"
 #include <cstring>
@@ -371,6 +372,13 @@ bool MIDIInstrument::writeDataToFile(Serializer& writer, Clip* clipForSavingOutp
 	// NonAudioInstrument::writeDataToFile(writer, clipForSavingOutputOnly, song); // Nope, this gets called within the
 	// below call
 	writeMelodicInstrumentAttributesToFile(writer, clipForSavingOutputOnly, song);
+	// MIDI loop tracks
+	if (echo != MIDIEcho::ON) {
+		writer.writeAttribute("echo", static_cast<int32_t>(echo));
+	}
+	if (loopAutoBind) {
+		writer.writeAttribute("loopBind", 1);
+	}
 
 	if (editedByUser || clipForSavingOutputOnly) { // Otherwise, there'll be nothing in here
 		writer.writeOpeningTagEnd();
@@ -512,6 +520,13 @@ bool MIDIInstrument::readTagFromFile(Deserializer& reader, char const* tagName) 
 	}
 	else if (!strcmp(tagName, subSlotXMLTag)) {
 		channelSuffix = reader.readTagOrAttributeValueInt();
+	}
+	else if (!strcmp(tagName, "echo")) {
+		int32_t value = reader.readTagOrAttributeValueInt();
+		echo = (value == 1) ? MIDIEcho::OFF : (value == 2) ? MIDIEcho::REC : MIDIEcho::ON;
+	}
+	else if (!strcmp(tagName, "loopBind")) {
+		loopAutoBind = (reader.readTagOrAttributeValueInt() != 0);
 	}
 	else if (!strcmp(tagName, "midiDevice")) {
 		readDeviceDefinitionFile(reader, true);
@@ -861,9 +876,80 @@ int32_t MIDIInstrument::moveAutomationToDifferentCC(int32_t offset, int32_t whic
 	return newCC;
 }
 
+void const* MIDIInstrument::liveEchoBlockKey() {
+	bool block = (echo == MIDIEcho::OFF) || (echo == MIDIEcho::REC && playbackHandler.isCurrentlyRecording());
+	return block ? static_cast<void const*>(this) : nullptr;
+}
+
+bool MIDIInstrument::offerLoopAutoBind(MIDICable& cable, int32_t channel) {
+	if (!loopAutoBind || channel < 0 || channel >= 16 || !currentSong) {
+		return false;
+	}
+
+	// Only a LOOP track that's in use: the clip being looked at, or one that's launched
+	Clip* current = getCurrentClip();
+	bool inUse = (current && current->output == this) || (activeClip && currentSong->isClipActive(activeClip));
+	if (!inUse) {
+		return false;
+	}
+
+	// Leave channels MIDI Follow already routes
+	for (auto& follow : midiEngine.midiFollowChannelType) {
+		if (follow.checkMatch(&cable, channel) != MIDIMatchType::NO_MATCH) {
+			return false;
+		}
+	}
+
+	// Leave channels another track already listens to
+	for (Output* o = currentSong->firstOutput; o; o = o->next) {
+		if (o == this || o->type == OutputType::AUDIO) {
+			continue;
+		}
+		auto* instrument = static_cast<Instrument*>(o);
+		if (instrument->midiInput.containsSomething() && instrument->midiInput.equalsChannelOrZone(&cable, channel)) {
+			return false;
+		}
+	}
+
+	midiInput.cable = &cable;
+	midiInput.channelOrZone = channel;
+	loopAutoBind = false;
+
+	// Send on the same channel, with a suffix if another MIDI track already owns it
+	if (getChannel() != channel || channelSuffix != -1) {
+		for (int32_t suffix = -1; suffix < 26; suffix++) {
+			bool taken = false;
+			for (Output* o = currentSong->firstOutput; o && !taken; o = o->next) {
+				taken = (o != this && o->matchesPreset(OutputType::MIDI_OUT, channel, suffix, nullptr, nullptr));
+			}
+			for (Output* o = currentSong->firstHibernatingInstrument; o && !taken; o = o->next) {
+				taken = (o != this && o->matchesPreset(OutputType::MIDI_OUT, channel, suffix, nullptr, nullptr));
+			}
+			if (!taken) {
+				setChannel(channel);
+				channelSuffix = suffix;
+				break;
+			}
+		}
+	}
+
+	char text[8];
+	snprintf(text, sizeof(text), "CH%d", channel + 1);
+	display->displayPopup(text);
+	if (getRootUI()) {
+		uiNeedsRendering(getRootUI());
+	}
+	return true;
+}
+
 void MIDIInstrument::offerReceivedNote(ModelStackWithTimelineCounter* modelStackWithTimelineCounter, MIDICable& cable,
                                        bool on, int32_t receivedChannel, int32_t note, int32_t velocity,
                                        bool shouldRecordNotes, bool* doingMidiThru) {
+
+	// LOOP track: its first note picks its channel
+	if (on && loopAutoBind) {
+		offerLoopAutoBind(cable, receivedChannel);
+	}
 
 	if (midiInput.channelOrZone == receivedChannel) {
 
@@ -889,6 +975,14 @@ void MIDIInstrument::noteOnPostArp(int32_t noteCodePostArp, ArpNote* arpNote, in
 
 	bool arpIsOn = arpSettings != nullptr && arpSettings->mode != ArpMode::OFF;
 	int32_t outputMemberChannel;
+
+	// MIDI loop tracks: with ECHO off a live note still records and auditions, but stays in the Deluge
+	if (!arpIsOn && !sendsToMPE() && !sendsToInternal() && midiEngine.liveEchoBlock == static_cast<void const*>(this)
+	    && noteCodePostArp >= 0 && noteCodePostArp < 128) {
+		echoSuppressedNotes.set(noteCodePostArp);
+		arpNote->outputMemberChannel[noteIndex] = channel;
+		return;
+	}
 
 	// If no MPE, nice and simple.
 	if (!sendsToMPE()) {
@@ -1047,6 +1141,14 @@ void MIDIInstrument::outputAllMPEValuesOnMemberChannel(int16_t const* mpeValuesT
 
 void MIDIInstrument::noteOffPostArp(int32_t noteCodePostArp, int32_t oldOutputMemberChannel, int32_t velocity,
                                     int32_t noteIndex) {
+	// MIDI loop tracks: the note-off of a live note ECHO kept in stays in too
+	if (noteCodePostArp >= 0 && noteCodePostArp < 128 && echoSuppressedNotes.test(noteCodePostArp)) {
+		echoSuppressedNotes.reset(noteCodePostArp);
+		if (midiEngine.liveEchoBlock == static_cast<void const*>(this)) {
+			return;
+		}
+	}
+
 	int32_t channel = getChannel();
 	if (sendsToInternal()) {
 		sendNoteToInternal(false, noteCodePostArp, velocity, oldOutputMemberChannel);
@@ -1110,6 +1212,7 @@ void MIDIInstrument::noteOffPostArp(int32_t noteCodePostArp, int32_t oldOutputMe
 void MIDIInstrument::allNotesOff() {
 	int32_t channel = getChannel();
 	arpeggiator.reset();
+	echoSuppressedNotes.reset();
 
 	// If no MPE, nice and simple
 	if (!sendsToMPE()) {

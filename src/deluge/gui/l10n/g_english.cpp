@@ -1230,6 +1230,10 @@ PLACE_SDRAM_DATA Language english{
         {STRING_FOR_MIDI_KIT_NEEDS_EMPTY_CLIP, "Clip must be empty"},
         {STRING_FOR_CV2_LOCK, "Lock (semitones)"},
         {STRING_FOR_COMMUNITY_FEATURE_ELEKTRON_LOCKS, "Elektron P-locks"},
+        {STRING_FOR_MIDI_ECHO, "Echo input"},
+        {STRING_FOR_MIDI_ECHO_REC, "Off while recording"},
+        {STRING_FOR_MIDI_LOOP_TRACK, "Loop track"},
+        {STRING_FOR_NEW_MIDI_LOOP_TRACK, "Loop track: play a note"},
     },
 };
 } // namespace deluge::l10n::built_in

@@ -22,6 +22,7 @@
 #include "gui/views/instrument_clip_view.h"
 #include "gui/views/view.h"
 #include "io/midi/midi_device.h"
+#include "io/midi/midi_engine.h"
 #include "io/midi/midi_follow.h"
 #include "model/action/action_logger.h"
 #include "model/clip/instrument_clip.h"
@@ -92,9 +93,26 @@ bool MelodicInstrument::readTagFromFile(Deserializer& reader, char const* tagNam
 	return true;
 }
 
+namespace {
+// MIDI loop tracks: while live input is being handled, a MIDI track with ECHO off sends nothing back out
+class LiveInputScope {
+public:
+	explicit LiveInputScope(MelodicInstrument* instrument) : previous_(midiEngine.liveEchoBlock) {
+		midiEngine.liveEchoBlock = instrument->liveEchoBlockKey();
+	}
+	~LiveInputScope() { midiEngine.liveEchoBlock = previous_; }
+	LiveInputScope(LiveInputScope const&) = delete;
+	LiveInputScope& operator=(LiveInputScope const&) = delete;
+
+private:
+	void const* previous_;
+};
+} // namespace
+
 void MelodicInstrument::receivedNote(ModelStackWithTimelineCounter* modelStack, MIDICable& cable, bool on,
                                      int32_t midiChannel, MIDIMatchType match, int32_t note, int32_t velocity,
                                      bool shouldRecordNotes, bool* doingMidiThru) {
+	LiveInputScope liveInput(this);
 	int16_t const* mpeValues = zeroMPEValues;
 	int16_t const* mpeValuesOrNull = nullptr;
 	int32_t highlightNoteValue = -1;
@@ -317,6 +335,7 @@ void MelodicInstrument::offerReceivedPitchBend(ModelStackWithTimelineCounter* mo
 void MelodicInstrument::receivedPitchBend(ModelStackWithTimelineCounter* modelStackWithTimelineCounter,
                                           MIDICable& cable, MIDIMatchType match, uint8_t channel, uint8_t data1,
                                           uint8_t data2, bool* doingMidiThru) {
+	LiveInputScope liveInput(this);
 	int32_t newValue;
 	switch (match) {
 
@@ -359,6 +378,7 @@ void MelodicInstrument::offerReceivedCC(ModelStackWithTimelineCounter* modelStac
 void MelodicInstrument::receivedCC(ModelStackWithTimelineCounter* modelStackWithTimelineCounter, MIDICable& cable,
                                    MIDIMatchType match, uint8_t channel, uint8_t ccNumber, uint8_t value,
                                    bool* doingMidiThru) {
+	LiveInputScope liveInput(this);
 	int32_t value32 = 0;
 	switch (match) {
 
@@ -428,6 +448,7 @@ void MelodicInstrument::offerReceivedAftertouch(ModelStackWithTimelineCounter* m
 void MelodicInstrument::receivedAftertouch(ModelStackWithTimelineCounter* modelStackWithTimelineCounter,
                                            MIDICable& cable, MIDIMatchType match, int32_t channel, int32_t value,
                                            int32_t noteCode, bool* doingMidiThru) {
+	LiveInputScope liveInput(this);
 	int32_t valueBig = (int32_t)value << 24;
 	switch (match) {
 

@@ -22,6 +22,7 @@
 #include "util/containers.h"
 #include "util/d_stringbuf.h"
 #include <array>
+#include <bitset>
 #include <string_view>
 
 class ModelStack;
@@ -35,9 +36,20 @@ struct MPEOutputMemberChannel {
 	int8_t lastYAndZValuesSent[2]{0}; // The actual 7-bit numbers. Y goes both positive and negative.
 };
 
+/// MIDI loop tracks: whether live input on this track goes back out. OFF suits a synth that plays itself (local
+/// control on) and records into the Deluge; REC stops echoing only while recording.
+enum class MIDIEcho : uint8_t { ON, OFF, REC };
+
 class MIDIInstrument final : public NonAudioInstrument {
 public:
 	MIDIInstrument();
+
+	MIDIEcho echo{MIDIEcho::ON};
+	/// LOOP track that has not heard its first note yet: that note's channel becomes its input and output channel
+	bool loopAutoBind{false};
+	void const* liveEchoBlockKey() override;
+	/// LOOP track: bind to this channel if no other track listens to it. Returns whether it bound.
+	bool offerLoopAutoBind(MIDICable& cable, int32_t channel);
 
 	void ccReceivedFromInputMIDIChannel(int32_t cc, int32_t value, ModelStackWithTimelineCounter* modelStack) override;
 
@@ -109,6 +121,8 @@ public:
 	}
 	int32_t channelSuffix{-1};
 	int32_t lastNoteCode{32767};
+	/// Live notes whose note-on ECHO kept from going out, so their note-offs stay in too
+	std::bitset<128> echoSuppressedNotes;
 	bool collapseAftertouch{false};
 	bool collapseMPE{true};
 	CCNumber outputMPEY{CC_EXTERNAL_MPE_Y};
