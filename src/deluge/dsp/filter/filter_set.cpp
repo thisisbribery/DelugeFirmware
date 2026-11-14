@@ -68,7 +68,15 @@ q31_t tempRenderBuffer[SSI_TX_BUFFER_NUM_SAMPLES * 2]; // * 2 to accomodate ster
 [[gnu::hot]] void FilterSet::renderLPFLong(q31_t* startSample, q31_t* endSample, int32_t sampleIncrement,
                                            q31_t feedback) {
 	if (LPFOn) {
-		if ((lpfMode_ == FilterMode::SVF_BAND) || (lpfMode_ == FilterMode::SVF_NOTCH)) {
+		if (lpfMode_ == FilterMode::BROPHET) {
+			if (feedback) {
+				lpfilter.brophet.filterMonoFeedback(startSample, endSample, sampleIncrement, feedbackL_, feedback);
+			}
+			else {
+				lpfilter.brophet.filterMono(startSample, endSample, sampleIncrement);
+			}
+		}
+		else if ((lpfMode_ == FilterMode::SVF_BAND) || (lpfMode_ == FilterMode::SVF_NOTCH)) {
 			if (feedback) {
 				lpfilter.svf.filterMonoFeedback(startSample, endSample, sampleIncrement, feedbackL_, feedback);
 			}
@@ -89,7 +97,15 @@ q31_t tempRenderBuffer[SSI_TX_BUFFER_NUM_SAMPLES * 2]; // * 2 to accomodate ster
 
 [[gnu::hot]] void FilterSet::renderLPFLongStereo(q31_t* startSample, q31_t* endSample, q31_t feedback) {
 	if (LPFOn) {
-		if ((lpfMode_ == FilterMode::SVF_BAND) || (lpfMode_ == FilterMode::SVF_NOTCH)) {
+		if (lpfMode_ == FilterMode::BROPHET) {
+			if (feedback) {
+				lpfilter.brophet.filterStereoFeedback(startSample, endSample, feedbackL_, feedbackR_, feedback);
+			}
+			else {
+				lpfilter.brophet.filterStereo(startSample, endSample);
+			}
+		}
+		else if ((lpfMode_ == FilterMode::SVF_BAND) || (lpfMode_ == FilterMode::SVF_NOTCH)) {
 			if (feedback) {
 				lpfilter.svf.filterStereoFeedback(startSample, endSample, feedbackL_, feedbackR_, feedback);
 			}
@@ -223,14 +239,22 @@ int32_t FilterSet::setConfig(q31_t lpfFrequency, q31_t lpfResonance, FilterMode 
 	hpfResonance = (hpfResonance >> 21) << 21;
 
 	if (LPFOn) {
-		if ((lpfMode_ == FilterMode::SVF_BAND) || (lpfMode_ == FilterMode::SVF_NOTCH)) {
+		// The three share their memory: coming from another, each starts from a reset
+		if (lpfMode_ == FilterMode::BROPHET) {
+			if (lastLPFMode_ != FilterMode::BROPHET) {
+				lpfilter.brophet.reset(lastLPFMode_ == FilterMode::OFF);
+			}
+			filterGain = lpfilter.brophet.configure(lpfFrequency, lpfResonance, lpfMode_, lpfMorph, filterGain);
+		}
+		else if ((lpfMode_ == FilterMode::SVF_BAND) || (lpfMode_ == FilterMode::SVF_NOTCH)) {
 			if (SpecificFilter(lastLPFMode_).getFamily() != FilterFamily::SVF) {
 				lpfilter.svf.reset(lastLPFMode_ == FilterMode::OFF);
 			}
 			filterGain = lpfilter.svf.configure(lpfFrequency, lpfResonance, lpfMode_, lpfMorph, filterGain);
 		}
 		else {
-			if (SpecificFilter(lastLPFMode_).getFamily() != FilterFamily::LP_LADDER) {
+			if (SpecificFilter(lastLPFMode_).getFamily() != FilterFamily::LP_LADDER
+			    || lastLPFMode_ == FilterMode::BROPHET) {
 				lpfilter.ladder.reset(lastLPFMode_ == FilterMode::OFF);
 			}
 			filterGain = lpfilter.ladder.configure(lpfFrequency, lpfResonance, lpfMode_, lpfMorph, filterGain);

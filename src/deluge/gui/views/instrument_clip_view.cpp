@@ -2029,46 +2029,35 @@ bool presetRowTint(Drum* drum, RGB* tint) {
 	return true;
 }
 
-/// Pad Guides: while SHIFT is held on a drum synth (the synth, or the kit's selected row), the pads of its standard
-/// layout settings glow soft pink, blended over whatever is on them so notes still show
+/// Pad Guides: while SHIFT is held on a drum synth (the synth, or the kit's selected row), the pads of its layout glow,
+/// blended over whatever is on them so notes still show: soft pink on a drum engine, purple on a synth engine (RINGS,
+/// BROPHET)
 void renderDrumSynthShiftGlow(uint32_t whichRows, RGB image[][kDisplayWidth + kSideBarWidth]) {
-	using deluge::dsp::drum_synth::StandardSlot;
 	const Sound* sound = InstrumentClipView::padGuidesGlowSound();
 	if (sound == nullptr) {
 		return;
 	}
-	// In the sound editor the two columns are left out of its greyout (see SoundEditor::getGreyoutColsAndRows), so
-	// grey the pads without a setting here, as the rest of the grid is
+	// In the sound editor the layout's columns are left out of its greyout (see SoundEditor::getGreyoutColsAndRows),
+	// so grey their pads without a setting here, as the rest of the grid is
 	const bool inSoundEditor = getCurrentUI() == &soundEditor;
 	constexpr int32_t kFullGreyout = 6500000;
-	constexpr RGB kGlow{255, 40, 90};
+	constexpr RGB kDrumGlow{255, 40, 90};
+	constexpr RGB kSynthGlow{150, 40, 255};
 	const auto engine = sound->sources[0].drumPatch.engine();
-	// The OSC1 extras (ULTRAKIK): the column, and its rows with a setting
-	int32_t osc1X = -1;
-	uint32_t osc1Rows = 0;
-	for (int32_t slot = 0; slot < static_cast<int32_t>(StandardSlot::NUM_SLOTS); slot++) {
-		int32_t x;
-		int32_t y;
-		if (!drumLayoutPadFor(slot, &x, &y) || !(whichRows & (1 << y))) {
+	const RGB glow = isSynthLayout(engine) ? kSynthGlow : kDrumGlow;
+	for (int32_t x = 0; x < kDisplayWidth; x++) {
+		if (!drumLayoutColumn(engine, x)) {
 			continue;
 		}
-		const bool modColumn = slot < static_cast<int32_t>(StandardSlot::NUM_MOD_SLOTS);
-		if (drumLayoutItem(engine, slot) != nullptr) {
-			image[y][x] = RGB::blend(kGlow, image[y][x], 32768);
-			if (!modColumn) {
-				osc1X = x;
-				osc1Rows |= 1u << y;
-			}
-		}
-		else if (inSoundEditor && modColumn) {
-			image[y][x] = image[y][x].greyOut(kFullGreyout);
-		}
-	}
-	// In the sound editor that column is left out of the greyout too, so grey its other pads here
-	if (inSoundEditor && osc1X >= 0) {
 		for (int32_t y = 0; y < kDisplayHeight; y++) {
-			if ((whichRows & (1 << y)) && !(osc1Rows & (1u << y))) {
-				image[y][osc1X] = image[y][osc1X].greyOut(kFullGreyout);
+			if (!(whichRows & (1 << y))) {
+				continue;
+			}
+			if (drumLayoutItemAt(engine, x, y) != nullptr) {
+				image[y][x] = RGB::blend(glow, image[y][x], 32768);
+			}
+			else if (inSoundEditor) {
+				image[y][x] = image[y][x].greyOut(kFullGreyout);
 			}
 		}
 	}

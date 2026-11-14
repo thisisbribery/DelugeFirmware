@@ -525,6 +525,11 @@ void Sound::setDrumSynthKnobs(deluge::dsp::drum_synth::Engine engine) {
 		layout = {DrumControls::RINGS_BOW, DrumControls::RINGS_POSITION, DrumControls::RINGS_BRIGHTNESS,
 		          DrumControls::RINGS_STRUCTURE};
 		break;
+	case Engine::BROPHET:
+		// Poly mod's depths, from osc B and from envelope 2, then osc B's detune and osc A's pulse width
+		layout = {DrumControls::BROPHET_PM_OSC_B, DrumControls::BROPHET_PM_ENV, DrumControls::BROPHET_FINE_B,
+		          DrumControls::BROPHET_PW_A};
+		break;
 	default:
 		// The Cyc engines: Sweep / Contour, Color / Shape
 		layout = {DrumControls::CYC_MACRO3, DrumControls::CYC_MACRO4, DrumControls::CYC_MACRO1,
@@ -551,8 +556,17 @@ void Sound::setDrumSynthKnobs(deluge::dsp::drum_synth::Engine engine) {
 		layout.custom3 = sharedControlSlot(engine, StandardSlot::CHARACTER_B);
 	}
 
-	modKnobs[2][1].paramDescriptor.setToHaveParamOnly(kDrumControlParams[deluge::dsp::drum_synth::driveSlot(engine)]);
-	modKnobs[2][0].paramDescriptor.setToHaveParamOnly(kDrumControlParams[deluge::dsp::drum_synth::decaySlot(engine)]);
+	if (deluge::dsp::drum_synth::isBrophet(engine)) {
+		// A synth: the Deluge's own attack and release
+		modKnobs[2][1].paramDescriptor.setToHaveParamOnly(params::LOCAL_ENV_0_ATTACK);
+		modKnobs[2][0].paramDescriptor.setToHaveParamOnly(params::LOCAL_ENV_0_RELEASE);
+	}
+	else {
+		modKnobs[2][1].paramDescriptor.setToHaveParamOnly(
+		    kDrumControlParams[deluge::dsp::drum_synth::driveSlot(engine)]);
+		modKnobs[2][0].paramDescriptor.setToHaveParamOnly(
+		    kDrumControlParams[deluge::dsp::drum_synth::decaySlot(engine)]);
+	}
 	if (layout.rate >= 0) {
 		modKnobs[5][1].paramDescriptor.setToHaveParamOnly(kDrumControlParams[layout.rate]);
 		modKnobs[5][0].paramDescriptor.setToHaveParamOnly(kDrumControlParams[layout.depth]);
@@ -622,6 +636,10 @@ char const* Sound::getPatchedParamDisplayNameOverride(int32_t p) {
 	}
 
 	const auto engine = sources[0].drumPatch.engine();
+	if (deluge::dsp::drum_synth::isBrophet(engine)) {
+		const auto name = deluge::dsp::drum_synth::brophetKnobName(slot);
+		return (name == EMPTY_STRING) ? nullptr : deluge::l10n::get(name);
+	}
 	if (deluge::dsp::drum_synth::isRings(engine)) {
 		const auto name = deluge::dsp::drum_synth::ringsKnobName(slot);
 		return (name == EMPTY_STRING) ? nullptr : deluge::l10n::get(name);

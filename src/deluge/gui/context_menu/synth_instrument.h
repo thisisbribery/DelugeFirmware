@@ -45,9 +45,10 @@ public:
 	deluge::hid::Button getAcceptButton() override { return deluge::hid::button::SYNTH; }
 };
 
-/// The categories inside a synth type's folder (BASS, LEAD, PAD, MISC), each one offered only if it holds presets.
-/// SELECT or SYNTH opens the preset browser in that folder playing its first preset: turning SELECT previews the
-/// others, SELECT keeps one, BACK there puts the old synth back and returns here. BACK here returns to the types.
+/// The categories inside a synth type's folder (BASS, LEAD, PAD, MISC; BROPHET's are Pro-53's files, BNK1 to BNK8),
+/// each one offered only if it holds presets. SELECT or SYNTH opens the preset browser in that folder playing its first
+/// preset: turning SELECT previews the others, SELECT keeps one, BACK there puts the old synth back and returns here.
+/// BACK here returns to the types.
 class SynthCategoryMenu final : public ContextMenu {
 public:
 	SynthCategoryMenu() = default;
@@ -57,7 +58,9 @@ public:
 
 	char const* getTitle() override;
 	std::span<char const*> getOptions() override;
-	bool isCurrentOptionAvailable() override { return hasPresets_[currentOption]; }
+	bool isCurrentOptionAvailable() override {
+		return currentOption < static_cast<int32_t>(hasPresets_.size()) && hasPresets_[currentOption];
+	}
 	bool canSeeViewUnderneath() override { return true; }
 	bool acceptCurrentOption() override;
 	ActionResult buttonAction(deluge::hid::Button b, bool on, bool inCardRoutine) override;
@@ -67,7 +70,7 @@ public:
 
 private:
 	size_t type_ = 0;
-	std::array<bool, synth_instruments::kSynthCategories.size()> hasPresets_{};
+	std::array<bool, synth_instruments::kMaxSynthCategories> hasPresets_{};
 };
 
 /// Open the preset browser on folder for the current clip, playing its first preset. backTo is the category menu's

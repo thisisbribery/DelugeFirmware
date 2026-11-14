@@ -558,16 +558,11 @@ bool SoundEditor::getGreyoutColsAndRows(uint32_t* cols, uint32_t* rows) {
 		}
 		else {
 			*cols = 0xFFFFFFFE;
-			// Pad Guides: the drum synth layout's columns stay lit, the glow greys their empty pads itself. The OSC1
-			// column too, where the engine has settings on it.
+			// Pad Guides: the drum synth layout's columns stay lit, the glow greys their empty pads itself
 			if (const Sound* glowSound = InstrumentClipView::padGuidesGlowSound(); glowSound != nullptr) {
-				using deluge::dsp::drum_synth::StandardSlot;
 				const auto engine = glowSound->sources[0].drumPatch.engine();
-				for (int32_t slot = 0; slot < static_cast<int32_t>(StandardSlot::NUM_SLOTS); slot++) {
-					int32_t x;
-					int32_t y;
-					const bool modColumn = slot < static_cast<int32_t>(StandardSlot::NUM_MOD_SLOTS);
-					if ((modColumn || drumLayoutItem(engine, slot) != nullptr) && drumLayoutPadFor(slot, &x, &y)) {
+				for (int32_t x = 0; x < kDisplayWidth; x++) {
+					if (drumLayoutColumn(engine, x)) {
 						*cols &= ~(1u << (kDisplayWidth + kSideBarWidth - 1 - x));
 					}
 				}

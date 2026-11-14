@@ -148,6 +148,35 @@ inline deluge::l10n::String ringsKnobName(int32_t slot) {
 	}
 }
 
+/// What BROPHET calls the setting on a control slot, or EMPTY_STRING for a slot it doesn't use
+inline deluge::l10n::String brophetKnobName(int32_t slot) {
+	using enum deluge::l10n::String;
+	switch (slot) {
+	case DrumControls::BROPHET_PW_A:
+		return STRING_FOR_BROPHET_PW_A;
+	case DrumControls::BROPHET_PW_B:
+		return STRING_FOR_BROPHET_PW_B;
+	case DrumControls::BROPHET_FREQ_B:
+		return STRING_FOR_BROPHET_FREQ_B;
+	case DrumControls::BROPHET_FINE_B:
+		return STRING_FOR_BROPHET_FINE_B;
+	case DrumControls::BROPHET_PM_ENV:
+		return STRING_FOR_BROPHET_PM_ENV;
+	case DrumControls::BROPHET_PM_OSC_B:
+		return STRING_FOR_BROPHET_PM_OSC_B;
+	case DrumControls::BROPHET_MIX_A:
+		return STRING_FOR_BROPHET_MIX_A;
+	case DrumControls::BROPHET_MIX_B:
+		return STRING_FOR_BROPHET_MIX_B;
+	case DrumControls::BROPHET_NOISE:
+		return STRING_FOR_BROPHET_NOISE;
+	case DrumControls::BROPHET_ANALOG:
+		return STRING_FOR_BROPHET_ANALOG;
+	default:
+		return EMPTY_STRING;
+	}
+}
+
 /// What GIN calls the setting on a control slot
 inline deluge::l10n::String ginKnobName(int32_t slot) {
 	using enum deluge::l10n::String;

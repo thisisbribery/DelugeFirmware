@@ -250,6 +250,16 @@ void Patch::setRingsModel(rings::Model model) {
 	    std::min<uint8_t>(static_cast<uint8_t>(model), static_cast<uint8_t>(rings::Model::NUM_MODELS) - 1);
 }
 
+void Patch::setBrophet() {
+	params_[ENGINE] = static_cast<uint8_t>(Engine::BROPHET);
+	params_[BROPHET_WAVE_A] = static_cast<uint8_t>(brophet::WaveA::SAW);
+	params_[BROPHET_WAVE_B] = static_cast<uint8_t>(brophet::WaveB::SAW);
+	params_[BROPHET_SYNC] = 0;
+	params_[BROPHET_LOW_B] = 0;
+	params_[BROPHET_FIXED_B] = 0;
+	params_[BROPHET_PM_DEST] = static_cast<uint8_t>(brophet::PolyModDest::FREQ_A);
+}
+
 void Patch::setCycPreset(Engine engine) {
 	params_[ENGINE] = static_cast<uint8_t>(engine);
 	params_[XIA_PUNCH] = 0;
@@ -369,6 +379,9 @@ DrumControls DrumControls::defaultsFor(Engine engine) {
 	if (isRings(engine)) {
 		return ringsControlsFor(rings::Model::MODAL);
 	}
+	if (isBrophet(engine)) {
+		return brophetControlsFor();
+	}
 	if (isCyc(engine)) {
 		// The Cyc engines start where the originals do, their own amp decay included
 		const auto& d = kCycDefaults[static_cast<size_t>(cycKind(engine))];
@@ -439,6 +452,16 @@ uint8_t Patch::maxValue(Param p) {
 		return static_cast<uint8_t>(rings::Model::NUM_MODELS) - 1;
 	case RINGS_POLY:
 		return 1;
+	case BROPHET_WAVE_A:
+		return static_cast<uint8_t>(brophet::WaveA::NUM) - 1;
+	case BROPHET_WAVE_B:
+		return static_cast<uint8_t>(brophet::WaveB::NUM) - 1;
+	case BROPHET_PM_DEST:
+		return static_cast<uint8_t>(brophet::PolyModDest::NUM) - 1;
+	case BROPHET_SYNC:
+	case BROPHET_LOW_B:
+	case BROPHET_FIXED_B:
+		return 1;
 	case XIA_PUNCH:
 	case SNAPPY_DECAY:
 	case CONTROLS_VERSION:
@@ -505,6 +528,13 @@ bool Patch::isUsedBy(Param p, Engine engine) {
 	case RINGS_MODEL:
 	case RINGS_POLY:
 		return isRings(engine);
+	case BROPHET_WAVE_A:
+	case BROPHET_WAVE_B:
+	case BROPHET_SYNC:
+	case BROPHET_LOW_B:
+	case BROPHET_FIXED_B:
+	case BROPHET_PM_DEST:
+		return isBrophet(engine);
 	default:
 		return isXia(engine);
 	}
@@ -599,6 +629,15 @@ int32_t sharedControlSlot(Engine engine, StandardSlot slot) {
 		// Position and bow where the pitch envelope would be, brightness and structure as the characters
 		shared = {DrumControls::RINGS_POSITION, DrumControls::RINGS_BOW, DrumControls::RINGS_BRIGHTNESS,
 		          DrumControls::RINGS_STRUCTURE};
+		break;
+	case Engine::BROPHET:
+		// Poly mod's two depths where the pitch envelope would be (envelope 2 is its envelope), osc B's detune and osc
+		// A's pulse width as the characters. No drive or decay: the Deluge's filter and envelopes are its own.
+		if (slot == StandardSlot::DECAY || slot == StandardSlot::DRIVE) {
+			return -1;
+		}
+		shared = {DrumControls::BROPHET_PM_ENV, DrumControls::BROPHET_PM_OSC_B, DrumControls::BROPHET_FINE_B,
+		          DrumControls::BROPHET_PW_A};
 		break;
 	default: // The Cyc engines: Sweep, Contour, Color, Shape
 		shared = {DrumControls::CYC_MACRO3, DrumControls::CYC_MACRO4, DrumControls::CYC_MACRO1,
@@ -783,6 +822,10 @@ RowSetup rowSetupForEngine(Engine engine, uint8_t variant) {
 		    static_cast<rings::Model>(std::min<uint8_t>(variant, static_cast<uint8_t>(rings::Model::NUM_MODELS) - 1)));
 		return rowSetupForRings(c.value(DrumControls::RINGS_DAMPING));
 	}
+	if (isBrophet(engine)) {
+		// A synth's envelope, not a hit's: picking BROPHET sets the rest up as a synth too (see setDrumEngine)
+		return {0, 25, -1, false, 20, 0, 40, 15};
+	}
 	return xiaPresetFor(engine, variant).row;
 }
 
@@ -799,6 +842,9 @@ DrumControls controlsFromPatch(const Patch& patch) {
 	if (isRings(engine)) {
 		return ringsControlsFor(static_cast<rings::Model>(
 		    std::min<uint8_t>(patch.get(Patch::RINGS_MODEL), static_cast<uint8_t>(rings::Model::NUM_MODELS) - 1)));
+	}
+	if (isBrophet(engine)) {
+		return brophetControlsFor();
 	}
 	if (!isLxr(engine)) {
 		return DrumControls::defaultsFor(engine);
@@ -1134,8 +1180,12 @@ void Voice::renderMetal(int32_t* out, int32_t n, int32_t& amplitude, int32_t amp
 void Voice::render(const Patch& patch, const DrumControls& controls, int32_t* buffer, int32_t numSamples,
                    uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement) {
 	updateSettings(patch, controls);
+	if (isBrophet(settings_.engine)) {
+		renderBrophet(settingsFrom_, controls, buffer, numSamples, basePhaseIncrement, amplitude, amplitudeIncrement);
+		return;
+	}
 	if (isRings(settings_.engine)) {
-		ultrakikReady_ = ginReady_ = cycReady_ = false;
+		ultrakikReady_ = ginReady_ = cycReady_ = brophetReady_ = false;
 		xiaEngine_ = Engine::DRUM;
 		renderRings(settingsFrom_, controls, buffer, numSamples, basePhaseIncrement, amplitude, amplitudeIncrement);
 		return;
@@ -1146,6 +1196,7 @@ void Voice::render(const Patch& patch, const DrumControls& controls, int32_t* bu
 			ultrakikReady_ = true;
 			ginReady_ = false;
 			cycReady_ = false;
+			brophetReady_ = false;
 			xiaEngine_ = Engine::DRUM;
 		}
 		if (pendingTrigger_) {
@@ -1161,6 +1212,7 @@ void Voice::render(const Patch& patch, const DrumControls& controls, int32_t* bu
 			ginReady_ = true;
 			ultrakikReady_ = false;
 			cycReady_ = false;
+			brophetReady_ = false;
 			xiaEngine_ = Engine::DRUM;
 		}
 		if (pendingTrigger_) {
@@ -1176,6 +1228,7 @@ void Voice::render(const Patch& patch, const DrumControls& controls, int32_t* bu
 			cycReady_ = true;
 			ginReady_ = false;
 			ultrakikReady_ = false;
+			brophetReady_ = false;
 			xiaEngine_ = Engine::DRUM;
 		}
 		if (pendingTrigger_) {
@@ -1302,6 +1355,9 @@ bool Voice::quiet() const {
 	if (isRings(settings_.engine)) {
 		return rings_ != nullptr && ringsReady_ && ringsAge_ >= kRingsMinSamples && rings::level(*rings_) < kQuietLevel;
 	}
+	if (isBrophet(settings_.engine)) {
+		return false; // Its oscillators never fade: the Deluge's envelope ends the note
+	}
 	if (isUltrakik(settings_.engine)) {
 		return ultrakikReady_ && xia_.ultrakik.level() < kQuietLevel;
 	}
@@ -1361,6 +1417,7 @@ void Voice::startXia(Engine engine) {
 	cycReady_ = false;
 	ginReady_ = false;
 	ultrakikReady_ = false;
+	brophetReady_ = false;
 	if (engine == Engine::TIA) {
 		xia::reset(xia_.tia);
 	}
@@ -1693,6 +1750,118 @@ void Voice::renderRings(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const D
 	ringsAge_ = std::min(ringsAge_ + numSamples, kRingsMinSamples);
 	// Once the resonator has died away (and nothing is bowing it), so has the voice
 	xiaFinished_ = ringsAge_ >= kRingsMinSamples && s.bow <= 0.f && rings::level(*rings_) < kEndLevel;
+}
+
+} // namespace deluge::dsp::drum_synth
+
+// BROPHET -------------------------------------------------------------------------------------------------------------
+
+namespace deluge::dsp::drum_synth {
+
+brophet::Settings brophetSettings(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const DrumControls& controls) {
+	using S = DrumControls;
+	using namespace brophet;
+	auto knob = [&](int32_t slot) { return ringsKnob(controls, slot); };
+	Settings s{};
+	const auto waveA =
+	    static_cast<WaveA>(std::min<uint8_t>(p[Patch::BROPHET_WAVE_A], static_cast<uint8_t>(WaveA::NUM) - 1));
+	const auto waveB =
+	    static_cast<WaveB>(std::min<uint8_t>(p[Patch::BROPHET_WAVE_B], static_cast<uint8_t>(WaveB::NUM) - 1));
+	const auto dest = static_cast<PolyModDest>(
+	    std::min<uint8_t>(p[Patch::BROPHET_PM_DEST], static_cast<uint8_t>(PolyModDest::NUM) - 1));
+
+	s.mixerOscillatorA = knob(S::BROPHET_MIX_A);
+	s.sawActiveA = (waveA != WaveA::PULSE) ? 1.f : 0.f;
+	s.oscillatorA_PulseActive = waveA != WaveA::SAW;
+	s.oscillatorA_FM_PM = (dest != PolyModDest::PW_A) ? 0.4f : 0.f;
+	s.oscillatorA_PW_PM = (dest != PolyModDest::FREQ_A) ? -1.f : 0.f;
+	const bool sawB =
+	    waveB == WaveB::SAW || waveB == WaveB::SAW_TRIANGLE || waveB == WaveB::SAW_PULSE || waveB == WaveB::ALL;
+	const bool triB = waveB == WaveB::TRIANGLE || waveB == WaveB::SAW_TRIANGLE || waveB == WaveB::TRIANGLE_PULSE
+	                  || waveB == WaveB::ALL;
+	const bool pulseB =
+	    waveB == WaveB::PULSE || waveB == WaveB::SAW_PULSE || waveB == WaveB::TRIANGLE_PULSE || waveB == WaveB::ALL;
+	s.oscillatorB_SawA = sawB ? 0.5f : 0.f;
+	s.oscillatorB_TriA = triB;
+	s.oscillatorB_PulseA = pulseB ? 1.f : 0.f;
+	s.oscillatorSyncActive = p[Patch::BROPHET_SYNC] != 0;
+	s.mixerOscillatorB = 2.f * knob(S::BROPHET_MIX_B);
+	s.mixerNoise = 0.35f * 5.f * knob(S::BROPHET_NOISE);
+	// Pro-53's poly mod depths: the envelope's squared from 0.4 to 5.1, so its first half is fine and its top sweeps
+	// octaves
+	const float envKnob = 0.4f + 4.7f * knob(S::BROPHET_PM_ENV);
+	s.polymodEnvelopeF = envKnob * envKnob - 0.16f;
+	s.polymodOscillatorB = 3.09f * knob(S::BROPHET_PM_OSC_B);
+	s.pwA = knob(S::BROPHET_PW_A) * 2.f - 1.f;
+	s.pwB = knob(S::BROPHET_PW_B) * 2.f - 1.f;
+	// Osc B in semitone steps, two octaves each way on the keys and four off them (around middle C), as Pro-53's knob
+	// doubles its range with the keyboard off; then the detune; 91.3 semitones down in the low range, as Pro-53
+	s.keysB = p[Patch::BROPHET_FIXED_B] == 0;
+	const int32_t range = s.keysB ? 24 : 48;
+	const int32_t coarse =
+	    std::clamp<int32_t>((static_cast<int32_t>(controls.value(S::BROPHET_FREQ_B)) - 64) * range / 63, -range, range);
+	s.semitonesB = static_cast<float>(coarse) + (knob(S::BROPHET_FINE_B) - 64.f / 127.f) * (127.f / 126.f)
+	               + ((p[Patch::BROPHET_LOW_B] != 0) ? -91.3f : 0.f);
+	return s;
+}
+
+DrumControls brophetControlsFor() {
+	using S = DrumControls;
+	DrumControls c;
+	for (int32_t i = 0; i < S::NUM_SLOTS; i++) {
+		c.values[i] = S::fromValue(64);
+	}
+	c.values[S::BROPHET_PW_A] = S::fromValue(48);
+	c.values[S::BROPHET_PW_B] = S::fromValue(48);
+	c.values[S::BROPHET_FREQ_B] = S::fromValue(64);
+	c.values[S::BROPHET_FINE_B] = S::fromValue(70);
+	c.values[S::BROPHET_PM_ENV] = S::fromValue(0);
+	c.values[S::BROPHET_PM_OSC_B] = S::fromValue(0);
+	c.values[S::BROPHET_MIX_A] = S::fromValue(127);
+	c.values[S::BROPHET_MIX_B] = S::fromValue(90);
+	c.values[S::BROPHET_NOISE] = S::fromValue(0);
+	c.values[S::BROPHET_ANALOG] = S::fromValue(42);
+	c.values[S::CYC_DRIVE] = S::fromValue(0);
+	c.values[S::LXR_DRIVE] = S::fromValue(0);
+	return c;
+}
+
+void Voice::renderBrophet(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const DrumControls& controls,
+                          int32_t* buffer, int32_t numSamples, uint32_t basePhaseIncrement, int32_t amplitude,
+                          int32_t amplitudeIncrement) {
+	if (!brophetReady_) {
+		ultrakikReady_ = ginReady_ = cycReady_ = false;
+		xiaEngine_ = Engine::DRUM;
+		xia_.brophet = brophet::Voice{};
+		brophetReady_ = true;
+		pendingTrigger_ = true;
+	}
+	if (pendingTrigger_) {
+		pendingTrigger_ = false;
+		// Each note its own drift and phases
+		static uint32_t seed = 0x2545F491;
+		seed += 0x9E3779B9;
+		brophet::trigger(xia_.brophet, ringsKnob(controls, DrumControls::BROPHET_ANALOG), seed);
+	}
+	const brophet::Settings s = brophetSettings(p, controls);
+	const float env = (static_cast<float>(polyModEnvelope_) * (1.f / 4294967296.f)) + 0.5f;
+
+	constexpr int32_t kChunk = 64;
+	std::array<float, kChunk> chunk;
+	int32_t* out = buffer;
+	int32_t remaining = numSamples;
+	while (remaining > 0) {
+		const int32_t n = std::min(remaining, kChunk);
+		brophet::render(xia_.brophet, s, basePhaseIncrement, env, chunk.data(), n);
+		for (int32_t i = 0; i < n; i++) {
+			amplitude += amplitudeIncrement;
+			// A full saw lands as the LXR engines' full sine does. q31_from_float saturates in the one instruction.
+			out[i] =
+			    add_saturate(out[i], q31_from_float(chunk[i] * static_cast<float>(amplitude) * (1.f / 2147483648.f)));
+		}
+		out += n;
+		remaining -= n;
+	}
 }
 
 } // namespace deluge::dsp::drum_synth

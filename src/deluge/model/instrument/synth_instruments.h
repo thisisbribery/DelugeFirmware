@@ -20,6 +20,7 @@
 #include "definitions_cxx.hpp"
 #include "gui/l10n/strings.h"
 #include <array>
+#include <span>
 
 /// The synth types SHIFT + SYNTH picks between, on any track. Each has its own preset folder, sorted into the
 /// category folders below: picking a type then a category opens the preset browser in that folder, playing its first
@@ -37,27 +38,38 @@ struct SynthInstrument {
 	/// BRIBERING MODE (the Rings engine in SYNTH MODE). Its presets are the way in: an empty folder gives a plain
 	/// synth.
 	bool rings;
+	/// BROPHET (the Pro-53 voice in SYNTH MODE). As BRINGS: its presets are the way in.
+	bool brophet;
 	/// The stock blank synth, as SHIFT + SYNTH made before: no folder of its own, not a default instrument
 	bool init;
 };
 
-inline constexpr std::array<SynthInstrument, 7> kSynthInstruments{{
-    {l10n::String::STRING_FOR_SYNTH_TYPE_SUBT, "SYNTHS/SUBT", SynthMode::SUBTRACTIVE, false, false, false, false},
-    {l10n::String::STRING_FOR_SYNTH_TYPE_FM, "SYNTHS/FM", SynthMode::FM, false, false, false, false},
-    {l10n::String::STRING_FOR_SYNTH_TYPE_WAVE, "SYNTHS/WAVE", SynthMode::SUBTRACTIVE, false, true, false, false},
-    {l10n::String::STRING_FOR_SYNTH_TYPE_RING, "SYNTHS/RING", SynthMode::RINGMOD, false, false, false, false},
-    {l10n::String::STRING_FOR_SYNTH_TYPE_BRIB, "SYNTHS/BRINGS", SynthMode::SUBTRACTIVE, false, false, true, false},
-    {l10n::String::STRING_FOR_SYNTH_INSTRUMENT_DX7, "SYNTHS/DX7", SynthMode::SUBTRACTIVE, true, false, false, false},
-    {l10n::String::STRING_FOR_SYNTH_TYPE_INIT, "SYNTHS", SynthMode::SUBTRACTIVE, false, false, false, true},
+// BROPHET goes after DX7 so the types saved before it (Defaults > Synth instrument) keep their numbers. DX7 only shows
+// with its setting on, so it usually comes straight after BRINGS.
+inline constexpr std::array<SynthInstrument, 8> kSynthInstruments{{
+    {l10n::String::STRING_FOR_SYNTH_TYPE_SUBT, "SYNTHS/SUBT", SynthMode::SUBTRACTIVE, false, false, false, false,
+     false},
+    {l10n::String::STRING_FOR_SYNTH_TYPE_FM, "SYNTHS/FM", SynthMode::FM, false, false, false, false, false},
+    {l10n::String::STRING_FOR_SYNTH_TYPE_WAVE, "SYNTHS/WAVE", SynthMode::SUBTRACTIVE, false, true, false, false, false},
+    {l10n::String::STRING_FOR_SYNTH_TYPE_RING, "SYNTHS/RING", SynthMode::RINGMOD, false, false, false, false, false},
+    {l10n::String::STRING_FOR_SYNTH_TYPE_BRIB, "SYNTHS/BRINGS", SynthMode::SUBTRACTIVE, false, false, true, false,
+     false},
+    {l10n::String::STRING_FOR_SYNTH_INSTRUMENT_DX7, "SYNTHS/DX7", SynthMode::SUBTRACTIVE, true, false, false, false,
+     false},
+    {l10n::String::STRING_FOR_SYNTH_TYPE_BROPHET, "SYNTHS/BROPHET", SynthMode::SUBTRACTIVE, false, false, false, true,
+     false},
+    {l10n::String::STRING_FOR_SYNTH_TYPE_INIT, "SYNTHS", SynthMode::SUBTRACTIVE, false, false, false, false, true},
 }};
 
 /// The ones a new track can start as (Settings > Defaults): all but INIT, which is last
 inline constexpr size_t kNumDefaultSynthInstruments = kSynthInstruments.size() - 1;
 
-/// The category folders inside each type's folder, in the order SHIFT + SYNTH offers them
+/// The category folders inside each type's folder, in the order SHIFT + SYNTH offers them. label, if set, is shown
+/// instead of the name string (the same on OLED and 7SEG, which scrolls it).
 struct SynthCategory {
 	l10n::String name;
 	char const* folder;
+	char const* label = nullptr;
 };
 
 inline constexpr std::array<SynthCategory, 4> kSynthCategories{{
@@ -66,5 +78,30 @@ inline constexpr std::array<SynthCategory, 4> kSynthCategories{{
     {l10n::String::STRING_FOR_SYNTH_CATEGORY_PAD, "PAD"},
     {l10n::String::STRING_FOR_SYNTH_CATEGORY_MISC, "MISC"},
 }};
+
+/// BROPHET's categories follow Pro-53's own programs: BNK1 to BNK8 are its eight files of 64 (8 banks of 8 programs,
+/// the presets named by program number, as 411 for file 4, bank 1, program 1), then BRIB, the Bribes presets
+inline constexpr std::array<SynthCategory, 9> kBrophetCategories{{
+    {l10n::String::STRING_FOR_SYNTH_CATEGORY_MISC, "BNK1", "BNK1"},
+    {l10n::String::STRING_FOR_SYNTH_CATEGORY_MISC, "BNK2", "BNK2"},
+    {l10n::String::STRING_FOR_SYNTH_CATEGORY_MISC, "BNK3", "BNK3"},
+    {l10n::String::STRING_FOR_SYNTH_CATEGORY_MISC, "BNK4", "BNK4"},
+    {l10n::String::STRING_FOR_SYNTH_CATEGORY_MISC, "BNK5", "BNK5"},
+    {l10n::String::STRING_FOR_SYNTH_CATEGORY_MISC, "BNK6", "BNK6"},
+    {l10n::String::STRING_FOR_SYNTH_CATEGORY_MISC, "BNK7", "BNK7"},
+    {l10n::String::STRING_FOR_SYNTH_CATEGORY_MISC, "BNK8", "BNK8"},
+    {l10n::String::STRING_FOR_SYNTH_CATEGORY_MISC, "BRIB", "BRIB"},
+}};
+
+/// The most categories any type has
+inline constexpr size_t kMaxSynthCategories = kBrophetCategories.size();
+
+/// A type's categories
+inline std::span<const SynthCategory> categoriesFor(const SynthInstrument& type) {
+	if (type.brophet) {
+		return kBrophetCategories;
+	}
+	return kSynthCategories;
+}
 
 } // namespace deluge::synth_instruments

@@ -133,15 +133,17 @@ enum class Engine : uint8_t;
 }
 /// Whether a sound's osc 1 is a drum synth
 bool isDrumSynth(const Sound* sound);
-/// The menu item on a standard drum synth slot (dsp::drum_synth::StandardSlot) for an engine, or nullptr where the
-/// engine has none
-MenuItem* drumLayoutItem(deluge::dsp::drum_synth::Engine engine, int32_t slot);
-/// The pad a standard drum synth slot is on
-bool drumLayoutPadFor(int32_t slot, int32_t* x, int32_t* y);
-/// Whether a pad is one of a drum synth sound's standard layout pads (the MOD1 and MOD2 columns)
+/// The menu item a drum synth engine's layout puts on a pad, or nullptr: on a drum engine the MOD1 and MOD2 columns
+/// (and the OSC1 extras), on a synth engine (RINGS, BROPHET) the OSC1, OSC2 and FM MOD columns
+MenuItem* drumLayoutItemAt(deluge::dsp::drum_synth::Engine engine, int32_t x, int32_t y);
+/// Whether a column is part of an engine's layout (kept lit for Pad Guides, its pads without a setting greyed)
+bool drumLayoutColumn(deluge::dsp::drum_synth::Engine engine, int32_t x);
+/// Whether an engine lays out as a synth (its basics on the OSC pads) rather than a drum
+bool isSynthLayout(deluge::dsp::drum_synth::Engine engine);
+/// Whether a pad is one of a drum synth sound's layout pads (on a drum engine every MOD1 and MOD2 pad)
 bool isDrumLayoutPad(const Sound* sound, int32_t x, int32_t y);
-/// A sound's shortcut pad item. On a drum synth sound, the MOD1 and MOD2 columns are the standard drum layout and OSC1
-/// TYPE opens SYNTH MODE (see menus.cpp). nullptr = nothing.
+/// A sound's shortcut pad item. On a drum synth sound, the engine's layout pads, and on a drum engine OSC1 TYPE opens
+/// SYNTH MODE (see menus.cpp). nullptr = nothing.
 MenuItem* soundShortcutFor(const Sound* sound, int32_t x, int32_t y);
 /// The patched param on a drum synth sound's shortcut pad, for the automation view and patch cable blinks: the
 /// control on a drum layout pad (kNoParamID for a choice or the tuning), elsewhere the Deluge's own param, or

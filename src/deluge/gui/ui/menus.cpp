@@ -1636,6 +1636,22 @@ PLACE_SDRAM_BSS drum_synth::RingsControl ringsDampingMenu{STRING_FOR_RINGS_DAMPI
 PLACE_SDRAM_BSS drum_synth::RingsControl ringsPositionMenu{STRING_FOR_RINGS_POSITION, XiaSlot::RINGS_POSITION};
 PLACE_SDRAM_BSS drum_synth::RingsControl ringsBowMenu{STRING_FOR_RINGS_BOW, XiaSlot::RINGS_BOW};
 PLACE_SDRAM_BSS drum_synth::RingsControl ringsDriveMenu{STRING_FOR_XIA_DRIVE, XiaSlot::RINGS_DRIVE};
+PLACE_SDRAM_BSS drum_synth::BrophetWaveA brophetWaveAMenu{STRING_FOR_BROPHET_WAVE_A};
+PLACE_SDRAM_BSS drum_synth::BrophetWaveB brophetWaveBMenu{STRING_FOR_BROPHET_WAVE_B};
+PLACE_SDRAM_BSS drum_synth::OffOn brophetSyncMenu{STRING_FOR_BROPHET_SYNC, DrumParam::BROPHET_SYNC};
+PLACE_SDRAM_BSS drum_synth::OffOn brophetLowBMenu{STRING_FOR_BROPHET_LOW_B, DrumParam::BROPHET_LOW_B};
+PLACE_SDRAM_BSS drum_synth::BrophetKeysB brophetKeysBMenu{STRING_FOR_BROPHET_KEYS_B};
+PLACE_SDRAM_BSS drum_synth::BrophetPolyModDest brophetPmDestMenu{STRING_FOR_BROPHET_PM_DEST};
+PLACE_SDRAM_BSS drum_synth::BrophetControl brophetPwAMenu{STRING_FOR_BROPHET_PW_A, XiaSlot::BROPHET_PW_A};
+PLACE_SDRAM_BSS drum_synth::BrophetControl brophetPwBMenu{STRING_FOR_BROPHET_PW_B, XiaSlot::BROPHET_PW_B};
+PLACE_SDRAM_BSS drum_synth::BrophetControl brophetFreqBMenu{STRING_FOR_BROPHET_FREQ_B, XiaSlot::BROPHET_FREQ_B};
+PLACE_SDRAM_BSS drum_synth::BrophetControl brophetFineBMenu{STRING_FOR_BROPHET_FINE_B, XiaSlot::BROPHET_FINE_B};
+PLACE_SDRAM_BSS drum_synth::BrophetControl brophetPmEnvMenu{STRING_FOR_BROPHET_PM_ENV, XiaSlot::BROPHET_PM_ENV};
+PLACE_SDRAM_BSS drum_synth::BrophetControl brophetPmOscBMenu{STRING_FOR_BROPHET_PM_OSC_B, XiaSlot::BROPHET_PM_OSC_B};
+PLACE_SDRAM_BSS drum_synth::BrophetControl brophetMixAMenu{STRING_FOR_BROPHET_MIX_A, XiaSlot::BROPHET_MIX_A};
+PLACE_SDRAM_BSS drum_synth::BrophetControl brophetMixBMenu{STRING_FOR_BROPHET_MIX_B, XiaSlot::BROPHET_MIX_B};
+PLACE_SDRAM_BSS drum_synth::BrophetControl brophetNoiseMenu{STRING_FOR_BROPHET_NOISE, XiaSlot::BROPHET_NOISE};
+PLACE_SDRAM_BSS drum_synth::BrophetControl brophetAnalogMenu{STRING_FOR_BROPHET_ANALOG, XiaSlot::BROPHET_ANALOG};
 PLACE_SDRAM_BSS KitGateOut kitGateOutMenu{STRING_FOR_KIT_GATE_OUT};
 PLACE_SDRAM_BSS KitRowGate kitRowGateMenu{STRING_FOR_ROW_GATE};
 // Items the current engine doesn't use hide themselves
@@ -1730,6 +1746,22 @@ PLACE_SDRAM_BSS menu_item::Submenu drumSynthMenu{
         &ringsPositionMenu,
         &ringsBowMenu,
         &ringsDriveMenu,
+        &brophetWaveAMenu,
+        &brophetPwAMenu,
+        &brophetSyncMenu,
+        &brophetWaveBMenu,
+        &brophetPwBMenu,
+        &brophetFreqBMenu,
+        &brophetFineBMenu,
+        &brophetLowBMenu,
+        &brophetKeysBMenu,
+        &brophetPmEnvMenu,
+        &brophetPmOscBMenu,
+        &brophetPmDestMenu,
+        &brophetMixAMenu,
+        &brophetMixBMenu,
+        &brophetNoiseMenu,
+        &brophetAnalogMenu,
         &drumSnappyDecayMenu,
     },
 };
@@ -1890,6 +1922,24 @@ PLACE_SDRAM_DATA std::array<DrumColumn, 12> drumEditorRingsLayout{{
     {&lpfFreqMenu, DrumKind::NUMBER, DrumGroup::SOUND},
     {&hpfFreqMenu, DrumKind::NUMBER, DrumGroup::SOUND},
 }};
+// BROPHET: in the shortcut pads' order: osc A (wave, pulse width, level), osc B (wave, frequency, fine, pulse width,
+// level), sync and noise, poly mod from osc B and the envelope, then the Deluge's filter (the BROPHET one when picked)
+PLACE_SDRAM_DATA std::array<DrumColumn, 14> drumEditorBrophetLayout{{
+    {&brophetWaveAMenu, DrumKind::CHOICE, DrumGroup::OSC},
+    {&brophetPwAMenu, DrumKind::NUMBER, DrumGroup::OSC},
+    {&brophetMixAMenu, DrumKind::NUMBER, DrumGroup::OSC},
+    {&brophetWaveBMenu, DrumKind::CHOICE, DrumGroup::PITCH},
+    {&brophetFreqBMenu, DrumKind::NUMBER, DrumGroup::PITCH},
+    {&brophetFineBMenu, DrumKind::NUMBER, DrumGroup::PITCH},
+    {&brophetPwBMenu, DrumKind::NUMBER, DrumGroup::PITCH},
+    {&brophetMixBMenu, DrumKind::NUMBER, DrumGroup::PITCH},
+    {&brophetSyncMenu, DrumKind::CHOICE, DrumGroup::NOISE},
+    {&brophetNoiseMenu, DrumKind::NUMBER, DrumGroup::NOISE},
+    {&brophetPmOscBMenu, DrumKind::NUMBER, DrumGroup::MOD2},
+    {&brophetPmEnvMenu, DrumKind::NUMBER, DrumGroup::MOD2},
+    {&lpfFreqMenu, DrumKind::NUMBER, DrumGroup::SOUND},
+    {&lpfResMenu, DrumKind::NUMBER, DrumGroup::SOUND},
+}};
 
 // Drum synth shortcut pads. On a drum synth sound, the MOD1 and MOD2 columns hold the standard layout, the same on
 // every engine: from the bottom of MOD1 up, decay, drive, pitch, pitch envelope amount and speed, character A and B and
@@ -1898,7 +1948,7 @@ PLACE_SDRAM_DATA std::array<DrumColumn, 12> drumEditorRingsLayout{{
 // with more settings than that (ULTRAKIK) puts four more on the OSC1 pads a drum synth has no use for: pulse width,
 // retrigger phase, feedback and wave index, bottom up. Every other pad keeps its usual job, except those whose param is
 // one of the drum controls (osc 1's pulse width, the carriers' feedback, the wave indexes), which do nothing: they
-// would edit the control raw.
+// would edit the control raw. The synth engines (RINGS, BROPHET) lay out as a synth instead: see synthLayouts.
 extern SynthModeSelection synthModeMenu;
 extern MenuItem* paramShortcutsForSounds[][kDisplayHeight];
 namespace {
@@ -1967,17 +2017,66 @@ PLACE_SDRAM_DATA DrumLayout drumLayouts[] = {
       &ukFoldMenu,  &ukGritMenu,      &ukPunchMenu,          &ukSubMenu,       &ukHoldMenu,
       &ukClickMenu, &ukClickTypeMenu, &ukClickToneMenu,      &ukBendMenu,      &ukBendTimeMenu,
       &ukCrushMenu, &ukWaveMenu,      &ukSnapMenu,           &ukDriveTypeMenu, &ukPresetMenu}},
-    // RINGS: damping as the decay, position and bow where the pitch envelope would be, brightness and structure as the
-    // characters, the model on top of MOD1
-    {DrumEngine::RINGS,
-     DrumEngine::RINGS,
-     {&ringsDampingMenu, &ringsDriveMenu, &source0TransposeMenu, &ringsPositionMenu, &ringsBowMenu,
-      &ringsBrightnessMenu, &ringsStructureMenu, &ringsModelMenu, &ringsPolyMenu, nullptr, nullptr, nullptr, nullptr,
-      nullptr, nullptr}},
 };
 
 constexpr int32_t kNumModSlots = static_cast<int32_t>(StandardSlot::NUM_MOD_SLOTS);
 constexpr int32_t kNumOsc1Extras = kNumStandardSlots - kNumModSlots;
+
+// The synth engines (RINGS, BROPHET) lay out as a synth does, not as a drum: their basic settings on the OSC1 and
+// OSC2 pads that already name them (level, transpose, type, pulse width, noise, sync), and only what has no such pad
+// on the FM MOD 1 and 2 columns, matched to those pads' names where one fits (a level, a pitch, the mod destination).
+// Indexed [column - OSC1][row], bottom row first. A pad without a setting here keeps its usual job (one whose param
+// is a drum control does nothing). SYNTH MODE is on its own pad (VOLUME column), as on any synth.
+constexpr int32_t kNumSynthColumns = 4; ///< OSC1, OSC2, FM MOD 1, FM MOD 2
+using SynthColumns = std::array<std::array<MenuItem*, kDisplayHeight>, kNumSynthColumns>;
+struct SynthLayout {
+	DrumEngine engine;
+	SynthColumns pads;
+};
+PLACE_SDRAM_DATA SynthLayout synthLayouts[] = {
+    // RINGS: the Deluge's own level and tuning, the model as osc 1's type. FM MOD 1 holds the resonator: drive on its
+    // level, structure (the partials' tuning, or the chord) on its transpose, brightness, position on its phase and
+    // damping on its feedback. FM MOD 2: the bow on its level, the strings per voice.
+    {DrumEngine::RINGS,
+     {{
+         // OSC1: level, transpose, type
+         {&source0VolumeMenu, &source0TransposeMenu, &ringsModelMenu, nullptr, nullptr, nullptr, nullptr, nullptr},
+         // OSC2: nothing
+         {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr},
+         // FM MOD 1: level, transpose, -, -, phase, feedback
+         {&ringsDriveMenu, &ringsStructureMenu, &ringsBrightnessMenu, nullptr, &ringsPositionMenu, &ringsDampingMenu,
+          nullptr, nullptr},
+         // FM MOD 2: level, -, -
+         {&ringsBowMenu, nullptr, &ringsPolyMenu, nullptr, nullptr, nullptr, nullptr, nullptr},
+     }}},
+    // BROPHET: osc A on OSC1 (its mixer level, the tuning, wave, pulse width, and the noise level on the noise pad),
+    // osc B on OSC2 (its mixer level, frequency on transpose, wave, pulse width, sync on the sync pad). FM MOD 1 is osc
+    // B as a modulator: poly mod from osc B on its level, osc B's fine tune, low range and keyboard. FM MOD 2 is the
+    // envelope: poly mod from it on its level, analog drift on its transpose, the poly mod destination on mod dest.
+    {DrumEngine::BROPHET,
+     {{
+         // OSC1: level, transpose, type, pulse width, -, -, -, noise
+         {&brophetMixAMenu, &source0TransposeMenu, &brophetWaveAMenu, &brophetPwAMenu, nullptr, nullptr, nullptr,
+          &brophetNoiseMenu},
+         // OSC2: level, transpose, type, pulse width, -, -, -, sync
+         {&brophetMixBMenu, &brophetFreqBMenu, &brophetWaveBMenu, &brophetPwBMenu, nullptr, nullptr, nullptr,
+          &brophetSyncMenu},
+         // FM MOD 1: level, transpose, -, -
+         {&brophetPmOscBMenu, &brophetFineBMenu, &brophetLowBMenu, &brophetKeysBMenu, nullptr, nullptr, nullptr,
+          nullptr},
+         // FM MOD 2: level, transpose, -, -, -, -, mod dest
+         {&brophetPmEnvMenu, &brophetAnalogMenu, nullptr, nullptr, nullptr, nullptr, &brophetPmDestMenu, nullptr},
+     }}},
+};
+
+const SynthLayout* synthLayoutFor(DrumEngine engine) {
+	for (const SynthLayout& layout : synthLayouts) {
+		if (layout.engine == engine) {
+			return &layout;
+		}
+	}
+	return nullptr;
+}
 
 /// The standard slot on a pad, or -1. The OSC1 extras count whether or not the engine has them.
 int32_t drumLayoutSlotAt(int32_t x, int32_t y) {
@@ -1989,13 +2088,9 @@ int32_t drumLayoutSlotAt(int32_t x, int32_t y) {
 	}
 	return -1;
 }
-} // namespace
 
-bool isDrumSynth(const Sound* sound) {
-	return sound != nullptr && sound->sources[0].oscType == OscType::DRUM_SYNTH;
-}
-
-MenuItem* drumLayoutItem(deluge::dsp::drum_synth::Engine engine, int32_t slot) {
+/// The menu item on a standard drum slot (drum engines), or nullptr
+MenuItem* drumSlotItem(DrumEngine engine, int32_t slot) {
 	if (slot < 0 || slot >= kNumStandardSlots) {
 		return nullptr;
 	}
@@ -2007,32 +2102,61 @@ MenuItem* drumLayoutItem(deluge::dsp::drum_synth::Engine engine, int32_t slot) {
 	return nullptr;
 }
 
-/// The standard slot on a pad of this sound's layout, or -1: the MOD1 and MOD2 columns on every engine, an OSC1 extra
-/// only where the engine puts something there
-static int32_t drumLayoutSlotFor(const Sound* sound, int32_t x, int32_t y) {
-	const int32_t slot = drumLayoutSlotAt(x, y);
-	if (slot < kNumModSlots) {
-		return slot;
+/// Whether a drum engine puts anything on the OSC1 extras
+bool hasOsc1Extras(DrumEngine engine) {
+	for (int32_t slot = kNumModSlots; slot < kNumStandardSlots; slot++) {
+		if (drumSlotItem(engine, slot) != nullptr) {
+			return true;
+		}
 	}
-	return (drumLayoutItem(sound->sources[0].drumPatch.engine(), slot) != nullptr) ? slot : -1;
+	return false;
+}
+} // namespace
+
+bool isDrumSynth(const Sound* sound) {
+	return sound != nullptr && sound->sources[0].oscType == OscType::DRUM_SYNTH;
+}
+
+bool isSynthLayout(deluge::dsp::drum_synth::Engine engine) {
+	return synthLayoutFor(engine) != nullptr;
+}
+
+MenuItem* drumLayoutItemAt(deluge::dsp::drum_synth::Engine engine, int32_t x, int32_t y) {
+	if (x < 0 || x >= kDisplayWidth || y < 0 || y >= kDisplayHeight) {
+		return nullptr;
+	}
+	if (const SynthLayout* synth = synthLayoutFor(engine); synth != nullptr) {
+		return (x >= kPadOsc1 && x < kPadOsc1 + kNumSynthColumns) ? synth->pads[x - kPadOsc1][y] : nullptr;
+	}
+	return drumSlotItem(engine, drumLayoutSlotAt(x, y));
+}
+
+bool drumLayoutColumn(deluge::dsp::drum_synth::Engine engine, int32_t x) {
+	if (const SynthLayout* synth = synthLayoutFor(engine); synth != nullptr) {
+		if (x < kPadOsc1 || x >= kPadOsc1 + kNumSynthColumns) {
+			return false;
+		}
+		for (MenuItem* item : synth->pads[x - kPadOsc1]) {
+			if (item != nullptr) {
+				return true;
+			}
+		}
+		return false;
+	}
+	return x == kPadMod1 || x == kPadMod2 || (x == kPadOsc1 && hasOsc1Extras(engine));
+}
+
+/// Whether a pad belongs to this engine's layout: on a drum engine, every MOD1 and MOD2 pad, and the OSC1 extras it
+/// fills; on a synth engine, the pads its layout fills
+static bool layoutOwnsPad(deluge::dsp::drum_synth::Engine engine, int32_t x, int32_t y) {
+	if (!isSynthLayout(engine) && (x == kPadMod1 || x == kPadMod2)) {
+		return true;
+	}
+	return drumLayoutItemAt(engine, x, y) != nullptr;
 }
 
 bool isDrumLayoutPad(const Sound* sound, int32_t x, int32_t y) {
-	return isDrumSynth(sound) && drumLayoutSlotFor(sound, x, y) >= 0;
-}
-
-bool drumLayoutPadFor(int32_t slot, int32_t* x, int32_t* y) {
-	if (slot < 0 || slot >= kNumStandardSlots) {
-		return false;
-	}
-	if (slot >= kNumModSlots) {
-		*x = kPadOsc1;
-		*y = kOsc1ExtraFirstRow + slot - kNumModSlots;
-		return true;
-	}
-	*x = kPadMod1 + slot / kDisplayHeight;
-	*y = slot % kDisplayHeight;
-	return true;
+	return isDrumSynth(sound) && layoutOwnsPad(sound->sources[0].drumPatch.engine(), x, y);
 }
 
 MenuItem* soundShortcutFor(const Sound* sound, int32_t x, int32_t y) {
@@ -2040,11 +2164,17 @@ MenuItem* soundShortcutFor(const Sound* sound, int32_t x, int32_t y) {
 	if (!isDrumSynth(sound)) {
 		return usual;
 	}
-	if (x == kPadOsc1 && y == kRowType) {
+	const auto engine = sound->sources[0].drumPatch.engine();
+	if (layoutOwnsPad(engine, x, y)) {
+		return drumLayoutItemAt(engine, x, y);
+	}
+	if (x == kPadOsc1 && y == kRowType && !isSynthLayout(engine)) {
 		return &synthModeMenu;
 	}
-	if (const int32_t slot = drumLayoutSlotFor(sound, x, y); slot >= 0) {
-		return drumLayoutItem(sound->sources[0].drumPatch.engine(), slot);
+	// The FM MOD columns' "coming soon" pads hold a marker, not an item (see comingSoonMenu, defined further down):
+	// never read it. A drum engine's layout covers those columns; a synth engine's leaves some of them free.
+	if (usual == reinterpret_cast<MenuItem*>(0xFFFFFFFF)) {
+		return nullptr;
 	}
 	if (usual != nullptr && usual->getParamKind() == params::Kind::PATCHED
 	    && deluge::dsp::drum_synth::drumSlotForParam(usual->getParamIndex()) >= 0) {
@@ -2054,7 +2184,7 @@ MenuItem* soundShortcutFor(const Sound* sound, int32_t x, int32_t y) {
 }
 
 uint32_t drumShortcutParam(const Sound* sound, int32_t x, int32_t y) {
-	if (isDrumSynth(sound) && drumLayoutSlotFor(sound, x, y) >= 0) {
+	if (isDrumLayoutPad(sound, x, y)) {
 		MenuItem* item = soundShortcutFor(sound, x, y);
 		return (item != nullptr && item->getParamKind() == params::Kind::PATCHED) ? item->getParamIndex()
 		                                                                          : params::kNoParamID;
@@ -2068,10 +2198,10 @@ uint32_t drumShortcutParam(const Sound* sound, int32_t x, int32_t y) {
 #undef DRUM_PITCH_COLUMNS
 
 namespace deluge::gui::menu_item::drum_synth {
-PLACE_SDRAM_BSS Editor drumSynthEditor{STRING_FOR_DRUM_SYNTH, drumEditorDrumLayout, drumEditorSnareLayout,
-                                       drumEditorMetalLayout, drumEditorTiaLayout,  drumEditorIiaLayout,
-                                       drumEditorCycLayout,   drumEditorGinLayout,  drumEditorUltrakikLayout,
-                                       drumEditorRingsLayout, &drumSynthMenu};
+PLACE_SDRAM_BSS Editor drumSynthEditor{STRING_FOR_DRUM_SYNTH, drumEditorDrumLayout,    drumEditorSnareLayout,
+                                       drumEditorMetalLayout, drumEditorTiaLayout,     drumEditorIiaLayout,
+                                       drumEditorCycLayout,   drumEditorGinLayout,     drumEditorUltrakikLayout,
+                                       drumEditorRingsLayout, drumEditorBrophetLayout, &drumSynthMenu};
 } // namespace deluge::gui::menu_item::drum_synth
 
 // Not FM

@@ -78,11 +78,11 @@ inline void setControls(const DrumControls& controls) {
 	}
 }
 
-/// Envelope 2 to pitch on the sound being edited, as a patch cable user value. 0 takes the cable away.
-inline void setPitchCable(int32_t userValue) {
+/// A patch cable on the sound being edited, as a user value. 0 takes the cable away.
+inline void setCable(int32_t p, PatchSource source, int32_t userValue) {
 	namespace params = deluge::modulation::params;
 	ParamDescriptor descriptor;
-	descriptor.setToHaveParamAndSource(params::LOCAL_PITCH_ADJUST, PatchSource::ENVELOPE_1);
+	descriptor.setToHaveParamAndSource(p, source);
 	char memory[MODEL_STACK_MAX_SIZE];
 	ModelStackWithThreeMainThings* modelStack = soundEditor.getCurrentModelStack(memory);
 	ParamCollectionSummary* summary = modelStack->paramManager->getPatchCableSetSummary();
@@ -94,6 +94,27 @@ inline void setPitchCable(int32_t userValue) {
 		modelStackWithParam->autoParam->setCurrentValueInResponseToUserInput(
 		    getParamFromUserValue(params::PATCH_CABLE, userValue), modelStackWithParam);
 	}
+}
+
+/// Envelope 2 to pitch on the sound being edited, as a patch cable user value. 0 takes the cable away.
+inline void setPitchCable(int32_t userValue) {
+	setCable(deluge::modulation::params::LOCAL_PITCH_ADJUST, PatchSource::ENVELOPE_1, userValue);
+}
+
+/// BROPHET is a synth, not a hit: once its row setup is in, the sound gets a polysynth's filter and envelopes. The
+/// BROPHET filter (Pro-54's own) a little closed, a touch of resonance, envelope 2 opening it, and a held envelope 1.
+inline void setupBrophetSound() {
+	namespace params = deluge::modulation::params;
+	Sound& sound = *soundEditor.currentSound;
+	auto user = [](int32_t p, int32_t value) { setSoundParam(p, getParamFromUserValue(p, value)); };
+	sound.lpfMode = FilterMode::BROPHET;
+	user(params::LOCAL_LPF_FREQ, 28);
+	user(params::LOCAL_LPF_RESONANCE, 12);
+	user(params::LOCAL_ENV_1_ATTACK, 0);
+	user(params::LOCAL_ENV_1_DECAY, 22);
+	user(params::LOCAL_ENV_1_SUSTAIN, 12);
+	user(params::LOCAL_ENV_1_RELEASE, 15);
+	setCable(params::LOCAL_LPF_FREQ, PatchSource::ENVELOPE_1, 18);
 }
 
 /// Set the sound being edited up as a drum synth row sits in its kit: transpose, both envelopes as percussive
@@ -230,12 +251,18 @@ inline void setDrumEngine(Engine engine, uint8_t variant = 0, bool fresh = false
 		patch.setRingsModel(static_cast<rings::Model>(variant));
 		setRingsVoiceLimit(sound, patch);
 	}
+	else if (deluge::dsp::drum_synth::isBrophet(engine)) {
+		patch.setBrophet();
+	}
 	else {
 		patch.setPreset(deluge::dsp::drum_synth::presetForLxrEngine(engine));
 	}
 	patch.set(Patch::SNAPPY_DECAY, deluge::dsp::drum_synth::snappyByDefault(engine) ? 1 : 0);
 	setControls(deluge::dsp::drum_synth::controlsFromPatch(patch));
 	setEngineDecay(row);
+	if (deluge::dsp::drum_synth::isBrophet(engine)) {
+		setupBrophetSound();
+	}
 	setDrumKnobs(sound, engine);
 	soundEditor.markInstrumentAsEdited();
 }
@@ -346,6 +373,18 @@ public:
 		const auto* sound = static_cast<Sound*>(modControllable);
 		return sound->sources[0].oscType == OscType::DRUM_SYNTH
 		       && deluge::dsp::drum_synth::isRings(sound->sources[0].drumPatch.engine());
+	}
+};
+
+/// A continuous setting of BROPHET
+class BrophetControl final : public Control {
+public:
+	using Control::Control;
+
+	bool isRelevant(ModControllableAudio* modControllable, int32_t whichThing) const override {
+		const auto* sound = static_cast<Sound*>(modControllable);
+		return sound->sources[0].oscType == OscType::DRUM_SYNTH
+		       && deluge::dsp::drum_synth::isBrophet(sound->sources[0].drumPatch.engine());
 	}
 };
 
@@ -551,6 +590,62 @@ public:
 		(void)optType;
 		using enum l10n::String;
 		return {l10n::getView(STRING_FOR_RINGS_POLY_4), l10n::getView(STRING_FOR_RINGS_POLY_2)};
+	}
+};
+
+/// BROPHET's osc A waves, as its saw and pulse buttons
+class BrophetWaveA final : public Choice {
+public:
+	explicit BrophetWaveA(l10n::String name) : Choice(name, Patch::BROPHET_WAVE_A) {}
+
+	deluge::vector<std::string_view> getOptions(OptType optType) override {
+		(void)optType;
+		using enum l10n::String;
+		return {l10n::getView(STRING_FOR_SAW), l10n::getView(STRING_FOR_BROPHET_PULSE),
+		        l10n::getView(STRING_FOR_BROPHET_SAW_PULSE)};
+	}
+};
+
+/// BROPHET's osc B waves, as its saw, triangle and pulse buttons combine
+class BrophetWaveB final : public Choice {
+public:
+	explicit BrophetWaveB(l10n::String name) : Choice(name, Patch::BROPHET_WAVE_B) {}
+
+	deluge::vector<std::string_view> getOptions(OptType optType) override {
+		(void)optType;
+		using enum l10n::String;
+		return {l10n::getView(STRING_FOR_SAW),
+		        l10n::getView(STRING_FOR_TRIANGLE),
+		        l10n::getView(STRING_FOR_BROPHET_PULSE),
+		        l10n::getView(STRING_FOR_BROPHET_SAW_TRI),
+		        l10n::getView(STRING_FOR_BROPHET_SAW_PULSE),
+		        l10n::getView(STRING_FOR_BROPHET_TRI_PULSE),
+		        l10n::getView(STRING_FOR_BROPHET_ALL)};
+	}
+};
+
+/// Whether osc B follows the keys. Saved the other way round (BROPHET_FIXED_B), so on is 0.
+class BrophetKeysB final : public Choice {
+public:
+	explicit BrophetKeysB(l10n::String name) : Choice(name, Patch::BROPHET_FIXED_B) {}
+
+	deluge::vector<std::string_view> getOptions(OptType optType) override {
+		(void)optType;
+		using enum l10n::String;
+		return {l10n::getView(STRING_FOR_ON), l10n::getView(STRING_FOR_OFF)};
+	}
+};
+
+/// Where BROPHET's poly mod goes
+class BrophetPolyModDest final : public Choice {
+public:
+	explicit BrophetPolyModDest(l10n::String name) : Choice(name, Patch::BROPHET_PM_DEST) {}
+
+	deluge::vector<std::string_view> getOptions(OptType optType) override {
+		(void)optType;
+		using enum l10n::String;
+		return {l10n::getView(STRING_FOR_BROPHET_FREQ_A), l10n::getView(STRING_FOR_BROPHET_PWIDTH_A),
+		        l10n::getView(STRING_FOR_BROPHET_BOTH)};
 	}
 };
 

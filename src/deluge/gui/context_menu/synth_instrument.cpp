@@ -36,7 +36,6 @@
 
 namespace deluge::gui::context_menu {
 
-using synth_instruments::kSynthCategories;
 using synth_instruments::kSynthInstruments;
 using synth_instruments::SynthInstrument;
 
@@ -64,7 +63,12 @@ bool folderHasPresets(char const* folder) {
 
 /// The folder of a type's category, like SYNTHS/SUBT/BASS
 void categoryFolder(size_t type, size_t category, char* out, size_t outSize) {
-	snprintf(out, outSize, "%s/%s", kSynthInstruments[type].folder, kSynthCategories[category].folder);
+	snprintf(out, outSize, "%s/%s", kSynthInstruments[type].folder,
+	         synth_instruments::categoriesFor(kSynthInstruments[type])[category].folder);
+}
+
+size_t numCategories(size_t type) {
+	return synth_instruments::categoriesFor(kSynthInstruments[type]).size();
 }
 
 /// Whether path is folder or inside it
@@ -87,6 +91,8 @@ size_t typeOf(SoundInstrument* synth) {
 	const bool dx = synth->sources[0].oscType == OscType::DX7;
 	const bool rings = synth->sources[0].oscType == OscType::DRUM_SYNTH
 	                   && dsp::drum_synth::isRings(synth->sources[0].drumPatch.engine());
+	const bool brophet = synth->sources[0].oscType == OscType::DRUM_SYNTH
+	                     && dsp::drum_synth::isBrophet(synth->sources[0].drumPatch.engine());
 	const bool wavetable =
 	    synth->getSynthMode() == SynthMode::SUBTRACTIVE
 	    && (synth->sources[0].oscType == OscType::WAVETABLE || synth->sources[1].oscType == OscType::WAVETABLE);
@@ -95,9 +101,11 @@ size_t typeOf(SoundInstrument* synth) {
 		if (type.init) {
 			continue;
 		}
-		if (rings ? type.rings
-		    : dx  ? type.dx
-		          : (!type.dx && !type.rings && type.mode == synth->getSynthMode() && type.wavetable == wavetable)) {
+		if (rings     ? type.rings
+		    : brophet ? type.brophet
+		    : dx      ? type.dx
+		              : (!type.dx && !type.rings && !type.brophet && type.mode == synth->getSynthMode()
+                    && type.wavetable == wavetable)) {
 			return i;
 		}
 	}
@@ -214,7 +222,7 @@ bool SynthInstrumentMenu::acceptCurrentOption() {
 	f_mkdir(type.folder);
 	if (!type.dx) {
 		char folder[48];
-		for (size_t c = 0; c < kSynthCategories.size(); c++) {
+		for (size_t c = 0; c < numCategories(typeIndex); c++) {
 			categoryFolder(typeIndex, c, folder, sizeof(folder));
 			f_mkdir(folder);
 		}
@@ -241,11 +249,12 @@ char const* SynthCategoryMenu::getTitle() {
 }
 
 std::span<char const*> SynthCategoryMenu::getOptions() {
-	static std::array<char const*, kSynthCategories.size()> options;
-	for (size_t i = 0; i < kSynthCategories.size(); i++) {
-		options[i] = l10n::get(kSynthCategories[i].name);
+	static std::array<char const*, synth_instruments::kMaxSynthCategories> options;
+	const auto categories = synth_instruments::categoriesFor(kSynthInstruments[type_]);
+	for (size_t i = 0; i < categories.size(); i++) {
+		options[i] = (categories[i].label != nullptr) ? categories[i].label : l10n::get(categories[i].name);
 	}
-	return {options.data(), options.size()};
+	return {options.data(), categories.size()};
 }
 
 bool SynthCategoryMenu::setupFor(size_t type) {
@@ -255,7 +264,8 @@ bool SynthCategoryMenu::setupFor(size_t type) {
 	}
 	char folder[48];
 	bool any = false;
-	for (size_t c = 0; c < kSynthCategories.size(); c++) {
+	hasPresets_.fill(false);
+	for (size_t c = 0; c < numCategories(type); c++) {
 		categoryFolder(type, c, folder, sizeof(folder));
 		hasPresets_[c] = folderHasPresets(folder);
 		any = any || hasPresets_[c];
@@ -268,14 +278,14 @@ bool SynthCategoryMenu::setupFor(size_t type) {
 	int32_t current = -1;
 	if (getCurrentOutputType() == OutputType::SYNTH) {
 		char const* dirPath = static_cast<Instrument*>(getCurrentOutput())->dirPath.get();
-		for (size_t c = 0; c < kSynthCategories.size() && current < 0; c++) {
+		for (size_t c = 0; c < numCategories(type) && current < 0; c++) {
 			categoryFolder(type, c, folder, sizeof(folder));
 			if (hasPresets_[c] && inFolder(dirPath, folder)) {
 				current = static_cast<int32_t>(c);
 			}
 		}
 	}
-	for (size_t c = 0; c < kSynthCategories.size() && current < 0; c++) {
+	for (size_t c = 0; c < numCategories(type) && current < 0; c++) {
 		if (hasPresets_[c]) {
 			current = static_cast<int32_t>(c);
 		}

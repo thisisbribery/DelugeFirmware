@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include "dsp/drum_synth/brophet.h"
 #include "dsp/drum_synth/cyc.h"
 #include "dsp/drum_synth/gin.h"
 #include "dsp/drum_synth/gin_kits.h"
@@ -27,8 +28,8 @@
 namespace deluge::dsp::drum_synth {
 
 /// The three LXR voice structures, then two engines from the XIA set for the Model:Cycles (see xia.h), then the Cyc
-/// engines (see cyc.h), then GIN (see gin.h), then ULTRAKIK (see ultrakik.h), then RINGS (see rings.h). New engines go
-/// on the end: the number is saved with the sound.
+/// engines (see cyc.h), then GIN (see gin.h), then ULTRAKIK (see ultrakik.h), then RINGS (see rings.h), then BROPHET
+/// (see brophet.h). New engines go on the end: the number is saved with the sound.
 enum class Engine : uint8_t {
 	DRUM,  ///< Kick and toms: main osc, FM or mixed mod osc, pitch envelope
 	SNARE, ///< Pitched osc with pitch envelope, plus filtered sample-and-hold noise
@@ -46,6 +47,8 @@ enum class Engine : uint8_t {
 	GIN,      ///< The PO-32 style drum voice from SquareWave Studio's GIN for the OP-1
 	ULTRAKIK, ///< The kick engine: thump, grit, 808 bends, 909 punch, destruction
 	RINGS,    ///< Mutable Instruments Rings: modal and string resonators, one per voice. Not a drum: a pitched synth.
+	BROPHET,  ///< Pro-54's voice (after Pro-53): two oscillators, sync, poly mod, noise. A synth, through the Deluge's
+	          ///< filters (the BROPHET one being Pro-54's own) and envelopes.
 	NUM_ENGINES,
 };
 
@@ -72,6 +75,11 @@ constexpr bool isUltrakik(Engine engine) {
 /// Whether an engine is RINGS
 constexpr bool isRings(Engine engine) {
 	return engine == Engine::RINGS;
+}
+
+/// Whether an engine is BROPHET
+constexpr bool isBrophet(Engine engine) {
+	return engine == Engine::BROPHET;
 }
 
 /// Whether an engine is one of the three LXR voices
@@ -145,6 +153,18 @@ struct DrumControls {
 		RINGS_BOW = 3,        ///< Continuous excitation: mod rate
 		RINGS_DRIVE = 4,
 		RINGS_DAMPING = 9,
+		// BROPHET: the knobs of Pro-53's poly mod, oscillators and mixer, plus its Analog knob. The drive and decay
+		// slots stay empty: the Deluge's filter and envelopes do those.
+		BROPHET_PW_A = 0,     ///< Osc A pulse width: Custom 3
+		BROPHET_PW_B = 1,     ///< Osc B pulse width
+		BROPHET_FREQ_B = 2,   ///< Osc B against osc A, 64 = unison, 0 / 127 = two octaves down / up, in semitones
+		BROPHET_FINE_B = 3,   ///< Osc B detune, 64 = none, half a semitone each way: Custom 2
+		BROPHET_PM_ENV = 5,   ///< Poly mod from envelope 2: mod depth
+		BROPHET_PM_OSC_B = 6, ///< Poly mod from osc B: mod rate
+		BROPHET_MIX_A = 7,
+		BROPHET_MIX_B = 8,
+		BROPHET_NOISE = 10,
+		BROPHET_ANALOG = 11, ///< Drift per note, as Pro-53's Analog knob
 		NUM_SLOTS = 12,
 	};
 	/// Raw Deluge param values: the whole int32 range, centre 0
@@ -343,6 +363,13 @@ public:
 		// RINGS. Its continuous settings are on Deluge params: see DrumControls.
 		RINGS_MODEL, ///< rings::Model
 		RINGS_POLY,  ///< 0 = 4 voices of 2 strings, 1 = 2 voices of 4 strings (sympathetic and chord models), as Rings
+		// BROPHET's switches. Its continuous settings are on Deluge params: see DrumControls.
+		BROPHET_WAVE_A,  ///< brophet::WaveA
+		BROPHET_WAVE_B,  ///< brophet::WaveB
+		BROPHET_SYNC,    ///< 1 = osc A synced to osc B
+		BROPHET_LOW_B,   ///< 1 = osc B in its low range, as an LFO
+		BROPHET_FIXED_B, ///< 1 = osc B off the keys (Pro-53's keyboard button out), at middle C and its own frequency
+		BROPHET_PM_DEST, ///< brophet::PolyModDest
 		NUM_PARAMS,
 	};
 
@@ -365,6 +392,9 @@ public:
 	void setGinSound(const gin::KitSound& sound);
 	/// Switch to RINGS on a model. Its continuous settings are on Deluge params: see ringsControlsFor().
 	void setRingsModel(rings::Model model);
+	/// Switch to BROPHET with its switches at their defaults: osc A saw, osc B saw on the keys, no sync, poly mod to
+	/// osc A's frequency. Its continuous settings are on Deluge params: see brophetControlsFor().
+	void setBrophet();
 
 	[[nodiscard]] uint8_t get(Param p) const { return params_[p]; }
 	void set(Param p, uint8_t value);
@@ -432,6 +462,12 @@ DrumControls ringsControlsFor(rings::Model model);
 /// RINGS on a synth or kit row: at the note, envelope open, and a release that lets it ring out at its damping
 RowSetup rowSetupForRings(int32_t dampingKnob);
 
+/// BROPHET's settings from its controls and patch
+brophet::Settings brophetSettings(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const DrumControls& controls);
+
+/// BROPHET's starting knobs: both oscillators full, osc B a few cents up, a little drift
+DrumControls brophetControlsFor();
+
 /// A GIN kit sound's continuous settings, as controls
 DrumControls ginControlsFor(const gin::KitSound& sound);
 
@@ -466,6 +502,9 @@ public:
 		}
 	}
 	[[nodiscard]] rings::Voice* ringsVoice() const { return rings_; }
+
+	/// BROPHET's poly mod envelope: the Deluge voice's envelope 2 as a patch source (-2^31 to 2^31), before each render
+	void setPolyModEnvelope(int32_t sourceValue) { polyModEnvelope_ = sourceValue; }
 
 private:
 	/// Patch values after knob offsets, turned into the numbers the render loop wants
@@ -506,6 +545,8 @@ private:
 	                    int32_t numSamples, uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement);
 	void renderRings(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const DrumControls& controls, int32_t* buffer,
 	                 int32_t numSamples, uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement);
+	void renderBrophet(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const DrumControls& controls, int32_t* buffer,
+	                   int32_t numSamples, uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement);
 
 	void updateSettings(const Patch& patch, const DrumControls& controls);
 	void startLxr();
@@ -548,19 +589,22 @@ private:
 		cyc::Voice cyc;
 		gin::Voice gin;
 		ultrakik::Voice ultrakik;
+		brophet::Voice brophet;
 	} xia_{};
 	std::array<int32_t, xia::kBlockSize> xiaBlock_{};
 	int32_t xiaBlockPos_ = xia::kBlockSize;
-	Engine xiaEngine_ = Engine::DRUM; ///< The XIA engine xia_ holds, or DRUM for none
-	bool cycReady_ = false;           ///< xia_ holds a Cyc engine's state
-	bool ginReady_ = false;           ///< xia_ holds GIN's state
-	bool ultrakikReady_ = false;      ///< xia_ holds ULTRAKIK's state
-	rings::Voice* rings_ = nullptr;   ///< RINGS' state, given by the Deluge voice
-	bool ringsReady_ = false;         ///< rings_ has been reset since it was given
-	int32_t ringsAge_ = 0;            ///< Samples since RINGS was struck, up to 100 ms
-	float lxrLevel_ = 1.f;            ///< The LXR voices' decay
-	float lxrGain_ = 1.f;             ///< The LXR voices' drive gain, last render
-	int32_t lxrDecayKnob_ = -1;       ///< The decay knob lxrDecayCoef_ was worked out for
+	Engine xiaEngine_ = Engine::DRUM;     ///< The XIA engine xia_ holds, or DRUM for none
+	bool cycReady_ = false;               ///< xia_ holds a Cyc engine's state
+	bool ginReady_ = false;               ///< xia_ holds GIN's state
+	bool ultrakikReady_ = false;          ///< xia_ holds ULTRAKIK's state
+	bool brophetReady_ = false;           ///< xia_ holds BROPHET's state
+	int32_t polyModEnvelope_ = INT32_MIN; ///< BROPHET's poly mod envelope, as the Deluge gives it
+	rings::Voice* rings_ = nullptr;       ///< RINGS' state, given by the Deluge voice
+	bool ringsReady_ = false;             ///< rings_ has been reset since it was given
+	int32_t ringsAge_ = 0;                ///< Samples since RINGS was struck, up to 100 ms
+	float lxrLevel_ = 1.f;                ///< The LXR voices' decay
+	float lxrGain_ = 1.f;                 ///< The LXR voices' drive gain, last render
+	int32_t lxrDecayKnob_ = -1;           ///< The decay knob lxrDecayCoef_ was worked out for
 	float lxrDecayCoef_ = 1.f;
 	bool lxrQuiet_ = false; ///< The LXR voices' decay has fallen 40 dB
 	bool xiaTrigger_ = false;

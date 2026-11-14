@@ -1525,6 +1525,8 @@ char const* ModControllableAudio::getLPFModeDisplayName() {
 		return l10n::get(STRING_FOR_24DB_LADDER);
 	case FilterMode::TRANSISTOR_24DB_DRIVE:
 		return l10n::get(STRING_FOR_DRIVE);
+	case FilterMode::BROPHET:
+		return l10n::get(STRING_FOR_BROPHET_FILTER);
 	case FilterMode::SVF_BAND:
 		return l10n::get(STRING_FOR_SVF_BAND);
 	case FilterMode::SVF_NOTCH:

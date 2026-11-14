@@ -892,8 +892,11 @@ uint32_t Voice::getLocalLFOPhaseIncrement(LFO_ID lfoId, deluge::modulation::para
 	                       && sound.sources[0].drumPatch.get(deluge::dsp::drum_synth::Patch::SNAPPY_DECAY) != 0;
 
 	// Do envelopes - if they're patched to something (always do the first one though)
+	// BROPHET's poly mod reads envelope 2 whether or not anything is patched to it
+	const bool brophetEnvelope = sound.sources[0].oscType == OscType::DRUM_SYNTH
+	                             && deluge::dsp::drum_synth::isBrophet(sound.sources[0].drumPatch.engine());
 	for (int32_t e = 0; e < kNumEnvelopes; e++) {
-		if (e == 0
+		if (e == 0 || (e == 1 && brophetEnvelope)
 		    || (paramManager->getPatchCableSet()->sourcesPatchedToAnything[GLOBALITY_LOCAL]
 		        & (1 << (util::to_underlying(PatchSource::ENVELOPE_0) + e)))) {
 			int32_t old = sourceValues[util::to_underlying(PatchSource::ENVELOPE_0) + e];
@@ -2847,6 +2850,7 @@ dontUseCache: {}
 				memset(renderBuffer, 0, SSI_TX_BUFFER_NUM_SAMPLES * sizeof(int32_t));
 			}
 
+			drumVoice->setPolyModEnvelope(sourceValues[util::to_underlying(PatchSource::ENVELOPE_1)]);
 			drumVoice->render(sound.sources[s].drumPatch, modulatedDrumControls(*paramManager, sourceValues),
 			                  renderBuffer, numSamples, phaseIncrement, sourceAmplitude, amplitudeIncrement);
 
