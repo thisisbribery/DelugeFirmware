@@ -14,6 +14,7 @@ set_source_files_properties(
   ${CMAKE_CURRENT_LIST_DIR}/drum_synth/gin_kits.cpp
   ${CMAKE_CURRENT_LIST_DIR}/drum_synth/ultrakik.cpp
   ${CMAKE_CURRENT_LIST_DIR}/drum_synth/ultrakik_presets.cpp
+  ${CMAKE_CURRENT_LIST_DIR}/drum_synth/rings.cpp
   PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON
 )
 

@@ -117,6 +117,9 @@ Editor::Layout Editor::layout() const {
 		return {};
 	}
 	const Engine engine = sound->sources[0].drumPatch.engine();
+	if (deluge::dsp::drum_synth::isRings(engine)) {
+		return layouts_[8];
+	}
 	if (deluge::dsp::drum_synth::isUltrakik(engine)) {
 		return layouts_[7];
 	}
@@ -151,6 +154,8 @@ std::string_view Editor::getTitle() const {
 		return l10n::getView(deluge::dsp::drum_synth::cycEngineName(engine));
 	}
 	switch (engine) {
+	case Engine::RINGS:
+		return l10n::getView(STRING_FOR_RINGS);
 	case Engine::ULTRAKIK:
 		return l10n::getView(STRING_FOR_DRUM_ENGINE_ULTRAKIK);
 	case Engine::GIN:

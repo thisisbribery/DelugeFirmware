@@ -15,6 +15,7 @@
 #include "dsp/drum_synth/cyc.h"
 #include "dsp/drum_synth/gin.h"
 #include "dsp/drum_synth/gin_kits.h"
+#include "dsp/drum_synth/rings.h"
 #include "dsp/drum_synth/ultrakik.h"
 #include "dsp/drum_synth/ultrakik_presets.h"
 #include "dsp/drum_synth/xia.h"
@@ -26,8 +27,8 @@
 namespace deluge::dsp::drum_synth {
 
 /// The three LXR voice structures, then two engines from the XIA set for the Model:Cycles (see xia.h), then the Cyc
-/// engines (see cyc.h), then GIN (see gin.h), then ULTRAKIK (see ultrakik.h). New engines go on the end: the number is
-/// saved with the sound.
+/// engines (see cyc.h), then GIN (see gin.h), then ULTRAKIK (see ultrakik.h), then RINGS (see rings.h). New engines go
+/// on the end: the number is saved with the sound.
 enum class Engine : uint8_t {
 	DRUM,  ///< Kick and toms: main osc, FM or mixed mod osc, pitch envelope
 	SNARE, ///< Pitched osc with pitch envelope, plus filtered sample-and-hold noise
@@ -44,6 +45,7 @@ enum class Engine : uint8_t {
 	CLAP_ENG,
 	GIN,      ///< The PO-32 style drum voice from SquareWave Studio's GIN for the OP-1
 	ULTRAKIK, ///< The kick engine: thump, grit, 808 bends, 909 punch, destruction
+	RINGS,    ///< Mutable Instruments Rings: modal and string resonators, one per voice. Not a drum: a pitched synth.
 	NUM_ENGINES,
 };
 
@@ -65,6 +67,11 @@ constexpr bool isGin(Engine engine) {
 /// Whether an engine is ULTRAKIK
 constexpr bool isUltrakik(Engine engine) {
 	return engine == Engine::ULTRAKIK;
+}
+
+/// Whether an engine is RINGS
+constexpr bool isRings(Engine engine) {
+	return engine == Engine::RINGS;
 }
 
 /// Whether an engine is one of the three LXR voices
@@ -131,6 +138,13 @@ struct DrumControls {
 		UK_DECAY = 9,
 		UK_HOLD = 10,
 		UK_SUB = 11,
+		// RINGS: its four knobs, bow, then drive and damping on the shared drive and decay slots
+		RINGS_STRUCTURE = 0,  ///< Custom 3
+		RINGS_BRIGHTNESS = 1, ///< Custom 2
+		RINGS_POSITION = 2,   ///< Mod depth
+		RINGS_BOW = 3,        ///< Continuous excitation: mod rate
+		RINGS_DRIVE = 4,
+		RINGS_DAMPING = 9,
 		NUM_SLOTS = 12,
 	};
 	/// Raw Deluge param values: the whole int32 range, centre 0
@@ -162,9 +176,9 @@ struct DrumControls {
 /// Every engine has a drive and a decay, on the same pads and gold knobs, though they live on different slots: the
 /// XIA engines kept theirs where they were first saved
 constexpr int32_t driveSlot(Engine engine) {
-	return isXia(engine)                                            ? DrumControls::DRIVE
-	       : (isCyc(engine) || isGin(engine) || isUltrakik(engine)) ? DrumControls::CYC_DRIVE
-	                                                                : DrumControls::LXR_DRIVE;
+	return isXia(engine)                                                               ? DrumControls::DRIVE
+	       : (isCyc(engine) || isGin(engine) || isUltrakik(engine) || isRings(engine)) ? DrumControls::CYC_DRIVE
+	                                                                                   : DrumControls::LXR_DRIVE;
 }
 constexpr int32_t decaySlot(Engine engine) {
 	return isXia(engine) ? DrumControls::ENGINE_DECAY : DrumControls::COMMON_DECAY;
@@ -326,6 +340,9 @@ public:
 		UK_CRUSH,      ///< 0-127
 		UK_BEND_TIME,  ///< 0-127: 40 ms to 4 s
 		UK_SNAP,       ///< 0-127: start phase 0 to 90 degrees
+		// RINGS. Its continuous settings are on Deluge params: see DrumControls.
+		RINGS_MODEL, ///< rings::Model
+		RINGS_POLY,  ///< 0 = 4 voices of 2 strings, 1 = 2 voices of 4 strings (sympathetic and chord models), as Rings
 		NUM_PARAMS,
 	};
 
@@ -346,6 +363,8 @@ public:
 	/// Switch to GIN, with a kit sound's choices, EQ and level. Its continuous settings are on Deluge params: see
 	/// ginControlsFor().
 	void setGinSound(const gin::KitSound& sound);
+	/// Switch to RINGS on a model. Its continuous settings are on Deluge params: see ringsControlsFor().
+	void setRingsModel(rings::Model model);
 
 	[[nodiscard]] uint8_t get(Param p) const { return params_[p]; }
 	void set(Param p, uint8_t value);
@@ -404,6 +423,15 @@ DrumControls controlsFromPatch(const Patch& patch);
 /// ULTRAKIK's settings from its controls and patch
 ultrakik::Settings ultrakikSettings(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const DrumControls& controls);
 
+/// RINGS' settings from its controls and patch
+rings::Settings ringsSettings(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const DrumControls& controls);
+
+/// RINGS' starting knobs for a model
+DrumControls ringsControlsFor(rings::Model model);
+
+/// RINGS on a synth or kit row: at the note, envelope open, and a release that lets it ring out at its damping
+RowSetup rowSetupForRings(int32_t dampingKnob);
+
 /// A GIN kit sound's continuous settings, as controls
 DrumControls ginControlsFor(const gin::KitSound& sound);
 
@@ -428,6 +456,16 @@ public:
 	[[nodiscard]] bool finished() const { return xiaFinished_; }
 	/// True once the engine's own decay has fallen 40 dB, so culling can treat the voice like a releasing one
 	[[nodiscard]] bool quiet() const;
+
+	/// RINGS keeps its resonators (with their delay lines, tens of KB) apart from this voice: the Deluge voice gives it
+	/// one, or nullptr when it's on another engine. Not owned.
+	void setRings(rings::Voice* rings) {
+		if (rings != rings_) {
+			rings_ = rings;
+			ringsReady_ = false;
+		}
+	}
+	[[nodiscard]] rings::Voice* ringsVoice() const { return rings_; }
 
 private:
 	/// Patch values after knob offsets, turned into the numbers the render loop wants
@@ -466,6 +504,8 @@ private:
 	               int32_t numSamples, uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement);
 	void renderUltrakik(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const DrumControls& controls, int32_t* buffer,
 	                    int32_t numSamples, uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement);
+	void renderRings(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const DrumControls& controls, int32_t* buffer,
+	                 int32_t numSamples, uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement);
 
 	void updateSettings(const Patch& patch, const DrumControls& controls);
 	void startLxr();
@@ -515,6 +555,9 @@ private:
 	bool cycReady_ = false;           ///< xia_ holds a Cyc engine's state
 	bool ginReady_ = false;           ///< xia_ holds GIN's state
 	bool ultrakikReady_ = false;      ///< xia_ holds ULTRAKIK's state
+	rings::Voice* rings_ = nullptr;   ///< RINGS' state, given by the Deluge voice
+	bool ringsReady_ = false;         ///< rings_ has been reset since it was given
+	int32_t ringsAge_ = 0;            ///< Samples since RINGS was struck, up to 100 ms
 	float lxrLevel_ = 1.f;            ///< The LXR voices' decay
 	float lxrGain_ = 1.f;             ///< The LXR voices' drive gain, last render
 	int32_t lxrDecayKnob_ = -1;       ///< The decay knob lxrDecayCoef_ was worked out for

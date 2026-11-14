@@ -1619,6 +1619,14 @@ PLACE_SDRAM_BSS drum_synth::UltrakikClickType ukClickTypeMenu{STRING_FOR_UK_CLIC
 PLACE_SDRAM_BSS drum_synth::PatchNumber ukCrushMenu{STRING_FOR_UK_CRUSH, DrumParam::UK_CRUSH};
 PLACE_SDRAM_BSS drum_synth::PatchNumber ukBendTimeMenu{STRING_FOR_UK_BEND_TIME, DrumParam::UK_BEND_TIME};
 PLACE_SDRAM_BSS drum_synth::PatchNumber ukSnapMenu{STRING_FOR_UK_SNAP, DrumParam::UK_SNAP};
+PLACE_SDRAM_BSS drum_synth::RingsModel ringsModelMenu{STRING_FOR_RINGS_MODEL};
+PLACE_SDRAM_BSS drum_synth::RingsPoly ringsPolyMenu{STRING_FOR_RINGS_POLY};
+PLACE_SDRAM_BSS drum_synth::RingsControl ringsStructureMenu{STRING_FOR_RINGS_STRUCTURE, XiaSlot::RINGS_STRUCTURE};
+PLACE_SDRAM_BSS drum_synth::RingsControl ringsBrightnessMenu{STRING_FOR_RINGS_BRIGHTNESS, XiaSlot::RINGS_BRIGHTNESS};
+PLACE_SDRAM_BSS drum_synth::RingsControl ringsDampingMenu{STRING_FOR_RINGS_DAMPING, XiaSlot::RINGS_DAMPING};
+PLACE_SDRAM_BSS drum_synth::RingsControl ringsPositionMenu{STRING_FOR_RINGS_POSITION, XiaSlot::RINGS_POSITION};
+PLACE_SDRAM_BSS drum_synth::RingsControl ringsBowMenu{STRING_FOR_RINGS_BOW, XiaSlot::RINGS_BOW};
+PLACE_SDRAM_BSS drum_synth::RingsControl ringsDriveMenu{STRING_FOR_XIA_DRIVE, XiaSlot::RINGS_DRIVE};
 PLACE_SDRAM_BSS KitGateOut kitGateOutMenu{STRING_FOR_KIT_GATE_OUT};
 PLACE_SDRAM_BSS KitRowGate kitRowGateMenu{STRING_FOR_ROW_GATE};
 // Items the current engine doesn't use hide themselves
@@ -1705,6 +1713,14 @@ PLACE_SDRAM_BSS menu_item::Submenu drumSynthMenu{
         &ukClickToneMenu,
         &ukHoldMenu,
         &ukDecayMenu,
+        &ringsModelMenu,
+        &ringsPolyMenu,
+        &ringsStructureMenu,
+        &ringsBrightnessMenu,
+        &ringsDampingMenu,
+        &ringsPositionMenu,
+        &ringsBowMenu,
+        &ringsDriveMenu,
         &drumSnappyDecayMenu,
     },
 };
@@ -1850,6 +1866,21 @@ PLACE_SDRAM_DATA std::array<DrumColumn, 16> drumEditorUltrakikLayout{{
     {&ukDecayMenu, DrumKind::NUMBER, DrumGroup::XIA_ENVELOPE},
     {&source0TransposeMenu, DrumKind::NUMBER, DrumGroup::SOUND, -2400, 2400, 100, 100},
 }};
+// RINGS: the model, its four knobs, bow and drive, then the Deluge's tuning, amp envelope and filter
+PLACE_SDRAM_DATA std::array<DrumColumn, 12> drumEditorRingsLayout{{
+    {&ringsModelMenu, DrumKind::CHOICE, DrumGroup::OSC},
+    {&ringsPolyMenu, DrumKind::CHOICE, DrumGroup::OSC},
+    {&ringsStructureMenu, DrumKind::NUMBER, DrumGroup::MOD},
+    {&ringsBrightnessMenu, DrumKind::NUMBER, DrumGroup::MOD},
+    {&ringsDampingMenu, DrumKind::NUMBER, DrumGroup::XIA_ENVELOPE},
+    {&ringsPositionMenu, DrumKind::NUMBER, DrumGroup::MOD2},
+    {&ringsBowMenu, DrumKind::NUMBER, DrumGroup::NOISE},
+    {&ringsDriveMenu, DrumKind::NUMBER, DrumGroup::TRANSIENT},
+    {&source0TransposeMenu, DrumKind::NUMBER, DrumGroup::SOUND, -2400, 2400, 100, 100},
+    {&env1ReleaseMenu, DrumKind::NUMBER, DrumGroup::SOUND},
+    {&lpfFreqMenu, DrumKind::NUMBER, DrumGroup::SOUND},
+    {&hpfFreqMenu, DrumKind::NUMBER, DrumGroup::SOUND},
+}};
 
 // Drum synth shortcut pads. On a drum synth sound, the MOD1 and MOD2 columns hold the standard layout, the same on
 // every engine: from the bottom of MOD1 up, decay, drive, pitch, pitch envelope amount and speed, character A and B and
@@ -1927,6 +1958,13 @@ PLACE_SDRAM_DATA DrumLayout drumLayouts[] = {
       &ukFoldMenu,  &ukGritMenu,      &ukPunchMenu,          &ukSubMenu,       &ukHoldMenu,
       &ukClickMenu, &ukClickTypeMenu, &ukClickToneMenu,      &ukBendMenu,      &ukBendTimeMenu,
       &ukCrushMenu, &ukWaveMenu,      &ukSnapMenu,           &ukDriveTypeMenu, &ukPresetMenu}},
+    // RINGS: damping as the decay, position and bow where the pitch envelope would be, brightness and structure as the
+    // characters, the model on top of MOD1
+    {DrumEngine::RINGS,
+     DrumEngine::RINGS,
+     {&ringsDampingMenu, &ringsDriveMenu, &source0TransposeMenu, &ringsPositionMenu, &ringsBowMenu,
+      &ringsBrightnessMenu, &ringsStructureMenu, &ringsModelMenu, &ringsPolyMenu, nullptr, nullptr, nullptr, nullptr,
+      nullptr, nullptr}},
 };
 
 constexpr int32_t kNumModSlots = static_cast<int32_t>(StandardSlot::NUM_MOD_SLOTS);
@@ -2021,9 +2059,10 @@ uint32_t drumShortcutParam(const Sound* sound, int32_t x, int32_t y) {
 #undef DRUM_PITCH_COLUMNS
 
 namespace deluge::gui::menu_item::drum_synth {
-PLACE_SDRAM_BSS Editor drumSynthEditor{
-    STRING_FOR_DRUM_SYNTH, drumEditorDrumLayout, drumEditorSnareLayout, drumEditorMetalLayout,    drumEditorTiaLayout,
-    drumEditorIiaLayout,   drumEditorCycLayout,  drumEditorGinLayout,   drumEditorUltrakikLayout, &drumSynthMenu};
+PLACE_SDRAM_BSS Editor drumSynthEditor{STRING_FOR_DRUM_SYNTH, drumEditorDrumLayout, drumEditorSnareLayout,
+                                       drumEditorMetalLayout, drumEditorTiaLayout,  drumEditorIiaLayout,
+                                       drumEditorCycLayout,   drumEditorGinLayout,  drumEditorUltrakikLayout,
+                                       drumEditorRingsLayout, &drumSynthMenu};
 } // namespace deluge::gui::menu_item::drum_synth
 
 // Not FM

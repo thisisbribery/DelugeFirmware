@@ -54,9 +54,10 @@ public:
 	using Layout = std::span<const Column>;
 
 	Editor(l10n::String name, Layout drumLayout, Layout snareLayout, Layout metalLayout, Layout tiaLayout,
-	       Layout iiaLayout, Layout cycLayout, Layout ginLayout, Layout ultrakikLayout, MenuItem* fullMenu)
-	    : MenuItem(name),
-	      layouts_{drumLayout, snareLayout, metalLayout, tiaLayout, iiaLayout, cycLayout, ginLayout, ultrakikLayout},
+	       Layout iiaLayout, Layout cycLayout, Layout ginLayout, Layout ultrakikLayout, Layout ringsLayout,
+	       MenuItem* fullMenu)
+	    : MenuItem(name), layouts_{drumLayout, snareLayout, metalLayout,    tiaLayout,  iiaLayout,
+	                               cycLayout,  ginLayout,   ultrakikLayout, ringsLayout},
 	      fullMenu_(fullMenu) {}
 
 	void beginSession(MenuItem* navigatedBackwardFrom) override;
@@ -88,8 +89,8 @@ private:
 	static int32_t padHigh(const Column& column);
 	void changed();
 
-	/// LXR drum, snare and metal, TIA, IIA, one shared by all the Cyc engines, then GIN
-	std::array<Layout, 8> layouts_;
+	/// LXR drum, snare and metal, TIA, IIA, one shared by all the Cyc engines, then GIN, ULTRAKIK and RINGS
+	std::array<Layout, 9> layouts_;
 	MenuItem* fullMenu_;
 	int32_t selectedColumn_ = 0;
 };

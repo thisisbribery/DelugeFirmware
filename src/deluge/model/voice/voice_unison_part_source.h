@@ -51,4 +51,6 @@ public:
 	gsl::owner<DxVoice*> dxVoice = nullptr;
 	// Only drum synth sources get one, from a pool, so every other voice stays small
 	gsl::owner<deluge::dsp::drum_synth::Voice*> drumVoice = nullptr;
+	// RINGS' resonators, only on a drum synth source playing RINGS: tens of KB in SDRAM, from their own pool
+	deluge::dsp::drum_synth::rings::Voice* ringsVoice = nullptr;
 };

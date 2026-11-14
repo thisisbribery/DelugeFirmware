@@ -21,7 +21,7 @@
  * - The snare noise filter is a plain TPT state variable filter with low, high and band pass outputs.
  *
  * The TIA and IIA engines are not LXR code: they are in xia.cpp, and only hooked in here. Nor are the Cyc engines,
- * which are in cyc.cpp, or GIN, in gin.cpp.
+ * which are in cyc.cpp, GIN, in gin.cpp, ULTRAKIK, in ultrakik.cpp, or RINGS, in rings.cpp (MIT, Mutable Instruments).
  */
 
 #include "dsp/drum_synth/drum_synth.h"
@@ -59,6 +59,8 @@ constexpr float kCutoffMax = 16000.f;
 /// A voice is done once its own decay is 72 dB down, and counts as quiet for culling at 40 dB
 constexpr float kEndLevel = 2.5e-4f;
 constexpr float kQuietLevel = 0.01f;
+/// RINGS is never over before it has had this long to sound (100 ms)
+constexpr int32_t kRingsMinSamples = 4410;
 
 int32_t toQ31(float f) {
 	return static_cast<int32_t>(std::clamp(f, -1.f, 1.f) * 2147483647.f);
@@ -242,6 +244,12 @@ void Patch::setUltrakikPreset(int32_t preset) {
 	setUltrakikBytes(ultrakik::kPresets[std::clamp<int32_t>(preset, 0, ultrakik::kNumPresets - 1)]);
 }
 
+void Patch::setRingsModel(rings::Model model) {
+	params_[ENGINE] = static_cast<uint8_t>(Engine::RINGS);
+	params_[RINGS_MODEL] =
+	    std::min<uint8_t>(static_cast<uint8_t>(model), static_cast<uint8_t>(rings::Model::NUM_MODELS) - 1);
+}
+
 void Patch::setCycPreset(Engine engine) {
 	params_[ENGINE] = static_cast<uint8_t>(engine);
 	params_[XIA_PUNCH] = 0;
@@ -358,6 +366,9 @@ DrumControls DrumControls::defaultsFor(Engine engine) {
 	if (isUltrakik(engine)) {
 		return ultrakikControlsFor(ultrakik::kDefaultPreset);
 	}
+	if (isRings(engine)) {
+		return ringsControlsFor(rings::Model::MODAL);
+	}
 	if (isCyc(engine)) {
 		// The Cyc engines start where the originals do, their own amp decay included
 		const auto& d = kCycDefaults[static_cast<size_t>(cycKind(engine))];
@@ -424,6 +435,10 @@ uint8_t Patch::maxValue(Param p) {
 		return static_cast<uint8_t>(ultrakik::DriveType::NUM_TYPES) - 1;
 	case UK_CLICK_TYPE:
 		return static_cast<uint8_t>(ultrakik::Click::NUM_CLICKS) - 1;
+	case RINGS_MODEL:
+		return static_cast<uint8_t>(rings::Model::NUM_MODELS) - 1;
+	case RINGS_POLY:
+		return 1;
 	case XIA_PUNCH:
 	case SNAPPY_DECAY:
 	case CONTROLS_VERSION:
@@ -487,6 +502,9 @@ bool Patch::isUsedBy(Param p, Engine engine) {
 	case UK_BEND_TIME:
 	case UK_SNAP:
 		return isUltrakik(engine);
+	case RINGS_MODEL:
+	case RINGS_POLY:
+		return isRings(engine);
 	default:
 		return isXia(engine);
 	}
@@ -576,6 +594,11 @@ int32_t sharedControlSlot(Engine engine, StandardSlot slot) {
 		break;
 	case Engine::ULTRAKIK:
 		shared = {DrumControls::UK_SWEEP, DrumControls::UK_SWEEP_TIME, DrumControls::UK_FOLD, DrumControls::UK_GRIT};
+		break;
+	case Engine::RINGS:
+		// Position and bow where the pitch envelope would be, brightness and structure as the characters
+		shared = {DrumControls::RINGS_POSITION, DrumControls::RINGS_BOW, DrumControls::RINGS_BRIGHTNESS,
+		          DrumControls::RINGS_STRUCTURE};
 		break;
 	default: // The Cyc engines: Sweep, Contour, Color, Shape
 		shared = {DrumControls::CYC_MACRO3, DrumControls::CYC_MACRO4, DrumControls::CYC_MACRO1,
@@ -755,6 +778,11 @@ RowSetup rowSetupForEngine(Engine engine, uint8_t variant) {
 	if (isUltrakik(engine)) {
 		return rowSetupForUltrakik(ultrakik::kDefaultPreset);
 	}
+	if (isRings(engine)) {
+		const DrumControls c = ringsControlsFor(
+		    static_cast<rings::Model>(std::min<uint8_t>(variant, static_cast<uint8_t>(rings::Model::NUM_MODELS) - 1)));
+		return rowSetupForRings(c.value(DrumControls::RINGS_DAMPING));
+	}
 	return xiaPresetFor(engine, variant).row;
 }
 
@@ -767,6 +795,10 @@ DrumControls controlsFromPatch(const Patch& patch) {
 			controls.values[i] = DrumControls::fromValue(preset.slots[i]);
 		}
 		return controls;
+	}
+	if (isRings(engine)) {
+		return ringsControlsFor(static_cast<rings::Model>(
+		    std::min<uint8_t>(patch.get(Patch::RINGS_MODEL), static_cast<uint8_t>(rings::Model::NUM_MODELS) - 1)));
 	}
 	if (!isLxr(engine)) {
 		return DrumControls::defaultsFor(engine);
@@ -1102,6 +1134,12 @@ void Voice::renderMetal(int32_t* out, int32_t n, int32_t& amplitude, int32_t amp
 void Voice::render(const Patch& patch, const DrumControls& controls, int32_t* buffer, int32_t numSamples,
                    uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement) {
 	updateSettings(patch, controls);
+	if (isRings(settings_.engine)) {
+		ultrakikReady_ = ginReady_ = cycReady_ = false;
+		xiaEngine_ = Engine::DRUM;
+		renderRings(settingsFrom_, controls, buffer, numSamples, basePhaseIncrement, amplitude, amplitudeIncrement);
+		return;
+	}
 	if (isUltrakik(settings_.engine)) {
 		if (!ultrakikReady_) {
 			xia_.ultrakik.reset();
@@ -1260,6 +1298,9 @@ bool Voice::quiet() const {
 	}
 	if (pendingTrigger_) {
 		return false;
+	}
+	if (isRings(settings_.engine)) {
+		return rings_ != nullptr && ringsReady_ && ringsAge_ >= kRingsMinSamples && rings::level(*rings_) < kQuietLevel;
 	}
 	if (isUltrakik(settings_.engine)) {
 		return ultrakikReady_ && xia_.ultrakik.level() < kQuietLevel;
@@ -1544,6 +1585,114 @@ void Voice::renderUltrakik(const std::array<uint8_t, Patch::NUM_PARAMS>& p, cons
 		remaining -= n;
 	}
 	xiaFinished_ = xia_.ultrakik.finished();
+}
+
+} // namespace deluge::dsp::drum_synth
+
+// RINGS ---------------------------------------------------------------------------------------------------------------
+
+namespace deluge::dsp::drum_synth {
+
+namespace {
+/// A RINGS knob, 0 to 1, at the controls' full 8.8 resolution so automation and cables move it smoothly
+float ringsKnob(const DrumControls& controls, int32_t slot) {
+	return static_cast<float>(std::clamp<int32_t>(DrumControls::toKnob(controls.values[slot]), 0, 0x7F00)) / 0x7F00;
+}
+
+/// Roughly how long RINGS rings at a damping knob (0 to 1) to fall 60 dB, as Rings works out its strings' decay: 70 ms
+/// to 18 s, holding from 0.95 up
+float ringsDecaySeconds(float damping) {
+	if (damping >= 0.95f) {
+		return 1000.f;
+	}
+	const float lf = damping * (2.f - damping);
+	return 0.07f * exp2f(lf * 8.f);
+}
+
+/// Starting knobs per model: structure, brightness, damping, position
+constexpr std::array<std::array<uint8_t, 4>, static_cast<size_t>(rings::Model::NUM_MODELS)> kRingsDefaults{{
+    {32, 70, 70, 40}, // Modal: near harmonic, a bell-ish bar
+    {50, 64, 70, 40}, // Sympathetic
+    {40, 70, 64, 40}, // String: a little dispersion
+    {50, 50, 60, 30}, // FM
+    {64, 64, 70, 40}, // Chord
+}};
+} // namespace
+
+rings::Settings ringsSettings(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const DrumControls& controls) {
+	rings::Settings s;
+	s.model = static_cast<rings::Model>(
+	    std::min<uint8_t>(p[Patch::RINGS_MODEL], static_cast<uint8_t>(rings::Model::NUM_MODELS) - 1));
+	s.structure = ringsKnob(controls, DrumControls::RINGS_STRUCTURE);
+	s.brightness = ringsKnob(controls, DrumControls::RINGS_BRIGHTNESS);
+	s.damping = ringsKnob(controls, DrumControls::RINGS_DAMPING);
+	s.position = ringsKnob(controls, DrumControls::RINGS_POSITION);
+	s.bow = ringsKnob(controls, DrumControls::RINGS_BOW);
+	s.drive = ringsKnob(controls, DrumControls::RINGS_DRIVE);
+	s.strings = (p[Patch::RINGS_POLY] != 0) ? 4 : 2;
+	return s;
+}
+
+DrumControls ringsControlsFor(rings::Model model) {
+	using S = DrumControls;
+	const auto& d = kRingsDefaults[std::min<size_t>(static_cast<size_t>(model), kRingsDefaults.size() - 1)];
+	DrumControls c;
+	for (int32_t i = 0; i < S::NUM_SLOTS; i++) {
+		c.values[i] = S::fromValue(64);
+	}
+	c.values[S::RINGS_STRUCTURE] = S::fromValue(d[0]);
+	c.values[S::RINGS_BRIGHTNESS] = S::fromValue(d[1]);
+	c.values[S::RINGS_DAMPING] = S::fromValue(d[2]);
+	c.values[S::RINGS_POSITION] = S::fromValue(d[3]);
+	c.values[S::RINGS_BOW] = S::fromValue(0);
+	c.values[S::RINGS_DRIVE] = S::fromValue(0);
+	c.values[S::LXR_DRIVE] = S::fromValue(0);
+	return c;
+}
+
+RowSetup rowSetupForRings(int32_t dampingKnob) {
+	// At the note, the envelope fully open while the key is down (Rings' own damping shapes each strike), and a release
+	// that lets the resonator ring on after the key is let go, as a struck or plucked instrument does
+	return {0, 30, -1, false, 5, 0, 50, envelopeReleaseFor(ringsDecaySeconds(static_cast<float>(dampingKnob) / 127.f))};
+}
+
+void Voice::renderRings(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const DrumControls& controls, int32_t* buffer,
+                        int32_t numSamples, uint32_t basePhaseIncrement, int32_t amplitude,
+                        int32_t amplitudeIncrement) {
+	// The Deluge voice gives RINGS its resonators. Without them (switched to RINGS mid-note) there's nothing to play.
+	if (rings_ == nullptr) {
+		xiaFinished_ = true;
+		return;
+	}
+	if (!ringsReady_) {
+		rings::reset(*rings_);
+		ringsReady_ = true;
+		ringsAge_ = 0;
+	}
+	if (pendingTrigger_) {
+		pendingTrigger_ = false;
+		rings::trigger(*rings_);
+		ringsAge_ = 0;
+	}
+	const rings::Settings s = ringsSettings(p, controls);
+	constexpr int32_t kChunk = 64;
+	std::array<int32_t, kChunk> chunk;
+	int32_t* out = buffer;
+	int32_t remaining = numSamples;
+	while (remaining > 0) {
+		const int32_t n = std::min(remaining, kChunk);
+		rings::render(*rings_, s, basePhaseIncrement, chunk.data(), n);
+		for (int32_t i = 0; i < n; i++) {
+			amplitude += amplitudeIncrement;
+			// Halved like the Cyc engines, which leaves it q30 like the LXR engines'
+			out[i] += multiply_32x32_rshift32(chunk[i] >> 1, amplitude) << 2;
+		}
+		out += n;
+		remaining -= n;
+	}
+	ringsAge_ = std::min(ringsAge_ + numSamples, kRingsMinSamples);
+	// Once the resonator has died away (and nothing is bowing it), so has the voice
+	xiaFinished_ = ringsAge_ >= kRingsMinSamples && s.bow <= 0.f && rings::level(*rings_) < kEndLevel;
 }
 
 } // namespace deluge::dsp::drum_synth

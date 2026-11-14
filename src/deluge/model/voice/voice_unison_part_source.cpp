@@ -31,6 +31,44 @@
 
 using DrumVoicePool = deluge::memory::ObjectPool<deluge::dsp::drum_synth::Voice, deluge::memory::fast_allocator>;
 
+namespace {
+/// RINGS' resonators. Each holds its strings' delay lines, tens of KB, so they live in SDRAM and only voices playing
+/// RINGS get one. Freed ones are kept for the next notes, up to a handful; rings::reset() sets one up from scratch.
+class RingsVoicePool {
+public:
+	using RingsVoice = deluge::dsp::drum_synth::rings::Voice;
+
+	static RingsVoice* acquire() {
+		if (numFree_ > 0) {
+			return free_[--numFree_];
+		}
+		// Cache line aligned (NEON wants 16), with the allocation's own address just below to free it by
+		const uint32_t size = deluge::dsp::drum_synth::rings::voiceSize();
+		void* raw = GeneralMemoryAllocator::get().allocLowSpeed(size + kAlign + sizeof(void*));
+		if (raw == nullptr) {
+			return nullptr;
+		}
+		const uintptr_t aligned = (reinterpret_cast<uintptr_t>(raw) + sizeof(void*) + kAlign - 1) & ~(kAlign - 1);
+		reinterpret_cast<void**>(aligned)[-1] = raw;
+		return reinterpret_cast<RingsVoice*>(aligned);
+	}
+
+	static void recycle(RingsVoice* voice) {
+		if (numFree_ < kKeep) {
+			free_[numFree_++] = voice;
+			return;
+		}
+		delugeDealloc(reinterpret_cast<void**>(voice)[-1]);
+	}
+
+private:
+	static constexpr uintptr_t kAlign = 32;
+	static constexpr int32_t kKeep = 8;
+	static inline std::array<RingsVoice*, kKeep> free_{};
+	static inline int32_t numFree_ = 0;
+};
+} // namespace
+
 VoiceUnisonPartSource::~VoiceUnisonPartSource() {
 	unassign(false);
 }
@@ -102,6 +140,21 @@ bool VoiceUnisonPartSource::noteOn(Voice* voice, Source* source, VoiceSamplePlay
 				return false;
 			}
 		}
+		// RINGS needs its resonators too. A voice restarted on the same note keeps them ringing, as Rings does when
+		// struck again; a new voice starts them from silence.
+		if (deluge::dsp::drum_synth::isRings(source->drumPatch.engine())) {
+			if (ringsVoice == nullptr) {
+				ringsVoice = RingsVoicePool::acquire();
+				if (ringsVoice == nullptr) {
+					return false;
+				}
+			}
+		}
+		else if (ringsVoice != nullptr) {
+			RingsVoicePool::recycle(ringsVoice);
+			ringsVoice = nullptr;
+		}
+		drumVoice->setRings(ringsVoice);
 		drumVoice->trigger(source->drumPatch);
 	}
 	else {
@@ -133,6 +186,11 @@ void VoiceUnisonPartSource::unassign(bool deletingSong) {
 	if (drumVoice != nullptr) {
 		DrumVoicePool::recycle(drumVoice);
 		drumVoice = nullptr;
+	}
+
+	if (ringsVoice != nullptr) {
+		RingsVoicePool::recycle(ringsVoice);
+		ringsVoice = nullptr;
 	}
 
 	if (livePitchShifter != nullptr) {

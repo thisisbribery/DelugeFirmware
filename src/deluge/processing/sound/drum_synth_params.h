@@ -127,6 +127,27 @@ inline deluge::l10n::String ultrakikKnobName(int32_t slot) {
 	return kNames[std::clamp<int32_t>(slot, 0, DrumControls::NUM_SLOTS - 1)];
 }
 
+/// What RINGS calls the setting on a control slot, or EMPTY_STRING for a slot it doesn't use
+inline deluge::l10n::String ringsKnobName(int32_t slot) {
+	using enum deluge::l10n::String;
+	switch (slot) {
+	case DrumControls::RINGS_STRUCTURE:
+		return STRING_FOR_RINGS_STRUCTURE;
+	case DrumControls::RINGS_BRIGHTNESS:
+		return STRING_FOR_RINGS_BRIGHTNESS;
+	case DrumControls::RINGS_POSITION:
+		return STRING_FOR_RINGS_POSITION;
+	case DrumControls::RINGS_BOW:
+		return STRING_FOR_RINGS_BOW;
+	case DrumControls::RINGS_DRIVE:
+		return STRING_FOR_XIA_DRIVE;
+	case DrumControls::RINGS_DAMPING:
+		return STRING_FOR_RINGS_DAMPING;
+	default:
+		return EMPTY_STRING;
+	}
+}
+
 /// What GIN calls the setting on a control slot
 inline deluge::l10n::String ginKnobName(int32_t slot) {
 	using enum deluge::l10n::String;

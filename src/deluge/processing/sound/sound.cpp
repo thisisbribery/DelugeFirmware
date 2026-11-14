@@ -519,6 +519,11 @@ void Sound::setDrumSynthKnobs(deluge::dsp::drum_synth::Engine engine) {
 		// The sweep, then fold and grit
 		layout = {DrumControls::UK_SWEEP_TIME, DrumControls::UK_SWEEP, DrumControls::UK_FOLD, DrumControls::UK_GRIT};
 		break;
+	case Engine::RINGS:
+		// Bow and position, then brightness and structure: with damping on the decay knob, all of Rings' knobs
+		layout = {DrumControls::RINGS_BOW, DrumControls::RINGS_POSITION, DrumControls::RINGS_BRIGHTNESS,
+		          DrumControls::RINGS_STRUCTURE};
+		break;
 	default:
 		// The Cyc engines: Sweep / Contour, Color / Shape
 		layout = {DrumControls::CYC_MACRO3, DrumControls::CYC_MACRO4, DrumControls::CYC_MACRO1,
@@ -616,6 +621,10 @@ char const* Sound::getPatchedParamDisplayNameOverride(int32_t p) {
 	}
 
 	const auto engine = sources[0].drumPatch.engine();
+	if (deluge::dsp::drum_synth::isRings(engine)) {
+		const auto name = deluge::dsp::drum_synth::ringsKnobName(slot);
+		return (name == EMPTY_STRING) ? nullptr : deluge::l10n::get(name);
+	}
 	if (deluge::dsp::drum_synth::isUltrakik(engine)) {
 		return deluge::l10n::get(deluge::dsp::drum_synth::ultrakikKnobName(slot));
 	}

@@ -149,6 +149,20 @@ inline void setEngineDecay(const deluge::dsp::drum_synth::RowSetup& row) {
 	}
 }
 
+/// RINGS' sympathetic strings and chords share eight strings between their voices, as Rings does: 4 voices of 2 strings
+/// (POLY 4) or 2 voices of 4 (POLY 2), set through Max voices so a note past the limit lets the oldest go. Max voices
+/// can still be changed after. Moving to a model without strings puts the Deluge's 8 back.
+inline void setRingsVoiceLimit(Sound& sound, const Patch& patch) {
+	namespace rings = deluge::dsp::drum_synth::rings;
+	const auto m = static_cast<rings::Model>(patch.get(Patch::RINGS_MODEL));
+	if (m == rings::Model::SYMPATHETIC || m == rings::Model::CHORD) {
+		sound.maxVoiceCount = (patch.get(Patch::RINGS_POLY) != 0) ? 2 : 4;
+	}
+	else if (sound.maxVoiceCount == 2 || sound.maxVoiceCount == 4) {
+		sound.maxVoiceCount = 8;
+	}
+}
+
 /// Put the sound being edited onto a drum synth engine, or move it between engines. Each new engine starts from its
 /// defaults, set up as its kit row is (applyRowSetup), so what SYNTH MODE previews is what the kit plays: the Cyc
 /// engines as in the Cycles kit, the LXR voices as their kick, snare and cymbal rows. A sound that wasn't a drum synth
@@ -163,6 +177,18 @@ inline void setDrumEngine(Engine engine, uint8_t variant = 0, bool fresh = false
 	Patch& patch = source.drumPatch;
 	const bool wasDrumSynth = source.oscType == OscType::DRUM_SYNTH;
 	const Engine from = patch.engine();
+	using deluge::dsp::drum_synth::isRings;
+	namespace rings = deluge::dsp::drum_synth::rings;
+	// Another RINGS model keeps the knobs and the envelope, as turning Rings' model switch does
+	if (wasDrumSynth && isRings(engine) && isRings(from) && !fresh) {
+		if (variant != patch.get(Patch::RINGS_MODEL)) {
+			sound.killAllVoices();
+			patch.set(Patch::RINGS_MODEL, variant);
+			setRingsVoiceLimit(sound, patch);
+			soundEditor.markInstrumentAsEdited();
+		}
+		return;
+	}
 
 	if (!wasDrumSynth) {
 		sound.killAllVoices();
@@ -199,6 +225,10 @@ inline void setDrumEngine(Engine engine, uint8_t variant = 0, bool fresh = false
 	}
 	else if (deluge::dsp::drum_synth::isUltrakik(engine)) {
 		patch.setUltrakikPreset();
+	}
+	else if (isRings(engine)) {
+		patch.setRingsModel(static_cast<rings::Model>(variant));
+		setRingsVoiceLimit(sound, patch);
 	}
 	else {
 		patch.setPreset(deluge::dsp::drum_synth::presetForLxrEngine(engine));
@@ -304,6 +334,18 @@ public:
 		const auto* sound = static_cast<Sound*>(modControllable);
 		return sound->sources[0].oscType == OscType::DRUM_SYNTH
 		       && deluge::dsp::drum_synth::isUltrakik(sound->sources[0].drumPatch.engine());
+	}
+};
+
+/// A continuous setting of RINGS
+class RingsControl final : public Control {
+public:
+	using Control::Control;
+
+	bool isRelevant(ModControllableAudio* modControllable, int32_t whichThing) const override {
+		const auto* sound = static_cast<Sound*>(modControllable);
+		return sound->sources[0].oscType == OscType::DRUM_SYNTH
+		       && deluge::dsp::drum_synth::isRings(sound->sources[0].drumPatch.engine());
 	}
 };
 
@@ -465,6 +507,50 @@ public:
 		using enum l10n::String;
 		return {l10n::getView(STRING_FOR_UK_THUD), l10n::getView(STRING_FOR_UK_TICK), l10n::getView(STRING_FOR_NOISE),
 		        l10n::getView(STRING_FOR_UK_ZAP)};
+	}
+};
+
+/// RINGS' resonator model. Changing it keeps the knobs.
+class RingsModel final : public Choice {
+public:
+	explicit RingsModel(l10n::String name) : Choice(name, Patch::RINGS_MODEL) {}
+
+	void writeCurrentValue() override {
+		soundEditor.currentSound->killAllVoices();
+		Choice::writeCurrentValue();
+		setRingsVoiceLimit(*soundEditor.currentSound, currentPatch());
+	}
+	deluge::vector<std::string_view> getOptions(OptType optType) override {
+		(void)optType;
+		using enum l10n::String;
+		return {l10n::getView(STRING_FOR_RINGS_MODAL), l10n::getView(STRING_FOR_RINGS_SYMPATHETIC),
+		        l10n::getView(STRING_FOR_RINGS_STRING), l10n::getView(STRING_FOR_FM),
+		        l10n::getView(STRING_FOR_RINGS_CHORD)};
+	}
+};
+
+/// RINGS' polyphony on the sympathetic and chord models: 4 voices of 2 strings, or 2 of 4, as Rings' own setting
+class RingsPoly final : public Choice {
+public:
+	explicit RingsPoly(l10n::String name) : Choice(name, Patch::RINGS_POLY) {}
+
+	void writeCurrentValue() override {
+		soundEditor.currentSound->killAllVoices();
+		Choice::writeCurrentValue();
+		setRingsVoiceLimit(*soundEditor.currentSound, currentPatch());
+	}
+	bool isRelevant(ModControllableAudio* modControllable, int32_t whichThing) const override {
+		namespace rings = deluge::dsp::drum_synth::rings;
+		const auto* sound = static_cast<Sound*>(modControllable);
+		const auto& patch = sound->sources[0].drumPatch;
+		const auto m = static_cast<rings::Model>(patch.get(Patch::RINGS_MODEL));
+		return sound->sources[0].oscType == OscType::DRUM_SYNTH && deluge::dsp::drum_synth::isRings(patch.engine())
+		       && (m == rings::Model::SYMPATHETIC || m == rings::Model::CHORD);
+	}
+	deluge::vector<std::string_view> getOptions(OptType optType) override {
+		(void)optType;
+		using enum l10n::String;
+		return {l10n::getView(STRING_FOR_RINGS_POLY_4), l10n::getView(STRING_FOR_RINGS_POLY_2)};
 	}
 };
 

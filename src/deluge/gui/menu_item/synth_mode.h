@@ -28,9 +28,9 @@
 #include "processing/sound/sound_instrument.h"
 
 namespace deluge::gui::menu_item {
-/// Every sound engine in one list: the Deluge's synth modes, the 303 (on synths), then each drum synth engine and
-/// variant. Choosing a drum engine puts it on osc 1 of this sound, which keeps every envelope, filter and effect, so
-/// any kit row can go from a sample to a Cyc Kik and back. This is the only place engines are chosen.
+/// Every sound engine in one list: the Deluge's synth modes, the 303 (on synths), RINGS' models, then each drum synth
+/// engine and variant. Choosing a drum engine puts it on osc 1 of this sound, which keeps every envelope, filter and
+/// effect, so any kit row can go from a sample to a Cyc Kik and back. This is the only place engines are chosen.
 class SynthModeSelection final : public Selection {
 public:
 	using Selection::Selection;
@@ -53,7 +53,9 @@ public:
 			const bool match = (source.oscType == OscType::DRUM_SYNTH)
 			                       ? (e.kind == Entry::Kind::DRUM && e.engine == source.drumPatch.engine()
 			                          && (!dsp::drum_synth::isXia(e.engine)
-			                              || e.variant == source.drumPatch.get(dsp::drum_synth::Patch::XIA_VARIANT)))
+			                              || e.variant == source.drumPatch.get(dsp::drum_synth::Patch::XIA_VARIANT))
+			                          && (!dsp::drum_synth::isRings(e.engine)
+			                              || e.variant == source.drumPatch.get(dsp::drum_synth::Patch::RINGS_MODEL)))
 			                   : (sound.synthMode == ::SynthMode::TB303)
 			                       ? e.kind == Entry::Kind::TB303
 			                       : (e.kind == Entry::Kind::MODE && e.mode == sound.synthMode);
@@ -124,6 +126,17 @@ public:
 		};
 		if (!kitRow) {
 			list.push_back({K::TB303, ::SynthMode::TB303, Engine::DRUM, 0, STRING_FOR_TB303});
+		}
+		// RINGS, one entry per model. Moving between them keeps the knobs, as Rings' model button does.
+		static constexpr std::array<Entry, 5> kRings{{
+		    {K::DRUM, ::SynthMode::SUBTRACTIVE, Engine::RINGS, 0, STRING_FOR_RINGS_MODAL_ENGINE},
+		    {K::DRUM, ::SynthMode::SUBTRACTIVE, Engine::RINGS, 1, STRING_FOR_RINGS_SYMPATHETIC_ENGINE},
+		    {K::DRUM, ::SynthMode::SUBTRACTIVE, Engine::RINGS, 2, STRING_FOR_RINGS_STRING_ENGINE},
+		    {K::DRUM, ::SynthMode::SUBTRACTIVE, Engine::RINGS, 3, STRING_FOR_RINGS_FM_ENGINE},
+		    {K::DRUM, ::SynthMode::SUBTRACTIVE, Engine::RINGS, 4, STRING_FOR_RINGS_CHORD_ENGINE},
+		}};
+		for (const Entry& e : kRings) {
+			list.push_back(e);
 		}
 		static constexpr std::array<Entry, 19> kDrumEngines{{
 		    {K::DRUM, ::SynthMode::SUBTRACTIVE, Engine::DRUM, 0, STRING_FOR_DRUM_ENGINE_DRUM},
