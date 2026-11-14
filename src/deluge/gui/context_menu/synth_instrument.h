@@ -18,18 +18,23 @@
 #pragma once
 
 #include "gui/context_menu/context_menu.h"
+#include "model/instrument/synth_instruments.h"
+#include <array>
 
 namespace deluge::gui::context_menu {
 
-/// Shown by SHIFT + SYNTH on a synth track: the synth instruments (see model/instrument/synth_instruments.h), opening
-/// on the one the track plays. SHIFT + SYNTH again or turning SELECT moves on. SELECT or SYNTH loads the instrument's
-/// first preset (a blank one if its folder is empty), BACK cancels. DX7 is only offered with the DX7 engine on.
+/// Shown by SHIFT + SYNTH on any instrument track, as SHIFT + KIT shows the kit types: the synth types (see
+/// model/instrument/synth_instruments.h), opening on the one the track plays. SHIFT + SYNTH again or turning SELECT
+/// moves on. SELECT or SYNTH opens the type's categories (BASS, LEAD, PAD, MISC); INIT makes the stock blank synth.
+/// BACK cancels. DX7 is only offered with the DX7 engine on.
 class SynthInstrumentMenu final : public ContextMenu {
 public:
 	SynthInstrumentMenu() = default;
 
-	/// Put the cursor on the instrument the current synth plays
+	/// Put the cursor on the type the current synth plays. False on a kit track with notes or sounds (as stock).
 	bool setupAndCheckAvailability() override;
+	/// Open on type (from the category menu's BACK)
+	void setupFor(size_t type);
 
 	char const* getTitle() override;
 	std::span<char const*> getOptions() override;
@@ -40,5 +45,35 @@ public:
 	deluge::hid::Button getAcceptButton() override { return deluge::hid::button::SYNTH; }
 };
 
+/// The categories inside a synth type's folder (BASS, LEAD, PAD, MISC), each one offered only if it holds presets.
+/// SELECT or SYNTH opens the preset browser in that folder playing its first preset: turning SELECT previews the
+/// others, SELECT keeps one, BACK there puts the old synth back and returns here. BACK here returns to the types.
+class SynthCategoryMenu final : public ContextMenu {
+public:
+	SynthCategoryMenu() = default;
+
+	/// For type: false if none of its categories has a preset
+	bool setupFor(size_t type);
+
+	char const* getTitle() override;
+	std::span<char const*> getOptions() override;
+	bool isCurrentOptionAvailable() override { return hasPresets_[currentOption]; }
+	bool canSeeViewUnderneath() override { return true; }
+	bool acceptCurrentOption() override;
+	ActionResult buttonAction(deluge::hid::Button b, bool on, bool inCardRoutine) override;
+	deluge::hid::Button getAcceptButton() override { return deluge::hid::button::SYNTH; }
+
+	size_t type() const { return type_; }
+
+private:
+	size_t type_ = 0;
+	std::array<bool, synth_instruments::kSynthCategories.size()> hasPresets_{};
+};
+
+/// Open the preset browser on folder for the current clip, playing its first preset. backTo is the category menu's
+/// type to return to on BACK from that folder (-1: BACK leaves as usual). False if it couldn't open.
+bool openSynthPresetFolder(char const* folder, int32_t backTo);
+
 extern SynthInstrumentMenu synthInstrumentMenu;
+extern SynthCategoryMenu synthCategoryMenu;
 } // namespace deluge::gui::context_menu

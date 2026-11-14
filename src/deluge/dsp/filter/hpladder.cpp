@@ -114,4 +114,17 @@ q31_t HpLadderFilter::setConfig(q31_t hpfFrequency, q31_t hpfResonance, FilterMo
 
 	return a;
 }
+
+// The same filter inside the voice FEEDBACK loop (see FeedbackChannel)
+[[gnu::hot]] void HpLadderFilter::doFilterFeedback(q31_t* startSample, q31_t* endSample, int32_t sampleIncrement,
+                                                   FeedbackChannel& fb, q31_t gain) {
+	feedbackLoopMono(startSample, endSample, sampleIncrement, fb, gain, [this](q31_t x) { return doHPF(x, l); });
+}
+
+[[gnu::hot]] void HpLadderFilter::doFilterStereoFeedback(q31_t* startSample, q31_t* endSample, FeedbackChannel& fbL,
+                                                         FeedbackChannel& fbR, q31_t gain) {
+	feedbackLoopStereo(
+	    startSample, endSample, fbL, fbR, gain, [this](q31_t x) { return doHPF(x, l); },
+	    [this](q31_t x) { return doHPF(x, r); });
+}
 } // namespace deluge::dsp::filter

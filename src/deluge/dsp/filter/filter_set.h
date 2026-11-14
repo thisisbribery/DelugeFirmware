@@ -50,10 +50,13 @@ public:
 	                  q31_t hpfResonance, FilterMode hpfmode, q31_t hpfMorph, q31_t filterGain, FilterRoute routing,
 	                  bool adjustVolumeForHPFResonance, q31_t* overallOscAmplitude);
 
-	void renderLong(q31_t* startSample, q31_t* endSample, int32_t numSamples, int32_t sampleIncrememt = 1);
+	/// feedback: the voice FEEDBACK loop's gain (1 = 2^29), 0 for none. The loop goes round the LPF, or the HPF if
+	/// only that's on, or round nothing if neither is.
+	void renderLong(q31_t* startSample, q31_t* endSample, int32_t numSamples, int32_t sampleIncrememt = 1,
+	                q31_t feedback = 0);
 
 	// expects to receive an interleaved stereo stream
-	void renderLongStereo(q31_t* startSample, q31_t* endSample);
+	void renderLongStereo(q31_t* startSample, q31_t* endSample, q31_t feedback = 0);
 
 	// used to check whether the filter is used at all
 	inline bool isLPFOn() { return LPFOn; }
@@ -67,10 +70,11 @@ private:
 	FilterMode lastHPFMode_;
 	FilterRoute routing_;
 
-	void renderLPFLong(q31_t* startSample, q31_t* endSample, int32_t sampleIncrement = 1);
-	void renderLPFLongStereo(q31_t* startSample, q31_t* endSample);
-	void renderHPFLongStereo(q31_t* startSample, q31_t* endSample);
-	void renderHPFLong(q31_t* startSample, q31_t* endSample, int32_t sampleIncrement = 1);
+	// feedback: as renderLong's, 0 when the loop isn't round this filter
+	void renderLPFLong(q31_t* startSample, q31_t* endSample, int32_t sampleIncrement, q31_t feedback);
+	void renderLPFLongStereo(q31_t* startSample, q31_t* endSample, q31_t feedback);
+	void renderHPFLongStereo(q31_t* startSample, q31_t* endSample, q31_t feedback);
+	void renderHPFLong(q31_t* startSample, q31_t* endSample, int32_t sampleIncrement, q31_t feedback);
 
 	// all filters share a state. This is fine since they just hold plain data and initialization is handled by
 	// reset/configure calls.  This is faster than using a variant at the cost of not throwing on incorrect access.
@@ -81,5 +85,9 @@ private:
 
 	bool LPFOn;
 	bool HPFOn;
+
+	// The voice FEEDBACK loop, per channel
+	FeedbackChannel feedbackL_;
+	FeedbackChannel feedbackR_;
 };
 } // namespace deluge::dsp::filter

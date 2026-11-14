@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "dsp/filter/voice_feedback.h"
 #include "model/mod_controllable/filters/filter_config.h"
 #include "util/fixedpoint.h"
 #include "util/functions.h"
@@ -102,6 +103,21 @@ public:
 				updateBlend();
 			} while (currentSample < endSample);
 		}
+	}
+	/// filterMono with the voice FEEDBACK loop around this filter (see FeedbackChannel). Any fade-in from a mode
+	/// change is skipped.
+	[[gnu::hot]] void filterMonoFeedback(q31_t* startSample, q31_t* endSample, int32_t sampleIncrement,
+	                                     FeedbackChannel& fb, q31_t gain) {
+		dryFade = 0;
+		wetLevel = ONE_Q31;
+		static_cast<T*>(this)->doFilterFeedback(startSample, endSample, sampleIncrement, fb, gain);
+	}
+	/// filterStereo with the voice FEEDBACK loop around this filter, one per channel
+	[[gnu::hot]] void filterStereoFeedback(q31_t* startSample, q31_t* endSample, FeedbackChannel& fbL,
+	                                       FeedbackChannel& fbR, q31_t gain) {
+		dryFade = 0;
+		wetLevel = ONE_Q31;
+		static_cast<T*>(this)->doFilterStereoFeedback(startSample, endSample, fbL, fbR, gain);
 	}
 	/**
 	 * reset the internal filter state to avoid clicks and pops

@@ -19,6 +19,7 @@
 #include "definitions_cxx.hpp"
 #include "extern.h"
 #include "gui/context_menu/load_instrument_preset.h"
+#include "gui/context_menu/synth_instrument.h"
 #include "gui/ui/keyboard/keyboard_screen.h"
 #include "gui/ui/root_ui.h"
 #include "gui/views/arranger_view.h"
@@ -45,6 +46,7 @@
 #include "storage/storage_manager.h"
 #include "util/functions.h"
 #include "util/try.h"
+#include <strings.h>
 
 using namespace deluge;
 namespace encoders = deluge::hid::encoders;
@@ -110,6 +112,12 @@ bool LoadInstrumentPresetUI::opened() {
 	changedInstrumentForClip = false;
 	replacedWholeInstrument = false;
 
+	pickerStartDir.clear();
+	if (pickerFolder != nullptr && !loadingSynthToKitRow && outputTypeToLoad == OutputType::SYNTH) {
+		pickerStartDir.set(pickerFolder);
+	}
+	pickerFolder = nullptr;
+
 	if (instrumentClipToLoadFor) {
 		instrumentClipToLoadFor
 		    ->backupPresetSlot(); // Store this now cos we won't be storing it between each navigation we do
@@ -132,6 +140,11 @@ gotError:
 	}
 
 	focusRegained();
+
+	// From the SHIFT + SYNTH picker: play the folder's first preset straight away
+	if (!pickerStartDir.isEmpty() && fileIndexSelected >= 0) {
+		currentFileChanged(0);
+	}
 	return true;
 }
 
@@ -201,8 +214,13 @@ Error LoadInstrumentPresetUI::setupForOutputType() {
 	// I don't have this calling arrivedInNewFolder(), because as you can see below, we want to either just display the
 	// existing preset, or call confirmPresetOrNextUnlaunchedOne() to skip any which aren't "available".
 
+	// From the SHIFT + SYNTH picker: its folder, from the top
+	if (!pickerStartDir.isEmpty()) {
+		currentDir.set(&pickerStartDir);
+	}
+
 	// If same Instrument type as we already had...
-	if (instrumentToReplace && instrumentToReplace->type == outputTypeToLoad) {
+	else if (instrumentToReplace && instrumentToReplace->type == outputTypeToLoad) {
 
 		// Then we can start by just looking at the existing Instrument, cos they're the same type...
 		currentDir.set(&instrumentToReplace->dirPath);
@@ -507,6 +525,7 @@ void LoadInstrumentPresetUI::changeOutputType(OutputType newOutputType) {
 
 	// Or, for normal synths, kits and midi
 	else {
+		pickerStartDir.clear();
 		OutputType oldOutputType = outputTypeToLoad;
 		outputTypeToLoad = newOutputType;
 
@@ -1154,8 +1173,26 @@ Error LoadInstrumentPresetUI::performLoadSynthToKit() {
 }
 // Previously called "exitAndResetInstrumentToInitial()". Does just that.
 void LoadInstrumentPresetUI::exitAction() {
+	pickerStartDir.clear();
 	revertToInitialPreset();
 	LoadUI::exitAction();
+}
+
+// From the SHIFT + SYNTH picker, BACK in the folder it opened on puts the old synth back and returns to the categories
+ActionResult LoadInstrumentPresetUI::backButtonAction() {
+	if (!pickerStartDir.isEmpty() && !strcasecmp(currentDir.get(), pickerStartDir.get())) {
+		if (sdRoutineLock) {
+			return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
+		}
+		const int32_t backTo = pickerBackToType;
+		exitAction();
+		if (backTo >= 0 && getCurrentUI() == getRootUI()
+		    && deluge::gui::context_menu::synthCategoryMenu.setupFor(static_cast<size_t>(backTo))) {
+			openUI(&deluge::gui::context_menu::synthCategoryMenu);
+		}
+		return ActionResult::DEALT_WITH;
+	}
+	return LoadUI::backButtonAction();
 }
 
 ActionResult LoadInstrumentPresetUI::padAction(int32_t x, int32_t y, int32_t on) {

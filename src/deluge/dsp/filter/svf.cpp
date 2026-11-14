@@ -130,4 +130,17 @@ q31_t SVFilter::setConfig(q31_t freq, q31_t res, FilterMode lpfMode, q31_t lpfMo
 
 	return result;
 }
+
+// The same filter inside the voice FEEDBACK loop (see FeedbackChannel)
+[[gnu::hot]] void SVFilter::doFilterFeedback(q31_t* startSample, q31_t* endSample, int32_t sampleIncrement,
+                                             FeedbackChannel& fb, q31_t gain) {
+	feedbackLoopMono(startSample, endSample, sampleIncrement, fb, gain, [this](q31_t x) { return doSVF(x, l); });
+}
+
+[[gnu::hot]] void SVFilter::doFilterStereoFeedback(q31_t* startSample, q31_t* endSample, FeedbackChannel& fbL,
+                                                   FeedbackChannel& fbR, q31_t gain) {
+	feedbackLoopStereo(
+	    startSample, endSample, fbL, fbR, gain, [this](q31_t x) { return doSVF(x, l); },
+	    [this](q31_t x) { return doSVF(x, r); });
+}
 } // namespace deluge::dsp::filter

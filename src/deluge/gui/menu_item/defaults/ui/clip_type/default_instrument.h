@@ -46,8 +46,8 @@ public:
 	deluge::vector<std::string_view> getOptions(OptType optType) override {
 		(void)optType;
 		deluge::vector<std::string_view> options{l10n::getView(l10n::String::STRING_FOR_OFF)};
-		for (const auto& instrument : synth_instruments::kSynthInstruments) {
-			options.push_back(l10n::getView(instrument.name));
+		for (size_t i = 0; i < synth_instruments::kNumDefaultSynthInstruments; i++) {
+			options.push_back(l10n::getView(synth_instruments::kSynthInstruments[i].name));
 		}
 		return options;
 	}

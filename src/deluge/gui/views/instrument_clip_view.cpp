@@ -1024,9 +1024,9 @@ bool InstrumentClipView::handleInstrumentChange(OutputType outputType) {
 		return false;
 	}
 
-	// SHIFT + SYNTH on a synth track: pick an instrument (Deluge, DLFM, DX7...). The menu does the loading.
-	if (outputType == OutputType::SYNTH && !is_fm && Buttons::isShiftButtonPressed()
-	    && getCurrentOutputType() == OutputType::SYNTH && getCurrentUI() == getRootUI()) {
+	// SHIFT + SYNTH, as SHIFT + KIT: pick a type (SUBT, FM, WAVE, RING... INIT), then a category, then a preset. The
+	// menus do the loading. A kit clip with notes or sounds can't become a synth clip, as stock.
+	if (outputType == OutputType::SYNTH && !is_fm && Buttons::isShiftButtonPressed() && getCurrentUI() == getRootUI()) {
 		if (context_menu::synthInstrumentMenu.setupAndCheckAvailability()) {
 			openUI(&context_menu::synthInstrumentMenu);
 		}

@@ -409,4 +409,63 @@ q31_t LpLadderFilter::setConfig(q31_t lpfFrequency, q31_t lpfResonance, FilterMo
 
 	return d;
 }
+
+// The same filters inside the voice FEEDBACK loop (see FeedbackChannel)
+[[gnu::hot]] void LpLadderFilter::doFilterFeedback(q31_t* startSample, q31_t* endSample, int32_t sampleIncrement,
+                                                   FeedbackChannel& fb, q31_t gain) {
+	if (lpfMode == FilterMode::TRANSISTOR_12DB) {
+		feedbackLoopMono(startSample, endSample, sampleIncrement, fb, gain,
+		                 [this](q31_t x) { return do12dBLPFOnSample(x, l); });
+	}
+	else if (lpfMode == FilterMode::TRANSISTOR_24DB) {
+		feedbackLoopMono(startSample, endSample, sampleIncrement, fb, gain,
+		                 [this](q31_t x) { return do24dBLPFOnSample(x, l); });
+	}
+	else if (lpfMode == FilterMode::TRANSISTOR_24DB_DRIVE) {
+		if (doOversampling) {
+			feedbackLoopMono(startSample, endSample, sampleIncrement, fb, gain, [this](q31_t x) {
+				doDriveLPFOnSample(x, l);
+				return getTanHUnknown(doDriveLPFOnSample(x, l), 4);
+			});
+		}
+		else {
+			feedbackLoopMono(startSample, endSample, sampleIncrement, fb, gain,
+			                 [this](q31_t x) { return getTanHUnknown(doDriveLPFOnSample(x, l), 4); });
+		}
+	}
+}
+
+[[gnu::hot]] void LpLadderFilter::doFilterStereoFeedback(q31_t* startSample, q31_t* endSample, FeedbackChannel& fbL,
+                                                         FeedbackChannel& fbR, q31_t gain) {
+	if (lpfMode == FilterMode::TRANSISTOR_12DB) {
+		feedbackLoopStereo(
+		    startSample, endSample, fbL, fbR, gain, [this](q31_t x) { return do12dBLPFOnSample(x, l); },
+		    [this](q31_t x) { return do12dBLPFOnSample(x, r); });
+	}
+	else if (lpfMode == FilterMode::TRANSISTOR_24DB) {
+		feedbackLoopStereo(
+		    startSample, endSample, fbL, fbR, gain, [this](q31_t x) { return do24dBLPFOnSample(x, l); },
+		    [this](q31_t x) { return do24dBLPFOnSample(x, r); });
+	}
+	else if (lpfMode == FilterMode::TRANSISTOR_24DB_DRIVE) {
+		if (doOversampling) {
+			feedbackLoopStereo(
+			    startSample, endSample, fbL, fbR, gain,
+			    [this](q31_t x) {
+				    doDriveLPFOnSample(x, l);
+				    return getTanHUnknown(doDriveLPFOnSample(x, l), 4);
+			    },
+			    [this](q31_t x) {
+				    doDriveLPFOnSample(x, r);
+				    return getTanHUnknown(doDriveLPFOnSample(x, r), 4);
+			    });
+		}
+		else {
+			feedbackLoopStereo(
+			    startSample, endSample, fbL, fbR, gain,
+			    [this](q31_t x) { return getTanHUnknown(doDriveLPFOnSample(x, l), 4); },
+			    [this](q31_t x) { return getTanHUnknown(doDriveLPFOnSample(x, r), 4); });
+		}
+	}
+}
 } // namespace deluge::dsp::filter

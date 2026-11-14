@@ -67,6 +67,13 @@ public:
 		noteRowIndex = 255; // (not set value for note rows)
 		noteRow = nullptr;
 	}
+	/// Call after setupLoadInstrument, before openUI (the SHIFT + SYNTH picker): start in folder and play its first
+	/// preset. BACK in that folder puts the old instrument back and returns to the picker's categories for backToType
+	/// (-1: BACK leaves as usual).
+	void setPickerFolder(char const* folder, int32_t backToType) {
+		pickerFolder = folder;
+		pickerBackToType = backToType;
+	}
 	void setupLoadSynthToKit(Instrument* kit, InstrumentClip* clip, SoundDrum* drum, NoteRow* row, int32_t rowIndex) {
 		Browser::outputTypeToLoad = OutputType::SYNTH;
 		instrumentToReplace = kit;
@@ -92,6 +99,7 @@ private:
 	void changeOutputType(OutputType newOutputType);
 	void revertToInitialPreset();
 	void exitAction() override;
+	ActionResult backButtonAction() override;
 	bool isInstrumentInList(Instrument* searchInstrument, Output* list);
 	bool findUnusedSlotVariation(String* oldName, String* newName);
 
@@ -114,6 +122,11 @@ private:
 
 	String initialName;
 	String initialDirPath;
+
+	// The SHIFT + SYNTH picker's folder: set before opening, then held in pickerStartDir while open
+	char const* pickerFolder = nullptr;
+	int32_t pickerBackToType = -1;
+	String pickerStartDir;
 };
 
 extern LoadInstrumentPresetUI loadInstrumentPresetUI;

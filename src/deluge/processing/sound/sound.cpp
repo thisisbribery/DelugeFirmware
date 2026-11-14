@@ -150,6 +150,7 @@ void Sound::initParams(ParamManager* paramManager) {
 	    getParamFromUserValue(params::GLOBAL_VOLUME_POST_FX, kDefaultSoundVolumeUserValue));
 	patchedParams->params[params::GLOBAL_VOLUME_POST_REVERB_SEND].setCurrentValueBasicForSetup(0);
 	patchedParams->params[params::LOCAL_FOLD].setCurrentValueBasicForSetup(-2147483648);
+	patchedParams->params[params::LOCAL_VOICE_FEEDBACK].setCurrentValueBasicForSetup(-2147483648);
 	patchedParams->params[params::LOCAL_HPF_RESONANCE].setCurrentValueBasicForSetup(-2147483648);
 	patchedParams->params[params::LOCAL_HPF_FREQ].setCurrentValueBasicForSetup(-2147483648);
 	patchedParams->params[params::LOCAL_HPF_MORPH].setCurrentValueBasicForSetup(-2147483648);
@@ -1675,6 +1676,11 @@ Error Sound::readTagFromFileOrError(Deserializer& reader, char const* tagName, P
 		ENSURE_PARAM_MANAGER_EXISTS
 		patchedParams->readParam(reader, patchedParamsSummary, params::LOCAL_FOLD, readAutomationUpToPos);
 		reader.exitTag("waveFold");
+	}
+	else if (!strcmp(tagName, "voiceFeedback")) {
+		ENSURE_PARAM_MANAGER_EXISTS
+		patchedParams->readParam(reader, patchedParamsSummary, params::LOCAL_VOICE_FEEDBACK, readAutomationUpToPos);
+		reader.exitTag("voiceFeedback");
 	}
 	else if (!strcmp(tagName, "midiOutput")) {
 		reader.match('{');
@@ -4472,6 +4478,10 @@ bool Sound::readParamTagFromFile(Deserializer& reader, char const* tagName, Para
 		patchedParams->readParam(reader, patchedParamsSummary, params::LOCAL_FOLD, readAutomationUpToPos);
 		reader.exitTag("waveFold");
 	}
+	else if (!strcmp(tagName, "voiceFeedback")) {
+		patchedParams->readParam(reader, patchedParamsSummary, params::LOCAL_VOICE_FEEDBACK, readAutomationUpToPos);
+		reader.exitTag("voiceFeedback");
+	}
 	else if (!strcmp(tagName, "oscAStartOffset")) {
 		patchedParams->readParam(reader, patchedParamsSummary, params::LOCAL_OSC_A_START_OFFSET, readAutomationUpToPos);
 		reader.exitTag("oscAStartOffset");
@@ -4773,6 +4783,7 @@ void Sound::writeParamsToFile(Serializer& writer, ParamManager* paramManager, bo
 	patchedParams->writeParamAsAttribute(writer, "hpfMorph", params::LOCAL_HPF_MORPH, writeAutomation);
 
 	patchedParams->writeParamAsAttribute(writer, "waveFold", params::LOCAL_FOLD, writeAutomation);
+	patchedParams->writeParamAsAttribute(writer, "voiceFeedback", params::LOCAL_VOICE_FEEDBACK, writeAutomation);
 
 	patchedParams->writeParamAsAttribute(writer, "oscAStartOffset", params::LOCAL_OSC_A_START_OFFSET, writeAutomation);
 	patchedParams->writeParamAsAttribute(writer, "oscBStartOffset", params::LOCAL_OSC_B_START_OFFSET, writeAutomation);

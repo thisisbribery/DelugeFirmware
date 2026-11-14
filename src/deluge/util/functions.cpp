@@ -117,6 +117,9 @@ int32_t getParamNeutralValue(int32_t p) {
 	case params::LOCAL_FOLD:
 		return 25 * 10737418; // Room to be quadrupled
 
+	case params::LOCAL_VOICE_FEEDBACK:
+		return 268435456; // Knob 50 = 2^29 (see Voice::render)
+
 	case params::LOCAL_PAN:
 	case params::LOCAL_OSC_A_PHASE_WIDTH:
 	case params::LOCAL_OSC_B_PHASE_WIDTH:

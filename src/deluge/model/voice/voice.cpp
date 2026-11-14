@@ -1685,6 +1685,12 @@ carriersDone: {}
 skipUnisonPart: {}
 	}
 
+	// FEEDBACK: the knob squared, so the low half is gentle. Knob 50 = 2^29 = unity loop gain, patch cables go past it
+	const q31_t voiceFeedbackParam = paramFinalValues[params::LOCAL_VOICE_FEEDBACK];
+	const q31_t voiceFeedback =
+	    voiceFeedbackParam > 0 ? lshiftAndSaturate<3>(multiply_32x32_rshift32(voiceFeedbackParam, voiceFeedbackParam))
+	                           : 0;
+
 	if (didStereoTempBuffer) {
 		int32_t* const oscBufferEnd = oscBuffer + (numSamples << 1);
 		// fold
@@ -1692,7 +1698,7 @@ skipUnisonPart: {}
 			dsp::foldBufferPolyApproximation(oscBuffer, oscBufferEnd, paramFinalValues[params::LOCAL_FOLD]);
 		}
 		// Filters
-		filterSet.renderLongStereo(oscBuffer, oscBufferEnd);
+		filterSet.renderLongStereo(oscBuffer, oscBufferEnd, voiceFeedback);
 
 		// No clipping
 		if (!sound.saturation.drive) {
@@ -1807,7 +1813,7 @@ skipUnisonPart: {}
 			dsp::foldBufferPolyApproximation(oscBuffer, oscBufferEnd, foldAmount);
 		}
 
-		filterSet.renderLong(oscBuffer, oscBufferEnd, numSamples);
+		filterSet.renderLong(oscBuffer, oscBufferEnd, numSamples, 1, voiceFeedback);
 
 		// No clipping
 		if (!sound.saturation.drive) {

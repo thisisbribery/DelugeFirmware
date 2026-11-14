@@ -30,6 +30,10 @@ public:
 	q31_t setConfig(q31_t hpfFrequency, q31_t hpfResonance, FilterMode lpfMode, q31_t lpfMorph, q31_t filterGain);
 	void doFilter(q31_t* startSample, q31_t* endSample, int32_t sampleIncrememt);
 	void doFilterStereo(q31_t* startSample, q31_t* endSample);
+	void doFilterFeedback(q31_t* startSample, q31_t* endSample, int32_t sampleIncrement, FeedbackChannel& fb,
+	                      q31_t gain);
+	void doFilterStereoFeedback(q31_t* startSample, q31_t* endSample, FeedbackChannel& fbL, FeedbackChannel& fbR,
+	                            q31_t gain);
 	void resetFilter() {
 		l.reset();
 		r.reset();

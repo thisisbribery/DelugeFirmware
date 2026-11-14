@@ -43,7 +43,7 @@ PresetKit kit() {
 
 const SynthInstrument* synth() {
 	const uint8_t setting = FlashStorage::defaultSynthInstrument;
-	if (setting == 0 || setting > kSynthInstruments.size()) {
+	if (setting == 0 || setting > synth_instruments::kNumDefaultSynthInstruments) {
 		return nullptr;
 	}
 	const SynthInstrument& instrument = kSynthInstruments[setting - 1];

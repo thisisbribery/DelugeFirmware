@@ -879,7 +879,7 @@ void readSettings() {
 	// Anything out of range (never saved here) is off: new tracks as stock
 	defaultKitInstrument =
 	    (buffer[198] < util::to_underlying(deluge::dsp::drum_synth::PresetKit::NUM_KITS)) ? buffer[198] : 0;
-	defaultSynthInstrument = (buffer[199] <= deluge::synth_instruments::kSynthInstruments.size()) ? buffer[199] : 0;
+	defaultSynthInstrument = (buffer[199] <= deluge::synth_instruments::kNumDefaultSynthInstruments) ? buffer[199] : 0;
 }
 
 /// Sanity-check the pre-c1.3 MIDI-follow block (bytes 126-145) before migrating it. Same checks the deleted
