@@ -1098,8 +1098,8 @@ void renderSongFX(size_t numSamples) { // LPF and stutter for song (must happen 
 	if (currentSong) {
 		currentSong->globalEffectable.setupFilterSetConfig(&masterVolumeAdjustmentL, &currentSong->paramManager);
 		currentSong->globalEffectable.processFilters(renderingBuffer);
-		currentSong->globalEffectable.processSRRAndBitcrushing(renderingBuffer, &masterVolumeAdjustmentL,
-		                                                       &currentSong->paramManager);
+		currentSong->globalEffectable.processSRRAndBitcrushing(
+		    renderingBuffer, &masterVolumeAdjustmentL, &currentSong->paramManager, deluge::dsp::Crusher::kClipUnit);
 
 		masterVolumeAdjustmentR = masterVolumeAdjustmentL; // This might have changed in the above function calls
 

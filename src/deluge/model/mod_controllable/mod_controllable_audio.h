@@ -20,6 +20,7 @@
 #include "definitions_cxx.hpp"
 #include "deluge/dsp/granular/GranularProcessor.h"
 #include "dsp/compressor/rms_feedback.h"
+#include "dsp/crusher.h"
 #include "dsp/delay/delay.h"
 #include "dsp/saturator.h"
 #include "dsp/stereo_sample.h"
@@ -59,7 +60,9 @@ public:
 	void writeTagsToFile(Serializer& writer);
 	virtual Error readTagFromFile(Deserializer& reader, char const* tagName, ParamManagerForTimeline* paramManager,
 	                              int32_t readAutomationUpToPos, ArpeggiatorSettings* arpSettings, Song* song);
-	void processSRRAndBitcrushing(std::span<StereoSample> buffer, int32_t* postFXVolume, ParamManager* paramManager);
+	/// unit: deluge::dsp::Crusher::kSoundUnit for a sound, kClipUnit for a kit, audio clip or the song
+	void processSRRAndBitcrushing(std::span<StereoSample> buffer, int32_t* postFXVolume, ParamManager* paramManager,
+	                              float unit = deluge::dsp::Crusher::kSoundUnit);
 	static void writeParamAttributesToFile(Serializer& writer, ParamManager* paramManager, bool writeAutomation,
 	                                       int32_t* valuesForOverride = nullptr);
 	static void writeParamTagsToFile(Serializer& writer, ParamManager* paramManager, bool writeAutomation,
@@ -113,6 +116,12 @@ public:
 	StutterConfig stutterConfig;
 
 	bool sampleRateReductionOnLastTime;
+	// What Bitcrush and Decimation sound like. New sounds get HARD; files without the setting load as CLASSIC if
+	// they have either effect on (resolveLoadedCrushType), so old songs sound the same.
+	deluge::dsp::CrushType crushType = deluge::dsp::CrushType::HARD;
+	bool crushTypeInFile = false;
+	void resolveLoadedCrushType(ParamManager* paramManager);
+	deluge::dsp::Crusher::State crusherState_;
 	// Saturation. Song doesn't use this, only sounds, kits and audio clips. The drive is the UNPATCHED_SATURATION
 	// param, copied in by setSaturationDriveFromParams() before each render.
 	deluge::dsp::SaturationSettings saturation;

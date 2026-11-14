@@ -200,7 +200,7 @@ void ContextMenu::drawCurrentOption() {
 	const auto options = getOptions();
 	if (display->have7SEG()) {
 		indicator_leds::ledBlinkTimeout(0, true);
-		display->setText(options[currentOption], false, 255, true);
+		display->setBlinkingScrollingText(options[currentOption]);
 	}
 }
 

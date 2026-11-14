@@ -84,6 +84,7 @@
 #include "gui/menu_item/filter_route.h"
 #include "gui/menu_item/firmware/version.h"
 #include "gui/menu_item/flash/status.h"
+#include "gui/menu_item/fx/crush_type.h"
 #include "gui/menu_item/fx/saturation.h"
 #include "gui/menu_item/gate/mode.h"
 #include "gui/menu_item/gate/off_time.h"
@@ -655,6 +656,7 @@ PLACE_SDRAM_BSS fx::SaturationType saturationTypeMenu{STRING_FOR_TYPE, STRING_FO
 PLACE_SDRAM_BSS UnpatchedParam srrMenu{STRING_FOR_DECIMATION, params::UNPATCHED_SAMPLE_RATE_REDUCTION,
                                        RenderingStyle::BAR};
 PLACE_SDRAM_BSS UnpatchedParam bitcrushMenu{STRING_FOR_BITCRUSH, params::UNPATCHED_BITCRUSHING, RenderingStyle::BAR};
+PLACE_SDRAM_BSS fx::CrushType crushTypeMenu{STRING_FOR_CRUSH_TYPE, STRING_FOR_CRUSH_TYPE};
 PLACE_SDRAM_BSS patched_param::Integer foldMenu{STRING_FOR_WAVEFOLD, STRING_FOR_WAVEFOLD, params::LOCAL_FOLD,
                                                 RenderingStyle::BAR};
 PLACE_SDRAM_BSS patched_param::Integer voiceFeedbackMenu{STRING_FOR_VOICE_FEEDBACK, STRING_FOR_VOICE_FEEDBACK,
@@ -667,6 +669,7 @@ PLACE_SDRAM_BSS HorizontalMenu soundDistortionMenu{
         &saturationTypeMenu,
         &bitcrushMenu,
         &srrMenu,
+        &crushTypeMenu,
         &foldMenu,
         &voiceFeedbackMenu,
     },
@@ -868,6 +871,7 @@ PLACE_SDRAM_BSS HorizontalMenu globalDistortionMenu{
     {
         &srrMenu,
         &bitcrushMenu,
+        &crushTypeMenu,
     },
 };
 
@@ -891,6 +895,7 @@ PLACE_SDRAM_BSS HorizontalMenu kitDistortionMenu{
         &saturationTypeMenu,
         &srrMenu,
         &bitcrushMenu,
+        &crushTypeMenu,
     },
 };
 
@@ -964,6 +969,7 @@ PLACE_SDRAM_BSS HorizontalMenu audioClipDistortionMenu{
         &saturationTypeMenu,
         &bitcrushMenu,
         &srrMenu,
+        &crushTypeMenu,
     },
 };
 

@@ -88,6 +88,8 @@ void ModControllableAudio::cloneFrom(ModControllableAudio* other) {
 	lpfMode = other->lpfMode;
 	hpfMode = other->hpfMode;
 	saturation = other->saturation;
+	crushType = other->crushType;
+	crushTypeInFile = other->crushTypeInFile;
 	loadedSaturationDrive = other->loadedSaturationDrive;
 	modFXType_ = other->modFXType_;
 	bassFreq = other->bassFreq; // Eventually, these shouldn't be variables like this
@@ -138,7 +140,7 @@ void ModControllableAudio::initParams(ParamManager* paramManager) {
 
 	// Half gain (13 of 50): a few repeats. 25 is unity, endless repeats.
 	unpatchedParams->params[params::UNPATCHED_DELAY_FEEDBACK].setCurrentValueBasicForSetup(-1073741824);
-	unpatchedParams->params[params::UNPATCHED_DELAY_TONE].setCurrentValueBasicForSetup(0); // Flat
+	unpatchedParams->params[params::UNPATCHED_DELAY_TONE].setCurrentValueBasicForSetup(0);           // Flat
 	unpatchedParams->params[params::UNPATCHED_SATURATION].setCurrentValueBasicForSetup(-2147483648); // Off
 }
 
@@ -299,11 +301,44 @@ bool ModControllableAudio::isSRREnabled(ParamManager* paramManager) {
 	return (unpatchedParams->getValue(params::UNPATCHED_SAMPLE_RATE_REDUCTION) != -2147483648);
 }
 
-void ModControllableAudio::processSRRAndBitcrushing(std::span<StereoSample> buffer, int32_t* postFXVolume,
-                                                    ParamManager* paramManager) {
-	uint32_t bitCrushMaskForSRR = 0xFFFFFFFF;
+void ModControllableAudio::resolveLoadedCrushType(ParamManager* paramManager) {
+	// Files from before the crush types (any firmware) have no crushType: if they use either effect, keep the
+	// original sound
+	if (!crushTypeInFile && paramManager && paramManager->containsAnyMainParamCollections()
+	    && (isBitcrushingEnabled(paramManager) || isSRREnabled(paramManager))) {
+		crushType = deluge::dsp::CrushType::CLASSIC;
+	}
+	crushTypeInFile = true;
+}
 
+void ModControllableAudio::processSRRAndBitcrushing(std::span<StereoSample> buffer, int32_t* postFXVolume,
+                                                    ParamManager* paramManager, float unit) {
 	bool srrEnabled = isSRREnabled(paramManager);
+
+	if (crushType != deluge::dsp::CrushType::CLASSIC) {
+		sampleRateReductionOnLastTime = false;
+		bool crushEnabled = isBitcrushingEnabled(paramManager);
+		if (!srrEnabled && !crushEnabled) {
+			crusherState_.active = false;
+			return;
+		}
+		UnpatchedParamSet* unpatchedParams = paramManager->getUnpatchedParamSet();
+		// Bitcrush is on from -2113929216 (a notch above the bottom), decimation anywhere above the bottom
+		float crushKnob =
+		    static_cast<float>(static_cast<int64_t>(unpatchedParams->getValue(params::UNPATCHED_BITCRUSHING))
+		                       + 2113929216)
+		    * (1.f / 4261412863.f);
+		float rateKnob =
+		    static_cast<float>(static_cast<uint32_t>(unpatchedParams->getValue(params::UNPATCHED_SAMPLE_RATE_REDUCTION))
+		                       ^ 0x80000000u)
+		    * (1.f / 4294967295.f);
+		auto config = deluge::dsp::Crusher::configure(crushType, crushEnabled, crushKnob, srrEnabled, rateKnob, unit);
+		deluge::dsp::Crusher::process(config, reinterpret_cast<int32_t*>(buffer.data()), buffer.size(), crusherState_);
+		return;
+	}
+	crusherState_.active = false;
+
+	uint32_t bitCrushMaskForSRR = 0xFFFFFFFF;
 
 	// Bitcrushing ------------------------------------------------------------------------------
 	if (isBitcrushingEnabled(paramManager)) {
@@ -436,6 +471,8 @@ void ModControllableAudio::writeAttributesToFile(Serializer& writer) {
 	if (saturation.type != deluge::dsp::SaturationSettings{}.type) {
 		writer.writeAttribute("satType", deluge::dsp::saturationTypeToString(saturation.type));
 	}
+	// Always written: a file without it is from before the crush types and loads as classic
+	writer.writeAttribute("crushType", deluge::dsp::crushTypeToString(crushType));
 }
 
 void ModControllableAudio::writeTagsToFile(Serializer& writer) {
@@ -774,6 +811,11 @@ Error ModControllableAudio::readTagFromFile(Deserializer& reader, char const* ta
 	else if (!strcmp(tagName, "satType")) {
 		saturation.type = deluge::dsp::stringToSaturationType(reader.readTagOrAttributeValue());
 		reader.exitTag("satType");
+	}
+	else if (!strcmp(tagName, "crushType")) {
+		crushType = deluge::dsp::stringToCrushType(reader.readTagOrAttributeValue());
+		crushTypeInFile = true;
+		reader.exitTag("crushType");
 	}
 	else if (!strcmp(tagName, "satDrive")) {
 		loadedSaturationDrive =

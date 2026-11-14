@@ -103,6 +103,11 @@ public:
 	virtual void setTextWithMultipleDots(std::string_view newText, std::vector<uint8_t> dotPositions,
 	                                     bool alignRight = false, bool doBlink = false, uint8_t* newBlinkMask = nullptr,
 	                                     bool blinkImmediately = false) {}
+	/// A menu option that blinks; on 7SEG, one too long for the display blinks `flashes` times and then scrolls back
+	/// and forth until it's replaced
+	virtual void setBlinkingScrollingText(std::string_view newText, int32_t flashes = 2) {
+		setText(newText, false, 255, true);
+	}
 	virtual NumericLayerScrollingText* setScrollingText(char const* newText, int32_t startAtPos = 0,
 	                                                    int32_t initialDelay = 600, int count = -1,
 	                                                    uint8_t fixedDot = 255) {

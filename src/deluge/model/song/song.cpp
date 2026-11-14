@@ -3884,12 +3884,15 @@ void Song::applyLoadedSaturationDrives(ModControllableAudio* only) {
 		auto* backedUp = (BackedUpParamManager*)backedUpParamManagers.getElementAddress(i);
 		if (!only || backedUp->modControllable == only) {
 			backedUp->modControllable->applyLoadedSaturationDrive(&backedUp->paramManager);
+			backedUp->modControllable->resolveLoadedCrushType(&backedUp->paramManager);
 		}
 	}
 	if (only) {
 		only->loadedSaturationDrive = -1;
+		only->crushTypeInFile = true;
 		return;
 	}
+	globalEffectable.resolveLoadedCrushType(&paramManager);
 
 	for (Clip* clip : AllClips::everywhere(this)) {
 		Output* output = clip->output;
@@ -3897,6 +3900,7 @@ void Song::applyLoadedSaturationDrives(ModControllableAudio* only) {
 			continue;
 		}
 		((ModControllableAudio*)output->toModControllable())->applyLoadedSaturationDrive(&clip->paramManager);
+		((ModControllableAudio*)output->toModControllable())->resolveLoadedCrushType(&clip->paramManager);
 
 		if (output->type == OutputType::KIT) {
 			InstrumentClip* instrumentClip = (InstrumentClip*)clip;
@@ -3904,6 +3908,7 @@ void Song::applyLoadedSaturationDrives(ModControllableAudio* only) {
 				NoteRow* noteRow = instrumentClip->noteRows.getElement(i);
 				if (noteRow->drum && noteRow->drum->type == DrumType::SOUND) {
 					((SoundDrum*)noteRow->drum)->applyLoadedSaturationDrive(&noteRow->paramManager);
+					((SoundDrum*)noteRow->drum)->resolveLoadedCrushType(&noteRow->paramManager);
 				}
 			}
 		}

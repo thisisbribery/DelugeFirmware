@@ -253,6 +253,36 @@ NumericLayerScrollingText* SevenSegment::setScrollingText(char const* newText, i
 	return newLayer;
 }
 
+void SevenSegment::setBlinkingScrollingText(std::string_view newText, int32_t flashes) {
+	void* layerSpace = GeneralMemoryAllocator::get().allocLowSpeed(sizeof(NumericLayerScrollingText));
+	if (!layerSpace) {
+		setText(newText, false, 255, true);
+		return;
+	}
+	auto* scrolling = new (layerSpace) NumericLayerScrollingText(255);
+	scrolling->length = encodeText(newText, scrolling->text, false, {}, false);
+
+	// Blink it like any menu option
+	setText(newText, false, 255, true);
+
+	NumericLayer* blinking = topLayer;
+	while (blinking && blinking->next) {
+		blinking = blinking->next;
+	}
+	if (scrolling->length <= kNumericDisplayLength || !blinking) {
+		scrolling->~NumericLayerScrollingText();
+		delugeDealloc(scrolling);
+		return;
+	}
+
+	// Too long to read: after a few blinks the blinking layer gives way to the whole name scrolling under it
+	static_cast<NumericLayerBasicText*>(blinking)->blinkCount = flashes * 2;
+	scrolling->currentPos = 0;
+	scrolling->initialDelay = 600;
+	scrolling->scrollsCount = -1;
+	blinking->next = scrolling;
+}
+
 void SevenSegment::replaceBottomLayer(NumericLayer* newLayer) {
 	NumericLayer** prevPointer = &topLayer;
 	while ((*prevPointer)->next) {

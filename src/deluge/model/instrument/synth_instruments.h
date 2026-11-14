@@ -46,7 +46,7 @@ inline constexpr std::array<SynthInstrument, 7> kSynthInstruments{{
     {l10n::String::STRING_FOR_SYNTH_TYPE_FM, "SYNTHS/FM", SynthMode::FM, false, false, false, false},
     {l10n::String::STRING_FOR_SYNTH_TYPE_WAVE, "SYNTHS/WAVE", SynthMode::SUBTRACTIVE, false, true, false, false},
     {l10n::String::STRING_FOR_SYNTH_TYPE_RING, "SYNTHS/RING", SynthMode::RINGMOD, false, false, false, false},
-    {l10n::String::STRING_FOR_SYNTH_TYPE_BRIB, "SYNTHS/BRIB", SynthMode::SUBTRACTIVE, false, false, true, false},
+    {l10n::String::STRING_FOR_SYNTH_TYPE_BRIB, "SYNTHS/BRINGS", SynthMode::SUBTRACTIVE, false, false, true, false},
     {l10n::String::STRING_FOR_SYNTH_INSTRUMENT_DX7, "SYNTHS/DX7", SynthMode::SUBTRACTIVE, true, false, false, false},
     {l10n::String::STRING_FOR_SYNTH_TYPE_INIT, "SYNTHS", SynthMode::SUBTRACTIVE, false, false, false, true},
 }};
