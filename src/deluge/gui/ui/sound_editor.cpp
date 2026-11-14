@@ -1601,6 +1601,75 @@ void SoundEditor::endShortcutName(int32_t x, int32_t y) {
 	}
 }
 
+namespace {
+/// Whether a gold knob set to knobParam (a sound's mod knob param) edits the param a menu item edits. SHIFT + the
+/// delay knobs edit delay feedback and tone, so those count too.
+bool soundKnobEdits(ParamDescriptor knobParam, deluge::modulation::params::Kind kind, uint32_t paramIndex) {
+	namespace params = deluge::modulation::params;
+	switch (kind) {
+	case params::Kind::PATCHED:
+		return paramIndex < params::UNPATCHED_START && knobParam.isSetToParamWithNoSource(paramIndex);
+	case params::Kind::UNPATCHED_SOUND:
+	case params::Kind::UNPATCHED_GLOBAL:
+		return knobParam.isSetToParamWithNoSource(params::UNPATCHED_START + paramIndex)
+		       || (paramIndex == params::UNPATCHED_DELAY_FEEDBACK
+		           && knobParam.isSetToParamWithNoSource(params::GLOBAL_DELAY_FEEDBACK))
+		       || (paramIndex == params::UNPATCHED_DELAY_TONE
+		           && knobParam.isSetToParamWithNoSource(params::GLOBAL_DELAY_RATE));
+	case params::Kind::PATCH_CABLE:
+		return !knobParam.isJustAParam() && knobParam.data == paramIndex;
+	default:
+		return false;
+	}
+}
+
+bool globalKnobEdits(int32_t knobParam, deluge::modulation::params::Kind kind, uint32_t paramIndex) {
+	namespace params = deluge::modulation::params;
+	if (kind != params::Kind::UNPATCHED_GLOBAL || knobParam == 255) {
+		return false;
+	}
+	return static_cast<uint32_t>(knobParam) == paramIndex
+	       || (paramIndex == params::UNPATCHED_DELAY_FEEDBACK && knobParam == params::UNPATCHED_DELAY_AMOUNT)
+	       || (paramIndex == params::UNPATCHED_DELAY_TONE && knobParam == params::UNPATCHED_DELAY_RATE);
+}
+} // namespace
+
+/// The reverse of the mod button pad flash: a shortcut pad whose param sits on a gold knob blinks that knob's mod
+/// button LED. Only reads the knob assignments (12 per sound), once per press.
+void SoundEditor::blinkModButtonFor(MenuItem* item) {
+	if (item == nullptr || getCurrentUI() != this
+	    || !runtimeFeatureSettings.isOn(RuntimeFeatureSettingType::PadGuides)) {
+		return;
+	}
+	const deluge::modulation::params::Kind kind = item->getParamKind();
+	if (kind == deluge::modulation::params::Kind::NONE) {
+		return;
+	}
+	const uint32_t paramIndex = item->getParamIndex();
+
+	GlobalEffectable* global = nullptr;
+	if (currentSound == nullptr && currentModControllable != nullptr
+	    && (editingKitAffectEntire() || getCurrentOutputType() == OutputType::AUDIO)) {
+		global = static_cast<GlobalEffectable*>(currentModControllable);
+	}
+	if (currentSound == nullptr && global == nullptr) {
+		return;
+	}
+
+	for (int32_t button = 0; button < kNumModButtons; button++) {
+		for (int32_t knob = 0; knob < kNumPhysicalModKnobs; knob++) {
+			const bool edits =
+			    currentSound != nullptr
+			        ? soundKnobEdits(currentSound->modKnobs[button][knob].paramDescriptor, kind, paramIndex)
+			        : globalKnobEdits(global->knobParamForModButton(button, knob), kind, paramIndex);
+			if (edits) {
+				indicator_leds::blinkLed(indicator_leds::modLed[button], 4);
+				return;
+			}
+		}
+	}
+}
+
 ActionResult SoundEditor::potentialShortcutPadAction(int32_t x, int32_t y, bool on) {
 	if (!on) {
 		endShortcutName(x, y);
@@ -1841,6 +1910,7 @@ ActionResult SoundEditor::potentialShortcutPadAction(int32_t x, int32_t y, bool 
 
 			enterOrUpdateSoundEditor(on);
 			showShortcutName(x, y);
+			blinkModButtonFor(const_cast<MenuItem*>(item));
 		}
 	}
 

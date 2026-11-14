@@ -67,6 +67,19 @@ public:
 
 	ModFXType getModFXType() override;
 
+	/// The unpatched param a gold knob edits under another mod button, or 255. Reads only.
+	int32_t knobParamForModButton(int32_t modButton, int32_t whichModEncoder) {
+		uint8_t* mode = getModKnobMode();
+		if (mode == nullptr) {
+			return 255;
+		}
+		const uint8_t saved = *mode;
+		*mode = modButton;
+		const int32_t paramId = getParameterFromKnob(whichModEncoder);
+		*mode = saved;
+		return paramId;
+	}
+
 protected:
 	int maxCompParam = 0;
 	virtual int32_t getParameterFromKnob(int32_t whichModEncoder);

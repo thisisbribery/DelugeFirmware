@@ -148,6 +148,8 @@ public:
 	ActionResult potentialShortcutPadAction(int32_t x, int32_t y, bool on);
 	void showShortcutName(int32_t x, int32_t y);
 	void endShortcutName(int32_t x, int32_t y);
+	/// Blinks the mod button LED whose gold knobs edit what this shortcut item edits (Pad Guides)
+	void blinkModButtonFor(MenuItem* item);
 	bool editingReverbSidechain();
 	MenuItem* getCurrentMenuItem();
 	bool inSettingsMenu();
