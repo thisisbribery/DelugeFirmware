@@ -181,6 +181,7 @@ void SevenSegment::innerSetText(std::string_view newText, bool alignRight, std::
 		return;
 	}
 	NumericLayerBasicText* newLayer = new (layerSpace) NumericLayerBasicText();
+	HIDSysex::companionCopyText(newLayer->companionText, newText, newLayer->companionString);
 
 	encodeText(newText, newLayer->segments, alignRight, dotPositions, true, scrollPos);
 
@@ -230,6 +231,7 @@ NumericLayerScrollingText* SevenSegment::setScrollingText(char const* newText, i
 		return nullptr;
 	}
 	NumericLayerScrollingText* newLayer = new (layerSpace) NumericLayerScrollingText(fixedDot);
+	HIDSysex::companionCopyText(newLayer->companionText, newText, newLayer->companionString);
 
 	newLayer->length = encodeText(newText, newLayer->text, false, {}, false);
 
@@ -260,6 +262,7 @@ void SevenSegment::setBlinkingScrollingText(std::string_view newText, int32_t fl
 		return;
 	}
 	auto* scrolling = new (layerSpace) NumericLayerScrollingText(255);
+	HIDSysex::companionCopyText(scrolling->companionText, newText, scrolling->companionString);
 	scrolling->length = encodeText(newText, scrolling->text, false, {}, false);
 
 	// Blink it like any menu option
@@ -618,6 +621,7 @@ void SevenSegment::setNextTransitionDirection(int8_t thisDirection) {
 
 void SevenSegment::displayPopup(char const* newText, int8_t numFlashes, bool alignRight, uint8_t drawDot,
                                 int32_t blinkSpeed, PopupType type) {
+	HIDSysex::companionCopyText(popup.companionText, newText, popup.companionString);
 	encodeText(newText, popup.segments, alignRight, {drawDot});
 	memset(&popup.blinkedSegments, 0, kNumericDisplayLength);
 	if (numFlashes == 0) {
@@ -634,6 +638,28 @@ void SevenSegment::displayPopup(char const* newText, int8_t numFlashes, bool ali
 	indicator_leds::ledBlinkTimeout(0, true);
 	popup.isNowOnTop();
 	render();
+}
+
+std::string_view SevenSegment::companionMainText(int16_t& stringIndex) {
+	for (NumericLayer* layer = topLayer; layer != nullptr; layer = layer->next) {
+		if (layer->companionText[0] != '\0') {
+			if (layer->companionString == -2) {
+				layer->companionString = HIDSysex::companionLookUp(layer->companionText);
+			}
+			stringIndex = layer->companionString;
+			return layer->companionText;
+		}
+	}
+	stringIndex = -1;
+	return {};
+}
+
+std::string_view SevenSegment::companionPopupText(int16_t& stringIndex) {
+	if (popupActive && popup.companionString == -2) {
+		popup.companionString = HIDSysex::companionLookUp(popup.companionText);
+	}
+	stringIndex = popupActive ? popup.companionString : -1;
+	return popupActive ? std::string_view(popup.companionText) : std::string_view();
 }
 
 void SevenSegment::cancelPopup() {

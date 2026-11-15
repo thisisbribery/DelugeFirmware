@@ -32,4 +32,9 @@ public:
 
 	NumericLayer* next = nullptr;
 	uint8_t fixedDot = 255;
+
+	/// The whole text this layer shows, before it's cut to 4 characters, for the companion screen. Empty if unknown.
+	char companionText[41] = {};
+	/// The l10n string the text is: -1 if none was found, -2 if not looked up yet
+	int16_t companionString = -1;
 };

@@ -61,6 +61,11 @@ public:
 	bool isLayerCurrentlyOnTop(NumericLayer* layer) override;
 	std::array<uint8_t, kNumericDisplayLength> getLast() override { return lastDisplay_; }
 
+	/// What the companion screen should show for the main text and the popup: the whole text, before it's cut to 4
+	/// characters, and its l10n string or -1. The main text is the top layer's that has one.
+	std::string_view companionMainText(int16_t& stringIndex);
+	std::string_view companionPopupText(int16_t& stringIndex);
+
 	bool hasPopup() override { return this->popupActive; }
 	bool hasPopupOfType(PopupType type) override { return this->popupActive && type == this->popupType; }
 

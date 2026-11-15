@@ -1,6 +1,9 @@
 #include "hid/hid_sysex.h"
 #include "dsp/drum_synth/drum_synth.h"
 #include "gui/l10n/l10n.h"
+#include "gui/l10n/language.h"
+#include "gui/menu_item/menu_item.h"
+#include "gui/ui/sound_editor.h"
 #include "gui/ui/ui.h"
 #include "gui/ui_timer_manager.h"
 #include "hid/display/oled.h"
@@ -38,6 +41,8 @@ constexpr int32_t kStateMaxRows = 64;
 constexpr uint8_t kStateVersion = 0;
 constexpr uint8_t kStateHeader[7] = {0xF0, 0x00, 0x21, 0x7B, 0x01, 0x02, 0x42};
 constexpr uint8_t kRowsHeader[7] = {0xF0, 0x00, 0x21, 0x7B, 0x01, 0x02, 0x43};
+constexpr uint8_t kTextHeader[7] = {0xF0, 0x00, 0x21, 0x7B, 0x01, 0x02, 0x44};
+constexpr int32_t kTextMax = 40;
 
 // Engine codes: a drum_synth::Engine number (0 up, append-only, saved with sounds), or one of these
 constexpr uint8_t kCodeTb303 = 0x7A;
@@ -52,6 +57,47 @@ uint8_t lastState[96];
 int32_t lastStateLen = 0;
 uint8_t lastRows[kStateMaxRows + 2];
 int32_t lastRowsLen = 0;
+uint8_t lastText[5 * (kTextMax + 1) + 2];
+int32_t lastTextLen = 0;
+
+using deluge::l10n::kNumStrings;
+namespace l10n_built_in = deluge::l10n::built_in;
+
+/// Which l10n string this text is: the 7-seg table first, then English (7-seg falls back to it). By pointer when
+/// the text came straight from the table, else, if byText, by matching the 7-seg text. -1 if none.
+int16_t stringIndexOf(std::string_view text, bool byText) {
+	if (text.empty()) {
+		return -1;
+	}
+	for (size_t i = 0; i < kNumStrings; i++) {
+		const auto s = l10n_built_in::seven_segment.get(static_cast<deluge::l10n::String>(i));
+		if (s.has_value() && s->data() == text.data() && s->size() == text.size()) {
+			return i;
+		}
+	}
+	for (size_t i = 0; i < kNumStrings; i++) {
+		const auto s = l10n_built_in::english.get(static_cast<deluge::l10n::String>(i));
+		if (s.has_value() && s->data() == text.data() && s->size() == text.size()) {
+			return i;
+		}
+	}
+	if (byText) {
+		for (size_t i = 1; i < kNumStrings; i++) {
+			const auto s = l10n_built_in::seven_segment.get(static_cast<deluge::l10n::String>(i));
+			if (s.has_value() && *s == text) {
+				return i;
+			}
+		}
+	}
+	return -1;
+}
+
+std::string_view englishFor(std::string_view text, int16_t stringIndex) {
+	if (stringIndex <= 0) {
+		return text;
+	}
+	return deluge::l10n::getView(l10n_built_in::english, static_cast<deluge::l10n::String>(stringIndex));
+}
 
 uint8_t engineCode(Sound* sound) {
 	if (sound == nullptr) {
@@ -106,6 +152,59 @@ int32_t putName(uint8_t* out, char const* name) {
 	}
 	out[0] = n;
 	return n + 1;
+}
+
+/// Append a length byte and up to kTextMax printable ASCII characters
+int32_t putText(uint8_t* out, std::string_view text) {
+	int32_t n = 0;
+	for (; n < kTextMax && n < static_cast<int32_t>(text.size()) && text[n] != '\0'; n++) {
+		const char c = text[n];
+		out[1 + n] = (c >= 0x20 && c <= 0x7E) ? c : '?';
+	}
+	out[0] = n;
+	return n + 1;
+}
+
+/// The TEXT body: version, flags (1 = popup showing), then length-prefixed main text as shown, its English, popup
+/// text, its English, and the English name of the menu item being edited
+int32_t buildText(uint8_t* out) {
+	int16_t mainIndex = -1;
+	int16_t popupIndex = -1;
+	std::string_view mainText;
+	std::string_view popupText;
+	if (display->have7SEG()) {
+		auto* seg = static_cast<deluge::hid::display::SevenSegment*>(display);
+		mainText = seg->companionMainText(mainIndex);
+		popupText = seg->companionPopupText(popupIndex);
+	}
+
+	std::string_view menuName;
+	if (getCurrentUI() == &soundEditor) {
+		MenuItem* item = soundEditor.getCurrentMenuItem();
+		if (item != nullptr) {
+			// Cached per item and name, as this runs on every redraw
+			static MenuItem* cachedItem = nullptr;
+			static char const* cachedName = nullptr;
+			static int16_t cachedIndex = -1;
+			menuName = item->getName();
+			if (item != cachedItem || menuName.data() != cachedName) {
+				cachedItem = item;
+				cachedName = menuName.data();
+				cachedIndex = stringIndexOf(menuName, true);
+			}
+			menuName = englishFor(menuName, cachedIndex);
+		}
+	}
+
+	int32_t i = 0;
+	out[i++] = kStateVersion;
+	out[i++] = popupText.empty() ? 0 : 1;
+	i += putText(out + i, mainText);
+	i += putText(out + i, englishFor(mainText, mainIndex));
+	i += putText(out + i, popupText);
+	i += putText(out + i, englishFor(popupText, popupIndex));
+	i += putText(out + i, menuName);
+	return i;
 }
 
 /// The STATE body after the header and sequence byte. Returns its length.
@@ -176,7 +275,7 @@ int32_t buildRows(uint8_t* out) {
 }
 
 void sendFramed(MIDICable& cable, uint8_t const* header, bool withSeq, uint8_t const* body, int32_t bodyLen) {
-	uint8_t msg[7 + 1 + 96 + 1];
+	uint8_t msg[7 + 1 + sizeof(lastText) + 1];
 	int32_t i = 0;
 	memcpy(msg, header, 7);
 	i += 7;
@@ -226,6 +325,14 @@ void HIDSysex::sendStateIfChanged(bool force) {
 		memcpy(lastRows, rows, rowsLen);
 	}
 	lastRowsLen = rowsLen;
+
+	uint8_t text[sizeof(lastText)];
+	const int32_t textLen = buildText(text);
+	if (force || textLen != lastTextLen || memcmp(text, lastText, textLen) != 0) {
+		sendFramed(*midiStateCable, kTextHeader, false, text, textLen);
+		memcpy(lastText, text, textLen);
+		lastTextLen = textLen;
+	}
 }
 
 void HIDSysex::sysexReceived(MIDICable& cable, uint8_t* data, int32_t len) {
@@ -452,4 +559,22 @@ void HIDSysex::readBlock(MIDICable& cable) {
 	reply[9 + packed] = 0xf7;            // end of transmission
 	                                     // 		device->sendSysex(reply, packed + 7); //
 	cable.sendSysex(reply, packed + 10); //
+}
+
+void HIDSysex::companionCopyText(char* dest, std::string_view text, int16_t& stringIndex) {
+	const size_t n = std::min<size_t>(text.size(), kTextMax);
+	size_t i = 0;
+	for (; i < n && text[i] != '\0'; i++) {
+		dest[i] = text[i];
+	}
+	dest[i] = '\0';
+	// Look it up once here rather than on every redraw, and only while a companion screen is listening
+	const bool listening = midiStateCable != nullptr && AudioEngine::audioSampleTimer <= midiStateUntil;
+	// By pointer on the original text (the copy is never in the table), then by matching the 7-seg text.
+	// -2 = not looked up yet: companionLookUp() does it from the copy when first sent.
+	stringIndex = listening ? stringIndexOf(text, true) : -2;
+}
+
+int16_t HIDSysex::companionLookUp(std::string_view text) {
+	return stringIndexOf(text, true);
 }
