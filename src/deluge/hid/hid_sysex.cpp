@@ -10,6 +10,7 @@
 #include "gui/ui/ui.h"
 #include "gui/ui_timer_manager.h"
 #include "hid/button.h"
+#include "hid/buttons.h"
 #include "hid/display/oled.h"
 #include "hid/display/seven_segment.h"
 #include "io/midi/midi_device.h"
@@ -246,6 +247,11 @@ bool pickerWasOpen = false;
 uint8_t pickerBody[4 + (kPickerNameMax + 1) * (kPickerMaxOptions + 1)];
 int32_t pickerBodyLen = 0;
 int32_t pendingPick = -1; ///< Option the tablet tapped, chosen from the UI timer
+/// Browser action the tablet asked for, run from the UI timer: 0 none, 1 go to item pendingBrowserItem, 2 press SELECT,
+/// 3 press BACK. pendingButtonDown: the button is held, so the next run lets it go.
+int32_t pendingBrowser = 0;
+int32_t pendingBrowserItem = -1;
+bool pendingButtonDown = false;
 
 /// Append a length byte and the English of a context menu text, up to kPickerNameMax characters
 int32_t putEnglish(uint8_t* out, char const* text, int32_t max) {
@@ -520,6 +526,23 @@ void sendFramed(MIDICable& cable, uint8_t const* header, bool withSeq, uint8_t c
 
 void HIDSysex::requestState(MIDICable& cable, uint8_t* data, int32_t len) {
 	if (len < 3) {
+		return;
+	}
+	if (data[2] >= 3 && data[2] <= 5) {
+		// Preset browser: 3 <hi> <lo> = go to that item (absolute index, as in BROWSER), like turning the select knob
+		// to it; 4 = press SELECT (load / open folder); 5 = press BACK. Run from the UI timer, like the picker.
+		if (data[2] == 3) {
+			if (len < 5) {
+				return;
+			}
+			pendingBrowserItem = (data[3] << 7) | data[4];
+			pendingBrowser = 1;
+		}
+		else {
+			pendingBrowser = data[2] == 4 ? 2 : 3;
+		}
+		pendingButtonDown = false;
+		uiTimerManager.setTimer(TimerName::COMPANION_PICK, 1);
 		return;
 	}
 	if (data[2] == 2) {
@@ -843,7 +866,57 @@ void HIDSysex::companionNoteOledPopup(char const* text) {
 	companionCopyText(oledPopupText, text != nullptr ? text : "", unused);
 }
 
+namespace {
+/// The tablet's browser action, from the UI timer. Returns true if it wants to run again.
+bool runPendingBrowser() {
+	if (pendingBrowser == 0) {
+		return false;
+	}
+	if (sdRoutineLock) {
+		return true; // Card routine running: try again after it
+	}
+	if (!browserIsOpen() || currentUIMode != UI_MODE_NONE) {
+		pendingBrowser = 0;
+		pendingButtonDown = false;
+		return false;
+	}
+	if (pendingBrowser == 1) {
+		// Step the select knob by the distance to the tapped item, only when it's in the loaded list and close
+		const int32_t selectedLocal = Browser::getFileIndexSelected();
+		const int32_t targetLocal = pendingBrowserItem - Browser::numFileItemsDeletedAtStart;
+		pendingBrowser = 0;
+		if (selectedLocal < 0 || targetLocal < 0 || targetLocal >= Browser::fileItems.getNumElements()) {
+			return false;
+		}
+		const int32_t offset = targetLocal - selectedLocal;
+		if (offset == 0 || offset > 127 || offset < -127) {
+			return false;
+		}
+		getCurrentUI()->selectEncoderAction(static_cast<int8_t>(offset));
+		return false;
+	}
+	// Press, then release on the next run, like a finger on the button
+	const deluge::hid::Button button =
+	    pendingBrowser == 2 ? deluge::hid::button::SELECT_ENC : deluge::hid::button::BACK;
+	const ActionResult result = Buttons::buttonAction(button, !pendingButtonDown, sdRoutineLock);
+	if (result == ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE) {
+		return true;
+	}
+	if (!pendingButtonDown) {
+		pendingButtonDown = true;
+		return true;
+	}
+	pendingButtonDown = false;
+	pendingBrowser = 0;
+	return false;
+}
+} // namespace
+
 void HIDSysex::runPendingPick() {
+	if (runPendingBrowser()) {
+		uiTimerManager.setTimer(TimerName::COMPANION_PICK, 20);
+		return;
+	}
 	const int32_t pick = pendingPick;
 	if (pick < 0) {
 		return;
