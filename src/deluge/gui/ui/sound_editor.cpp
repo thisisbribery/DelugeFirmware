@@ -1896,12 +1896,18 @@ ActionResult SoundEditor::potentialShortcutPadAction(int32_t x, int32_t y, bool 
 			if (!setupSuccess && item == &modulator0Volume && currentSource->oscType == OscType::DX7) {
 				item = &dxParam;
 				setupSuccess = setup(currentClip, item, thingIndex);
+				if (setupSuccess) {
+					display->cancelPopup(); // The failed first try showed CANT
+				}
 			}
 
 			// The offset menu is only relevant to sample oscillators, so setup fails for anything else
 			if (!setupSuccess && sampleOffsetForPulseWidthShortcut(item)) {
 				item = sampleOffsetForPulseWidthShortcut(item);
 				setupSuccess = setup(currentClip, item, thingIndex);
+				if (setupSuccess) {
+					display->cancelPopup(); // Pulse width's failed setup showed CANT, but the pad did open something
+				}
 			}
 
 			if (!setupSuccess) {

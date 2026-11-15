@@ -47,6 +47,7 @@
 #include "processing/sound/sound_instrument.h"
 #include "storage/file_item.h"
 #include "storage/multi_range/multisample_range.h"
+#include "util/comparison.h"
 #include "util/d_stringbuf.h"
 #include "util/pack.h"
 #include <algorithm>
@@ -537,8 +538,16 @@ int32_t buildRows(uint8_t* out) {
 	return n + 2;
 }
 
-void sendFramed(MIDICable& cable, uint8_t const* header, bool withSeq, uint8_t const* body, int32_t bodyLen) {
-	static uint8_t msg[7 + 1 + std::max(sizeof(pickerBody), sizeof(browserBody)) + 1];
+/// Biggest body any companion message has (CLIPS is about 1350 bytes)
+constexpr int32_t kMaxFramedBody = 1600;
+
+/// Send one companion message, whole or not at all: false (nothing sent) if there isn't room in the cable's buffer
+/// for all of it (a sysex cut off when the buffer fills is lost on the tablet) or the body is too big
+bool sendFramed(MIDICable& cable, uint8_t const* header, bool withSeq, uint8_t const* body, int32_t bodyLen) {
+	static uint8_t msg[7 + 1 + kMaxFramedBody + 1];
+	if (bodyLen > kMaxFramedBody || static_cast<int32_t>(cable.sendBufferSpace()) < bodyLen + 24) {
+		return false;
+	}
 	int32_t i = 0;
 	memcpy(msg, header, 7);
 	i += 7;
@@ -550,6 +559,7 @@ void sendFramed(MIDICable& cable, uint8_t const* header, bool withSeq, uint8_t c
 	i += bodyLen;
 	msg[i++] = 0xF7;
 	cable.sendSysex(msg, i);
+	return true;
 }
 
 // ---- Waveform (audio clip view, sample marker editor, sample browser preview) ----
@@ -834,10 +844,24 @@ constexpr uint8_t kOutputsHeader[7] = {0xF0, 0x00, 0x21, 0x7B, 0x01, 0x02, 0x4C}
 constexpr uint8_t kClipsHeader[7] = {0xF0, 0x00, 0x21, 0x7B, 0x01, 0x02, 0x4D};
 constexpr uint8_t kArrangerHeader[7] = {0xF0, 0x00, 0x21, 0x7B, 0x01, 0x02, 0x4E};
 constexpr uint8_t kArrangerPosHeader[7] = {0xF0, 0x00, 0x21, 0x7B, 0x01, 0x02, 0x4F};
+constexpr uint8_t kClipPosHeader[7] = {0xF0, 0x00, 0x21, 0x7B, 0x01, 0x02, 0x50};
 
 /// A setting shown as a knob: the shortcut pad that opens it (what a tap presses), the group the tablet puts it in,
 /// the param it reads, and its English name. Read straight from the sound's params: no menu item is asked anything
 /// here, as menu items read the sound editor's state, which isn't set up (or is stale) outside the editor.
+/// When a knob's pad would say CANT (worked out here from the sound, as the menu items' own checks read the editor)
+enum class KnobRule : uint8_t {
+	ALWAYS,
+	NOT_RINGMOD,  ///< Oscillator levels
+	NOT_FM,       ///< Noise
+	LPF,          ///< LPF on, not FM
+	HPF,          ///< HPF on, not FM
+	MOD_FX_RATE,  ///< Any mod FX but BRUNO CHORUS
+	MOD_FX_DEPTH, ///< Chorus, stereo chorus, grain, phaser, warble, dimension
+	MOD_FX_FB,    ///< Flanger, phaser, grain, warble
+	OFFSET_A,     ///< Shown only on a sample oscillator (its pad is pulse width otherwise)
+	OFFSET_B,
+};
 struct KnobDef {
 	uint8_t x;
 	uint8_t y;
@@ -845,18 +869,21 @@ struct KnobDef {
 	bool unpatched; ///< In the unpatched param set, else the patched one
 	uint16_t param;
 	char const* name;
+	KnobRule rule = KnobRule::ALWAYS;
 };
 namespace P = deluge::modulation::params;
 constexpr KnobDef kKnobs[] = {
-    {2, 0, 0, false, P::LOCAL_OSC_A_VOLUME, "Osc 1 level"},
-    {3, 0, 0, false, P::LOCAL_OSC_B_VOLUME, "Osc 2 level"},
-    {2, 7, 0, false, P::LOCAL_NOISE_VOLUME, "Noise level"},
-    {8, 7, 1, false, P::LOCAL_LPF_FREQ, "LPF frequency"},
-    {8, 6, 1, false, P::LOCAL_LPF_RESONANCE, "LPF resonance"},
-    {8, 4, 1, false, P::LOCAL_LPF_MORPH, "LPF morph"},
-    {9, 7, 1, false, P::LOCAL_HPF_FREQ, "HPF frequency"},
-    {9, 6, 1, false, P::LOCAL_HPF_RESONANCE, "HPF resonance"},
-    {9, 4, 1, false, P::LOCAL_HPF_MORPH, "HPF morph"},
+    {2, 0, 0, false, P::LOCAL_OSC_A_VOLUME, "Osc 1 level", KnobRule::NOT_RINGMOD},
+    {3, 0, 0, false, P::LOCAL_OSC_B_VOLUME, "Osc 2 level", KnobRule::NOT_RINGMOD},
+    {2, 3, 0, false, P::LOCAL_OSC_A_START_OFFSET, "Osc 1 start offset", KnobRule::OFFSET_A},
+    {3, 3, 0, false, P::LOCAL_OSC_B_START_OFFSET, "Osc 2 start offset", KnobRule::OFFSET_B},
+    {2, 7, 0, false, P::LOCAL_NOISE_VOLUME, "Noise level", KnobRule::NOT_FM},
+    {8, 7, 1, false, P::LOCAL_LPF_FREQ, "LPF frequency", KnobRule::LPF},
+    {8, 6, 1, false, P::LOCAL_LPF_RESONANCE, "LPF resonance", KnobRule::LPF},
+    {8, 4, 1, false, P::LOCAL_LPF_MORPH, "LPF morph", KnobRule::LPF},
+    {9, 7, 1, false, P::LOCAL_HPF_FREQ, "HPF frequency", KnobRule::HPF},
+    {9, 6, 1, false, P::LOCAL_HPF_RESONANCE, "HPF resonance", KnobRule::HPF},
+    {9, 4, 1, false, P::LOCAL_HPF_MORPH, "HPF morph", KnobRule::HPF},
     {8, 3, 2, false, P::LOCAL_ENV_0_ATTACK, "Attack"},
     {8, 2, 2, false, P::LOCAL_ENV_0_DECAY, "Decay"},
     {8, 1, 2, false, P::LOCAL_ENV_0_SUSTAIN, "Sustain"},
@@ -868,9 +895,9 @@ constexpr KnobDef kKnobs[] = {
     {6, 0, 4, false, P::GLOBAL_VOLUME_POST_FX, "Level"},
     {6, 3, 4, false, P::LOCAL_PAN, "Pan"},
     {7, 0, 4, true, P::UNPATCHED_PORTAMENTO, "Portamento"},
-    {12, 7, 5, false, P::GLOBAL_MOD_FX_RATE, "Mod FX rate"},
-    {12, 6, 5, false, P::GLOBAL_MOD_FX_DEPTH, "Mod FX depth"},
-    {12, 5, 5, true, P::UNPATCHED_MOD_FX_FEEDBACK, "Mod FX feedback"},
+    {12, 7, 5, false, P::GLOBAL_MOD_FX_RATE, "Mod FX rate", KnobRule::MOD_FX_RATE},
+    {12, 6, 5, false, P::GLOBAL_MOD_FX_DEPTH, "Mod FX depth", KnobRule::MOD_FX_DEPTH},
+    {12, 5, 5, true, P::UNPATCHED_MOD_FX_FEEDBACK, "Mod FX feedback", KnobRule::MOD_FX_FB},
     {13, 3, 5, false, P::GLOBAL_REVERB_AMOUNT, "Reverb amount"},
     {14, 0, 5, false, P::GLOBAL_DELAY_RATE, "Delay rate"},
     {14, 3, 5, false, P::GLOBAL_DELAY_FEEDBACK, "Delay amount"},
@@ -919,7 +946,43 @@ bool currentSoundAndParams(Sound*& sound, ParamManagerForTimeline*& params) {
 	return params->containsAnyMainParamCollections();
 }
 
-/// PARAMS body: version, open, count, then per knob its pad x and y, group, flags (1 bipolar, 2 open in the menu),
+/// Whether a knob's pad would open its setting (true) or say CANT. Mirrors the menu items' isRelevant(), from the
+/// sound.
+bool knobAvailable(KnobRule rule, Sound* sound) {
+	const SynthMode mode = sound->getSynthMode();
+	switch (rule) {
+	case KnobRule::NOT_RINGMOD:
+		return mode != SynthMode::RINGMOD;
+	case KnobRule::NOT_FM:
+		return mode != SynthMode::FM;
+	case KnobRule::LPF:
+		return mode != SynthMode::FM && sound->lpfMode != FilterMode::OFF;
+	case KnobRule::HPF:
+		return mode != SynthMode::FM && sound->hpfMode != FilterMode::OFF;
+	case KnobRule::MOD_FX_RATE: {
+		const ModFXType type = sound->getModFXType();
+		return type != ModFXType::NONE && type != ModFXType::BRUNO_CHORUS;
+	}
+	case KnobRule::MOD_FX_DEPTH:
+		return util::one_of(sound->getModFXType(), {ModFXType::CHORUS, ModFXType::CHORUS_STEREO, ModFXType::GRAIN,
+		                                            ModFXType::PHASER, ModFXType::WARBLE, ModFXType::DIMENSION});
+	case KnobRule::MOD_FX_FB:
+		return util::one_of(sound->getModFXType(),
+		                    {ModFXType::FLANGER, ModFXType::PHASER, ModFXType::GRAIN, ModFXType::WARBLE});
+	case KnobRule::OFFSET_A:
+	case KnobRule::OFFSET_B: {
+		// As sample::isSampleModeSample()
+		Source& source = sound->sources[rule == KnobRule::OFFSET_A ? 0 : 1];
+		return mode == SynthMode::SUBTRACTIVE && source.oscType == OscType::SAMPLE
+		       && source.hasAtLeastOneAudioFileLoaded();
+	}
+	default:
+		return true;
+	}
+}
+
+/// PARAMS body: version, open, count, then per knob its pad x and y, group, flags (1 bipolar, 2 open in the menu,
+/// 4 its pad would say CANT),
 /// position (0 to 127, 64 = middle), the value the Deluge shows (2 bytes, plus 8192), and its English name
 int32_t buildParams(uint8_t* out) {
 	int32_t i = 0;
@@ -933,29 +996,35 @@ int32_t buildParams(uint8_t* out) {
 	out[i++] = 1;
 	const int32_t countAt = i++;
 	int32_t count = 0;
-	// Drum engines put their own controls on the oscillator pads, and FM has no filters
 	const bool drumEngine = sound->sources[0].oscType == OscType::DRUM_SYNTH;
-	const bool fm = sound->getSynthMode() == SynthMode::FM;
 	const bool editing = getCurrentUI() == &soundEditor;
 	PatchedParamSet* patched = params->getPatchedParamSet();
 	UnpatchedParamSet* unpatched = params->getUnpatchedParamSet();
 	for (int32_t k = 0; k < kNumKnobs; k++) {
 		const KnobDef& knob = kKnobs[k];
-		if ((knob.group == 0 && drumEngine) || (knob.group == 1 && fm)) {
-			continue;
+		if (knob.group == 0 && drumEngine) {
+			continue; // Drum engines put their own controls on the oscillator pads
+		}
+		const bool offset = knob.rule == KnobRule::OFFSET_A || knob.rule == KnobRule::OFFSET_B;
+		const bool available = knobAvailable(knob.rule, sound);
+		if (offset && !available) {
+			continue; // Pulse width's pad: not a start offset here
 		}
 		if (knob.unpatched ? unpatched == nullptr : patched == nullptr) {
 			continue;
 		}
 		const int32_t value = knob.unpatched ? unpatched->getValue(knob.param) : patched->getValue(knob.param);
 		const bool pan = !knob.unpatched && knob.param == P::LOCAL_PAN;
-		const int32_t shown = pan ? computeCurrentValueForPan(value) : computeCurrentValueForStandardMenuItem(value);
+		// Start offset shows -512 to 512, as its menu (sample::StartOffset)
+		const int32_t shown = offset ? (value >> 22)
+		                      : pan  ? computeCurrentValueForPan(value)
+		                             : computeCurrentValueForStandardMenuItem(value);
 		const bool open =
 		    editing && soundEditor.currentParamShortcutX == knob.x && soundEditor.currentParamShortcutY == knob.y;
 		out[i++] = knob.x;
 		out[i++] = knob.y;
 		out[i++] = knob.group;
-		out[i++] = (pan ? 1 : 0) | (open ? 2 : 0);
+		out[i++] = ((pan || offset) ? 1 : 0) | (open ? 2 : 0) | (available ? 0 : 4);
 		out[i++] = static_cast<uint8_t>(std::clamp<int32_t>((value >> 25) + 64, 0, 127));
 		const int32_t v = std::clamp<int32_t>(shown + 8192, 0, 16383);
 		out[i++] = (v >> 7) & 0x7F;
@@ -973,14 +1042,17 @@ int32_t lastTransportLen = 0;
 constexpr int32_t kMaxOutputs = 48;
 constexpr int32_t kMaxClips = 64;
 constexpr int32_t kSongNameMax = 12;
-constexpr int32_t kMaxInstances = 160;
-uint8_t songBody[4 + kMaxClips * (4 + kSongNameMax)];
+constexpr int32_t kMaxInstances = 64;
+uint8_t songBody[4 + kMaxClips * (9 + kSongNameMax)];
 int32_t songBodyLen = 0;
 uint8_t lastOutputs[4 + kMaxOutputs * (6 + kSongNameMax)];
 int32_t lastOutputsLen = 0;
 uint8_t lastClips[sizeof(songBody)];
 int32_t lastClipsLen = 0;
-uint8_t lastArranger[8 + kMaxOutputs * 2 + kMaxInstances * 4];
+uint8_t lastArranger[16 + kMaxOutputs + kMaxInstances * 13];
+uint8_t lastClipPos[4 + kMaxClips * 2];
+int32_t lastClipPosLen = 0;
+bool refreshPanels = false; ///< Keepalive: resend the picker, and any closed panel, in case one was missed
 int32_t lastArrangerLen = 0;
 int32_t lastArrangerPos = -2;
 
@@ -1060,8 +1132,41 @@ int32_t buildOutputs(uint8_t* out) {
 	return i;
 }
 
+/// Where a clip has notes: 32 bits across its loop, bit n set if a note starts in that 32nd. Audio clips: all set.
+uint32_t clipPattern(Clip* clip) {
+	if (clip == nullptr) {
+		return 0;
+	}
+	if (clip->type != ClipType::INSTRUMENT) {
+		return 0xFFFFFFFF;
+	}
+	auto* instrumentClip = static_cast<InstrumentClip*>(clip);
+	const int64_t length = std::max<int32_t>(clip->loopLength, 1);
+	uint32_t bits = 0;
+	int32_t looked = 0;
+	for (int32_t r = 0; r < instrumentClip->noteRows.getNumElements() && bits != 0xFFFFFFFF; r++) {
+		NoteRow* row = instrumentClip->noteRows.getElement(r);
+		for (int32_t n = 0; n < row->notes.getNumElements() && looked < 2048; n++, looked++) {
+			const int64_t bin = static_cast<int64_t>(row->notes.getElement(n)->pos) * 32 / length;
+			if (bin >= 0 && bin < 32) {
+				bits |= 1u << bin;
+			}
+		}
+	}
+	return bits;
+}
+
+/// 32 bits as 5 bytes of 7
+int32_t putPattern(uint8_t* out, uint32_t bits) {
+	for (int32_t b = 0; b < 5; b++) {
+		out[b] = (bits >> (7 * b)) & 0x7F;
+	}
+	return 5;
+}
+
 /// CLIPS body: version, count, then per session clip (rows view order): output index, section (127 none), flags
-/// (1 playing, 2 launch or stop pending, 4 audio, 8 soloing, 16 the current clip), name
+/// (1 playing, 2 launch or stop pending, 4 audio, 8 soloing, 16 the current clip), note pattern (5 bytes, see
+/// clipPattern), name
 int32_t buildClips(uint8_t* out) {
 	int32_t i = 0;
 	out[i++] = kStateVersion;
@@ -1076,6 +1181,7 @@ int32_t buildClips(uint8_t* out) {
 		out[i++] = (currentSong->isClipActive(clip) ? 1 : 0) | (clip->armState != ArmState::OFF ? 2 : 0)
 		           | (clip->type == ClipType::AUDIO ? 4 : 0) | (clip->soloingInSessionMode ? 8 : 0)
 		           | (clip == current ? 16 : 0);
+		i += putPattern(out + i, clipPattern(clip));
 		char name[kSongNameMax + 1];
 		strncpy(name, clip->name.get(), kSongNameMax);
 		name[kSongNameMax] = 0;
@@ -1085,24 +1191,62 @@ int32_t buildClips(uint8_t* out) {
 	return i;
 }
 
-/// 14-bit fraction of the arrangement length
-int32_t songFraction(int64_t pos, int64_t length) {
-	return static_cast<int32_t>(std::clamp<int64_t>(pos * 16383 / std::max<int64_t>(length, 1), 0, 16383));
+/// CLIP_POS body: version, count, then per playing session clip its index and where it is in its loop (0 to 127)
+int32_t buildClipPositions(uint8_t* out) {
+	int32_t i = 0;
+	out[i++] = kStateVersion;
+	const int32_t countAt = i++;
+	int32_t count = 0;
+	if (playbackHandler.isEitherClockActive() && currentPlaybackMode != &arrangement) {
+		const int32_t total = std::min<int32_t>(currentSong->sessionClips.getNumElements(), kMaxClips);
+		for (int32_t c = 0; c < total; c++) {
+			Clip* clip = currentSong->sessionClips.getClipAtIndex(c);
+			if (!currentSong->isClipActive(clip) || clip->loopLength <= 0) {
+				continue;
+			}
+			const int64_t pos = static_cast<int64_t>(clip->getLivePos()) % clip->loopLength;
+			out[i++] = c;
+			out[i++] = static_cast<uint8_t>(std::clamp<int64_t>(pos * 128 / clip->loopLength, 0, 127));
+			count++;
+		}
+	}
+	out[countAt] = count;
+	return i;
 }
 
-int64_t arrangementLength() {
-	return std::max<int64_t>(arrangerView.getMaxLength(), 1);
+/// The arranger window the pads show: its start and width in ticks
+void arrangerWindow(int64_t& start, int64_t& width) {
+	start = currentSong->xScroll[NAVIGATION_ARRANGEMENT];
+	width = std::max<int64_t>(static_cast<int64_t>(currentSong->xZoom[NAVIGATION_ARRANGEMENT]) * kDisplayWidth, 1);
 }
 
-/// ARRANGER body: version, length in ticks (4 bytes, 7 bits each), then per output (as OUTPUTS) the number of clip
-/// instances and each one's start and end as 14-bit fractions of the length
+/// 14-bit fraction of the window, clamped to its edges
+int32_t windowFraction(int64_t pos, int64_t start, int64_t width) {
+	return static_cast<int32_t>(std::clamp<int64_t>((pos - start) * 16383 / width, 0, 16383));
+}
+
+void putTicks(uint8_t* out, int64_t ticks) {
+	for (int32_t b = 3; b >= 0; b--) {
+		*out++ = (std::max<int64_t>(ticks, 0) >> (7 * b)) & 0x7F;
+	}
+}
+
+/// ARRANGER body: version, window start and width in ticks (4 bytes each, 7 bits a byte), arrangement length (4
+/// bytes), then per output (as OUTPUTS) the number of its clip instances in the window and for each: start and end as
+/// 14-bit fractions of the window, its clip's loop length as one too (at least 1), where the window cuts into its
+/// loop (same units), and the clip's note pattern
 int32_t buildArranger(uint8_t* out) {
 	int32_t i = 0;
 	out[i++] = kStateVersion;
-	const int64_t length = arrangementLength();
-	for (int32_t b = 3; b >= 0; b--) {
-		out[i++] = (length >> (7 * b)) & 0x7F;
-	}
+	int64_t start;
+	int64_t width;
+	arrangerWindow(start, width);
+	putTicks(out + i, start);
+	i += 4;
+	putTicks(out + i, width);
+	i += 4;
+	putTicks(out + i, arrangerView.getMaxLength());
+	i += 4;
 	int32_t instances = 0;
 	int32_t n = 0;
 	for (Output* o = currentSong->firstOutput; o != nullptr && n < kMaxOutputs; o = o->next, n++) {
@@ -1110,12 +1254,22 @@ int32_t buildArranger(uint8_t* out) {
 		int32_t count = 0;
 		for (int32_t k = 0; k < o->clipInstances.getNumElements() && instances < kMaxInstances; k++) {
 			ClipInstance* instance = o->clipInstances.getElement(k);
-			const int32_t a = songFraction(instance->pos, length);
-			const int32_t e = songFraction(static_cast<int64_t>(instance->pos) + instance->length, length);
-			out[i++] = (a >> 7) & 0x7F;
-			out[i++] = a & 0x7F;
-			out[i++] = (e >> 7) & 0x7F;
-			out[i++] = e & 0x7F;
+			const int64_t a = instance->pos;
+			const int64_t e = a + instance->length;
+			if (e <= start || a >= start + width) {
+				continue; // Not in the window
+			}
+			const int64_t loop =
+			    std::max<int64_t>(instance->clip != nullptr ? instance->clip->loopLength : instance->length, 1);
+			const int32_t values[4] = {windowFraction(a, start, width), windowFraction(e, start, width),
+			                           static_cast<int32_t>(std::clamp<int64_t>(loop * 16383 / width, 1, 16383)),
+			                           static_cast<int32_t>(std::clamp<int64_t>(
+			                               std::max<int64_t>(start - a, 0) % loop * 16383 / width, 0, 16383))};
+			for (int32_t v : values) {
+				out[i++] = (v >> 7) & 0x7F;
+				out[i++] = v & 0x7F;
+			}
+			i += putPattern(out + i, clipPattern(instance->clip));
 			count++;
 			instances++;
 		}
@@ -1130,10 +1284,9 @@ bool sendIfChanged(uint8_t const* header, uint8_t const* body, int32_t len, uint
 	if (!force && len == lastLen && memcmp(body, last, len) == 0) {
 		return true;
 	}
-	if (midiStateCable->sendBufferSpace() < space) {
+	if (!sendFramed(*midiStateCable, header, false, body, len)) {
 		return false;
 	}
-	sendFramed(*midiStateCable, header, false, body, len);
 	memcpy(last, body, len);
 	lastLen = len;
 	return true;
@@ -1148,7 +1301,7 @@ bool sendSongAndKnobs(bool force) {
 		return false;
 	}
 	if (force) {
-		lastParamsLen = lastTransportLen = lastOutputsLen = lastClipsLen = lastArrangerLen = 0;
+		lastParamsLen = lastTransportLen = lastOutputsLen = lastClipsLen = lastArrangerLen = lastClipPosLen = 0;
 		lastArrangerPos = -2;
 	}
 	uint8_t transport[sizeof(lastTransport)];
@@ -1167,18 +1320,29 @@ bool sendSongAndKnobs(bool force) {
 	if (view == 1 || view == 2 || force) {
 		songBodyLen = buildClips(songBody);
 		sendIfChanged(kClipsHeader, songBody, songBodyLen, lastClips, lastClipsLen, force, 400);
+		uint8_t positions[sizeof(lastClipPos)];
+		const int32_t positionsLen = buildClipPositions(positions);
+		sendIfChanged(kClipPosHeader, positions, positionsLen, lastClipPos, lastClipPosLen, force, 60);
 	}
 	if (view == 3 || force) {
 		uint8_t arranger[sizeof(lastArranger)];
 		const int32_t arrangerLen = buildArranger(arranger);
 		sendIfChanged(kArrangerHeader, arranger, arrangerLen, lastArranger, lastArrangerLen, force, 400);
 		const bool arrangementPlaying = playbackHandler.isEitherClockActive() && currentPlaybackMode == &arrangement;
-		const int32_t pos = arrangementPlaying ? songFraction(arrangement.getLivePos(), arrangementLength()) : 0x3FFF;
-		if (pos != lastArrangerPos && midiStateCable->sendBufferSpace() >= 20) {
+		int64_t start;
+		int64_t width;
+		arrangerWindow(start, width);
+		const int64_t live = arrangementPlaying ? static_cast<int64_t>(arrangement.getLivePos()) : -1;
+		// 0x3FFF = not playing, 0x3FFE = off the window
+		const int32_t pos = live < 0                                  ? 0x3FFF
+		                    : (live < start || live >= start + width) ? 0x3FFE
+		                                                              : windowFraction(live, start, width);
+		if (pos != lastArrangerPos) {
 			const uint8_t body[3] = {kStateVersion, static_cast<uint8_t>((pos >> 7) & 0x7F),
 			                         static_cast<uint8_t>(pos & 0x7F)};
-			sendFramed(*midiStateCable, kArrangerPosHeader, false, body, 3);
-			lastArrangerPos = pos;
+			if (sendFramed(*midiStateCable, kArrangerPosHeader, false, body, 3)) {
+				lastArrangerPos = pos;
+			}
 		}
 	}
 	return songView || playbackHandler.isEitherClockActive() || (paramsBodyLen > 2);
@@ -1268,6 +1432,7 @@ void HIDSysex::requestState(MIDICable& cable, uint8_t* data, int32_t len) {
 		return;
 	}
 	const bool wasActive = midiStateCable == &cable && AudioEngine::audioSampleTimer <= midiStateUntil;
+	refreshPanels = true;
 	midiStateCable = &cable;
 	midiStateUntil = AudioEngine::audioSampleTimer + 2 * kSampleRate;
 	// Mode 0, or a keepalive that starts a new subscription, sends everything
@@ -1278,7 +1443,7 @@ void HIDSysex::sendStateIfChanged(bool force) {
 	if (midiStateCable == nullptr || AudioEngine::audioSampleTimer > midiStateUntil || currentSong == nullptr) {
 		return;
 	}
-	// Room for a full burst (STATE, KIT_ROWS, TEXT and a PICKER are up to about 360 USB MIDI messages)
+	// Room for a burst (sendBufferSpace() counts bytes; each message also checks it has room for all of itself)
 	if (midiStateCable->sendBufferSpace() < 400) {
 		uiTimerManager.setTimer(TimerName::SYSEX_DISPLAY, 100);
 		return;
@@ -1287,36 +1452,49 @@ void HIDSysex::sendStateIfChanged(bool force) {
 	uint8_t body[96];
 	const int32_t len = buildState(body);
 	if (force || len != lastStateLen || memcmp(body, lastState, len) != 0) {
-		sendFramed(*midiStateCable, kStateHeader, true, body, len);
-		memcpy(lastState, body, len);
-		lastStateLen = len;
+		if (sendFramed(*midiStateCable, kStateHeader, true, body, len)) {
+			memcpy(lastState, body, len);
+			lastStateLen = len;
+		}
 	}
 
 	uint8_t rows[kStateMaxRows + 2];
 	const int32_t rowsLen = buildRows(rows);
 	if (rowsLen > 0 && (force || rowsLen != lastRowsLen || memcmp(rows, lastRows, rowsLen) != 0)) {
-		sendFramed(*midiStateCable, kRowsHeader, false, rows, rowsLen);
-		memcpy(lastRows, rows, rowsLen);
+		if (sendFramed(*midiStateCable, kRowsHeader, false, rows, rowsLen)) {
+			memcpy(lastRows, rows, rowsLen);
+			lastRowsLen = rowsLen;
+		}
 	}
-	lastRowsLen = rowsLen;
+	else {
+		lastRowsLen = rowsLen;
+	}
 
 	uint8_t text[sizeof(lastText)];
 	const int32_t textLen = buildText(text);
 	if (force || textLen != lastTextLen || memcmp(text, lastText, textLen) != 0) {
-		sendFramed(*midiStateCable, kTextHeader, false, text, textLen);
-		memcpy(lastText, text, textLen);
-		lastTextLen = textLen;
+		if (sendFramed(*midiStateCable, kTextHeader, false, text, textLen)) {
+			memcpy(lastText, text, textLen);
+			lastTextLen = textLen;
+		}
 	}
 
 	if (force) {
 		pickerKeyMenu = nullptr; // Rebuild and resend whatever is open
 	}
-	if (updatePicker() || (force && pickerBodyLen > 0)) {
-		sendFramed(*midiStateCable, kPickerHeader, false, pickerBody, pickerBodyLen);
+	// Once a second (each keepalive) the picker goes again, open or closed, so one that was missed (a full buffer,
+	// a redraw that didn't come) shows up without reloading the page
+	const bool refresh = refreshPanels;
+	refreshPanels = false;
+	if (updatePicker() || ((force || refresh) && pickerBodyLen > 0)) {
+		if (!sendFramed(*midiStateCable, kPickerHeader, false, pickerBody, pickerBodyLen)) {
+			refreshPanels = true; // Try again next time round
+			uiTimerManager.setTimer(TimerName::COMPANION_WAVE, 40);
+		}
 	}
 
-	// The browser window is the biggest message (up to about 420 USB MIDI messages): wait for room
-	if (midiStateCable->sendBufferSpace() < 450) {
+	// The browser window is up to about 1300 bytes: wait for room
+	if (midiStateCable->sendBufferSpace() < 1350) {
 		uiTimerManager.setTimer(TimerName::SYSEX_DISPLAY, 100);
 		return;
 	}
@@ -1325,13 +1503,19 @@ void HIDSysex::sendStateIfChanged(bool force) {
 	}
 	const int32_t browserSend = updateBrowser();
 	if (browserSend == 1) {
-		sendFramed(*midiStateCable, kBrowserHeader, false, browserBody, browserBodyLen);
+		if (!sendFramed(*midiStateCable, kBrowserHeader, false, browserBody, browserBodyLen)) {
+			browserKeyCount = -1; // Build and send it again next time round
+			uiTimerManager.setTimer(TimerName::COMPANION_WAVE, 40);
+		}
 	}
 	else if (browserSend == 2) {
 		uint8_t sel[3] = {kStateVersion,
 		                  static_cast<uint8_t>((browserKeySelected < 0 ? 0x3FFF : browserKeySelected) >> 7 & 0x7F),
 		                  static_cast<uint8_t>((browserKeySelected < 0 ? 0x3FFF : browserKeySelected) & 0x7F)};
-		sendFramed(*midiStateCable, kBrowserSelHeader, false, sel, 3);
+		if (!sendFramed(*midiStateCable, kBrowserSelHeader, false, sel, 3)) {
+			browserKeySelected = -2;
+			uiTimerManager.setTimer(TimerName::COMPANION_WAVE, 40);
+		}
 	}
 
 	// Knobs, transport, song and arranger. Polled while playing or in a song view, as they change without redraws.
@@ -1359,10 +1543,11 @@ void HIDSysex::sendStateIfChanged(bool force) {
 	// While columns are still loading, send at most every 150 ms
 	const bool due = waveSend == 1 || AudioEngine::audioSampleTimer - waveLastSendTime > kSampleRate * 3 / 20;
 	if (waveSend != 0 && changed && due) {
-		sendFramed(*midiStateCable, kWaveHeader, false, waveBody, waveBodyLen);
-		memcpy(lastWave, waveBody, waveBodyLen);
-		lastWaveLen = waveBodyLen;
-		waveLastSendTime = AudioEngine::audioSampleTimer;
+		if (sendFramed(*midiStateCable, kWaveHeader, false, waveBody, waveBodyLen)) {
+			memcpy(lastWave, waveBody, waveBodyLen);
+			lastWaveLen = waveBodyLen;
+			waveLastSendTime = AudioEngine::audioSampleTimer;
+		}
 	}
 	if (view.kind != 0) {
 		const int64_t subZoom = std::max<int64_t>(1, view.xZoom / kWaveSub);
@@ -1374,8 +1559,9 @@ void HIDSysex::sendStateIfChanged(bool force) {
 				body[1] = 0x7F;
 				body[2] = 0x7F;
 			}
-			sendFramed(*midiStateCable, kPlayheadHeader, false, body, 3);
-			lastPlayhead = head;
+			if (sendFramed(*midiStateCable, kPlayheadHeader, false, body, 3)) {
+				lastPlayhead = head;
+			}
 		}
 	}
 }
