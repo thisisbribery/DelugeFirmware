@@ -19,11 +19,16 @@
 #include "definitions_cxx.hpp"
 #include "gui/context_menu/kit_presets.h"
 #include "gui/l10n/l10n.h"
+#include "gui/menu_item/drum_synth/param.h"
+#include "gui/menu_item/synth_mode.h"
+#include "gui/ui/sound_editor.h"
 #include "gui/views/instrument_clip_view.h"
 #include "hid/display/display.h"
 #include "model/instrument/kit.h"
 #include "model/instrument/preset_kit.h"
 #include "model/song/song.h"
+
+extern deluge::gui::menu_item::SynthModeSelection synthModeMenu;
 
 namespace deluge::gui::context_menu {
 
@@ -33,16 +38,57 @@ char const* NewKitType::getTitle() {
 	return l10n::get(l10n::String::STRING_FOR_NEW_KIT_TYPE);
 }
 
+namespace {
+// The options, in order: sample kit, the three preset kits, then two engines that go on one row only
+enum Option : int32_t { kSample, kCycles, kLxr, kGin, kUltrakik, kXia, kNumOptions };
+
+/// ULTRAKIK or XIA on the kit's selected row only (made a sample kit first if this isn't a kit), opening SYNTH MODE
+/// on it so the engine can be changed from there
+void putEngineOnRow(dsp::drum_synth::Engine engine) {
+	if (getCurrentOutputType() != OutputType::KIT) {
+		instrumentClipView.createNewInstrument(OutputType::KIT);
+		if (getCurrentOutputType() != OutputType::KIT) {
+			return;
+		}
+	}
+	Kit* kit = getCurrentKit();
+	if (kit->selectedDrum == nullptr || kit->selectedDrum->type != DrumType::SOUND) {
+		for (Drum* drum = kit->firstDrum; drum != nullptr; drum = drum->next) {
+			if (drum->type == DrumType::SOUND) {
+				instrumentClipView.setSelectedDrum(drum);
+				break;
+			}
+		}
+	}
+	if (kit->selectedDrum == nullptr || kit->selectedDrum->type != DrumType::SOUND) {
+		return;
+	}
+	if (soundEditor.setup(getCurrentClip(), &synthModeMenu, 0)) {
+		openUI(&soundEditor);
+		gui::menu_item::drum_synth::setDrumEngine(engine, 0);
+		synthModeMenu.readValueAgain();
+	}
+}
+} // namespace
+
 std::span<char const*> NewKitType::getOptions() {
 	using enum l10n::String;
-	static char const* options[] = {l10n::get(STRING_FOR_SAMPLE_KIT), l10n::get(STRING_FOR_LXR_KIT),
-	                                l10n::get(STRING_FOR_CYCLES_KIT), l10n::get(STRING_FOR_GIN_KIT)};
-	return {options, 4};
+	static char const* options[kNumOptions];
+	options[kSample] = l10n::get(STRING_FOR_SAMPLE_KIT);
+	options[kCycles] = l10n::get(STRING_FOR_CYCLES_KIT);
+	options[kLxr] = l10n::get(STRING_FOR_LXR_KIT);
+	options[kGin] = l10n::get(STRING_FOR_GIN_KIT);
+	options[kUltrakik] = l10n::get(STRING_FOR_ULTRAKIK_KIT);
+	options[kXia] = l10n::get(STRING_FOR_XIA_KIT);
+	return {options, kNumOptions};
 }
 
 bool NewKitType::setupFor(dsp::drum_synth::PresetKit kit) {
 	using dsp::drum_synth::PresetKit;
-	currentOption = (kit == PresetKit::LXR) ? 1 : (kit == PresetKit::CYCLES) ? 2 : (kit == PresetKit::GIN) ? 3 : 0;
+	currentOption = (kit == PresetKit::LXR)      ? kLxr
+	                : (kit == PresetKit::CYCLES) ? kCycles
+	                : (kit == PresetKit::GIN)    ? kGin
+	                                             : kSample;
 	scrollPos = currentOption;
 	return true;
 }
@@ -50,10 +96,16 @@ bool NewKitType::setupFor(dsp::drum_synth::PresetKit kit) {
 bool NewKitType::acceptCurrentOption() {
 	using dsp::drum_synth::PresetKit;
 	const int32_t option = currentOption;
-	const PresetKit chosen = (option == 1)   ? PresetKit::LXR
-	                         : (option == 2) ? PresetKit::CYCLES
-	                         : (option == 3) ? PresetKit::GIN
-	                                         : PresetKit::NONE;
+	if (option == kUltrakik || option == kXia) {
+		display->setNextTransitionDirection(-1);
+		close();
+		putEngineOnRow(option == kUltrakik ? dsp::drum_synth::Engine::ULTRAKIK : dsp::drum_synth::Engine::TIA);
+		return true;
+	}
+	const PresetKit chosen = (option == kLxr)      ? PresetKit::LXR
+	                         : (option == kCycles) ? PresetKit::CYCLES
+	                         : (option == kGin)    ? PresetKit::GIN
+	                                               : PresetKit::NONE;
 	const PresetKit current =
 	    (getCurrentOutputType() == OutputType::KIT) ? preset_kit::typeOf(getCurrentKit()) : PresetKit::NONE;
 

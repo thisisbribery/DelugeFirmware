@@ -17,6 +17,7 @@
 #include "gui/ui_timer_manager.h"
 #include "gui/views/arranger_view.h"
 #include "gui/views/audio_clip_view.h"
+#include "gui/views/instrument_clip_view.h"
 #include "gui/waveform/waveform_basic_navigator.h"
 #include "gui/waveform/waveform_render_data.h"
 #include "gui/waveform/waveform_renderer.h"
@@ -37,14 +38,20 @@
 #include "model/note/note_row.h"
 #include "model/output.h"
 #include "model/sample/sample.h"
+#include "model/sample/sample_cache.h"
 #include "model/sample/sample_holder_for_voice.h"
 #include "model/song/song.h"
+#include "model/voice/voice.h"
+#include "model/voice/voice_sample.h"
 #include "playback/mode/arrangement.h"
 #include "playback/mode/session.h"
 #include "playback/playback_handler.h"
 #include "processing/engines/audio_engine.h"
+#include "processing/sound/drum_synth_params.h"
 #include "processing/sound/sound_drum.h"
 #include "processing/sound/sound_instrument.h"
+#include "storage/audio/audio_file.h"
+#include "storage/audio/audio_file_holder.h"
 #include "storage/file_item.h"
 #include "storage/multi_range/multisample_range.h"
 #include "util/comparison.h"
@@ -539,7 +546,7 @@ int32_t buildRows(uint8_t* out) {
 }
 
 /// Biggest body any companion message has (CLIPS is about 1350 bytes)
-constexpr int32_t kMaxFramedBody = 1600;
+constexpr int32_t kMaxFramedBody = 2400;
 
 /// Send one companion message, whole or not at all: false (nothing sent) if there isn't room in the cable's buffer
 /// for all of it (a sysex cut off when the buffer fills is lost on the tablet) or the body is too big
@@ -565,6 +572,9 @@ bool sendFramed(MIDICable& cable, uint8_t const* header, bool withSeq, uint8_t c
 // ---- Waveform (audio clip view, sample marker editor, sample browser preview) ----
 constexpr uint8_t kWaveHeader[7] = {0xF0, 0x00, 0x21, 0x7B, 0x01, 0x02, 0x48};
 constexpr uint8_t kPlayheadHeader[7] = {0xF0, 0x00, 0x21, 0x7B, 0x01, 0x02, 0x49};
+constexpr uint8_t kDiagHeader[7] = {0xF0, 0x00, 0x21, 0x7B, 0x01, 0x02, 0x54};
+char diagLastVoice[64] = {}; ///< The last note's start, cache and stretch, kept after it ends
+char lastDiag[160] = {};
 constexpr int32_t kWaveSub = 12;                        ///< Tablet columns per pad column
 constexpr int32_t kWaveChunks = kWaveSub;               ///< Each chunk is kDisplayWidth tablet columns
 constexpr int32_t kWaveCols = kDisplayWidth * kWaveSub; ///< 192
@@ -614,7 +624,30 @@ struct WaveView {
 	uint8_t markerType[kWaveMaxMarkers];
 	int64_t markerPos[kWaveMaxMarkers];
 	int64_t playhead = -1; ///< Sample position, or -1
+	int32_t numVoiceHeads = 0;
+	int64_t voiceHeads[4];  ///< Where the voices playing this sample are, for synths and kit rows
+	Sound* sound = nullptr; ///< The sound playing it (marker editor and start offset), for the diagnostics line
+	int32_t source = -1;
 };
+
+/// Where the sound's voices are in this sample (the newest few), for the waveform's playheads
+void addVoiceHeads(WaveView& v, Sound* sound, int32_t source) {
+	if (sound == nullptr || v.sample == nullptr || source < 0 || source >= kNumSources) {
+		return;
+	}
+	for (const auto& voice : sound->voices()) {
+		if (v.numVoiceHeads >= 4) {
+			break;
+		}
+		auto& guide = voice->guides[source];
+		VoiceSample* voiceSample = voice->unisonParts[0].sources[source].voiceSample;
+		if (voiceSample == nullptr || guide.audioFileHolder == nullptr
+		    || guide.audioFileHolder->audioFile != v.sample) {
+			continue;
+		}
+		v.voiceHeads[v.numVoiceHeads++] = voiceSample->getPlaySample(v.sample, &guide);
+	}
+}
 
 void addMarker(WaveView& v, uint8_t type, int64_t pos) {
 	if (v.numMarkers < kWaveMaxMarkers) {
@@ -677,6 +710,11 @@ WaveView currentWaveView() {
 		if (clip != nullptr) {
 			mark(0, clip->sampleHolder.startPos);
 			mark(3, clip->sampleHolder.endPos);
+			// Audio clip playing: its playhead is in the sample's own samples here
+			if (playbackHandler.isEitherClockActive() && currentSong->isClipActive(clip)
+			    && clip->voiceSample != nullptr) {
+				v.voiceHeads[v.numVoiceHeads++] = clip->voiceSample->getPlaySample(v.sample, &clip->guide);
+			}
 		}
 		else if (soundEditor.currentMultiRange != nullptr) {
 			auto& holder = static_cast<MultisampleRange*>(soundEditor.currentMultiRange)->sampleHolder;
@@ -688,6 +726,26 @@ WaveView currentWaveView() {
 				mark(2, holder.loopEndPos);
 			}
 			mark(3, holder.endPos);
+			addVoiceHeads(v, soundEditor.currentSound, soundEditor.currentSourceIndex);
+			v.sound = soundEditor.currentSound;
+			v.source = soundEditor.currentSourceIndex;
+			// A start offset moves where playback really starts: show it (yellow) whenever it isn't zero, as drum
+			// engines keep a control on the same param and a row turned into a sample can carry it over
+			if (soundEditor.currentSound != nullptr && soundEditor.currentParamManager != nullptr
+			    && soundEditor.currentSourceIndex >= 0 && soundEditor.currentSourceIndex < kNumSources
+			    && v.sample->lengthInSamples > 1) {
+				const int32_t param = soundEditor.currentParamManager->getPatchedParamSet()->getValue(
+				    deluge::modulation::params::LOCAL_OSC_A_START_OFFSET + soundEditor.currentSourceIndex);
+				if (param != 0) {
+					const int64_t length = static_cast<int64_t>(v.sample->lengthInSamples);
+					const int64_t start = holder.startPos;
+					const int64_t shift = (static_cast<int64_t>(param) * length) >> 30;
+					const bool wraps = soundEditor.currentSound->sources[soundEditor.currentSourceIndex].offsetWraps;
+					addMarker(v, 6,
+					          wraps ? (((start + shift) % length) + length) % length
+					                : std::clamp<int64_t>(start + shift, 0, length - 1));
+				}
+			}
 		}
 		return v;
 	}
@@ -724,6 +782,9 @@ WaveView currentWaveView() {
 		int64_t offsetPos = src.offsetWraps ? (((start + shift) % length) + length) % length
 		                                    : std::clamp<int64_t>(start + shift, 0, length - 1);
 		addMarker(v, 6 | 0x10, offsetPos);
+		addVoiceHeads(v, soundEditor.currentSound, source);
+		v.sound = soundEditor.currentSound;
+		v.source = source;
 		return v;
 	}
 	case UIType::SAMPLE_BROWSER:
@@ -738,6 +799,57 @@ WaveView currentWaveView() {
 	default:
 		return v;
 	}
+}
+
+/// One line on how the sample is being played, for finding why a start marker isn't heard: the holder's start, the
+/// last note's own start (from its playback guide), whether it read from a pitch cache (and that cache's start) or a
+/// time stretcher, the repeat mode, and what the other oscillator plays.
+void buildDiag(WaveView const& v, char* out, size_t size) {
+	out[0] = 0;
+	if (v.sound == nullptr || v.source < 0 || v.source >= kNumSources || v.sample == nullptr) {
+		return;
+	}
+	Sound* sound = v.sound;
+	Source& src = sound->sources[v.source];
+	const int32_t bytesPerSample = std::max<int32_t>(v.sample->numChannels * v.sample->byteDepth, 1);
+	for (const auto& voice : sound->voices()) {
+		auto& guide = voice->guides[v.source];
+		VoiceSample* voiceSample = voice->unisonParts[0].sources[v.source].voiceSample;
+		if (voiceSample == nullptr || guide.audioFileHolder == nullptr
+		    || guide.audioFileHolder->audioFile != v.sample) {
+			continue;
+		}
+		const int32_t guideStart =
+		    (static_cast<int32_t>(guide.startPlaybackAtByte) - static_cast<int32_t>(v.sample->audioDataStartPosBytes))
+		    / bytesPerSample;
+		const char cacheState = voiceSample->cache == nullptr ? '-' : voiceSample->writingToCache ? 'W' : 'R';
+		snprintf(diagLastVoice, sizeof(diagLastVoice), "note start %ld, cache %c%s%ld, stretch %s, preroll %ld",
+		         static_cast<long>(guideStart), cacheState, voiceSample->cache != nullptr ? " from " : "",
+		         static_cast<long>(voiceSample->cache != nullptr ? voiceSample->cache->skipSamplesAtStart : 0),
+		         voiceSample->timeStretcher != nullptr ? "yes" : "no", static_cast<long>(guide.preRollSamples));
+		break;
+	}
+	static constexpr char const* kRepeat[] = {"CUT", "ONCE", "LOOP", "STRETCH"};
+	const int32_t repeat = std::clamp<int32_t>(util::to_underlying(src.repeatMode), 0, 3);
+	Source& other = sound->sources[1 - v.source];
+	char otherText[40];
+	if (other.oscType == OscType::SAMPLE && other.ranges.getNumElements() > 0) {
+		AudioFileHolder* holder = other.ranges.getElement(0)->getAudioFileHolder();
+		const bool same = holder != nullptr && holder->audioFile == v.sample;
+		snprintf(otherText, sizeof(otherText), "osc %ld sample%s", static_cast<long>(2 - v.source),
+		         same ? " (same file)" : "");
+	}
+	else {
+		snprintf(otherText, sizeof(otherText), "osc %ld type %ld", static_cast<long>(2 - v.source),
+		         static_cast<long>(util::to_underlying(other.oscType)));
+	}
+	int64_t holderStart = -1;
+	if (src.ranges.getNumElements() > 0) {
+		holderStart = static_cast<SampleHolder*>(src.ranges.getElement(0)->getAudioFileHolder())->startPos;
+	}
+	snprintf(out, size, "start %ld | %s | %s | %ld ranges | %s", static_cast<long>(holderStart),
+	         diagLastVoice[0] ? diagLastVoice : "no note yet", kRepeat[repeat],
+	         static_cast<long>(src.ranges.getNumElements()), otherText);
 }
 
 /// Work out the waveform body. Returns 0 = nothing to send, 1 = send WAVEFORM. WAVEFORM body: version, open, kind,
@@ -845,6 +957,9 @@ constexpr uint8_t kClipsHeader[7] = {0xF0, 0x00, 0x21, 0x7B, 0x01, 0x02, 0x4D};
 constexpr uint8_t kArrangerHeader[7] = {0xF0, 0x00, 0x21, 0x7B, 0x01, 0x02, 0x4E};
 constexpr uint8_t kArrangerPosHeader[7] = {0xF0, 0x00, 0x21, 0x7B, 0x01, 0x02, 0x4F};
 constexpr uint8_t kClipPosHeader[7] = {0xF0, 0x00, 0x21, 0x7B, 0x01, 0x02, 0x50};
+constexpr uint8_t kBeatHeader[7] = {0xF0, 0x00, 0x21, 0x7B, 0x01, 0x02, 0x51};
+constexpr uint8_t kKitSamplesHeader[7] = {0xF0, 0x00, 0x21, 0x7B, 0x01, 0x02, 0x52};
+constexpr uint8_t kKitActiveHeader[7] = {0xF0, 0x00, 0x21, 0x7B, 0x01, 0x02, 0x53};
 
 /// A setting shown as a knob: the shortcut pad that opens it (what a tap presses), the group the tablet puts it in,
 /// the param it reads, and its English name. Read straight from the sound's params: no menu item is asked anything
@@ -910,7 +1025,9 @@ constexpr KnobDef kKnobs[] = {
 };
 constexpr int32_t kNumKnobs = sizeof(kKnobs) / sizeof(kKnobs[0]);
 constexpr int32_t kKnobNameMax = 18;
-constexpr int32_t kParamsBodyMax = 4 + kNumKnobs * (7 + kKnobNameMax);
+constexpr int32_t kMaxEngineKnobs = 24;
+constexpr int32_t kKnobTextMax = 10;
+constexpr int32_t kParamsBodyMax = 4 + (kNumKnobs + kMaxEngineKnobs) * (8 + kKnobNameMax + kKnobTextMax);
 
 uint8_t paramsBody[kParamsBodyMax];
 int32_t paramsBodyLen = 0;
@@ -944,6 +1061,35 @@ bool currentSoundAndParams(Sound*& sound, ParamManagerForTimeline*& params) {
 		return false;
 	}
 	return params->containsAnyMainParamCollections();
+}
+
+/// One PARAMS entry. text: what a switch is set to (empty for a knob).
+int32_t putKnob(uint8_t* out, int32_t x, int32_t y, int32_t group, int32_t flags, int32_t pos, int32_t shown,
+                std::string_view name, std::string_view text) {
+	int32_t i = 0;
+	out[i++] = x;
+	out[i++] = y;
+	out[i++] = group;
+	out[i++] = flags;
+	out[i++] = static_cast<uint8_t>(std::clamp<int32_t>(pos, 0, 127));
+	const int32_t v = std::clamp<int32_t>(shown + 8192, 0, 16383);
+	out[i++] = (v >> 7) & 0x7F;
+	out[i++] = v & 0x7F;
+	char buffer[kKnobNameMax + 1];
+	size_t n = std::min<size_t>(name.size(), kKnobNameMax);
+	memcpy(buffer, name.data(), n);
+	buffer[n] = 0;
+	i += putName(out + i, buffer);
+	char textBuffer[kKnobTextMax + 1];
+	n = std::min<size_t>(text.size(), kKnobTextMax);
+	memcpy(textBuffer, text.data(), n);
+	textBuffer[n] = 0;
+	i += putName(out + i, textBuffer);
+	return i;
+}
+
+std::string_view englishOf(deluge::l10n::String string) {
+	return deluge::l10n::getView(deluge::l10n::built_in::english, string);
 }
 
 /// Whether a knob's pad would open its setting (true) or say CANT. Mirrors the menu items' isRelevant(), from the
@@ -1005,6 +1151,9 @@ int32_t buildParams(uint8_t* out) {
 		if (knob.group == 0 && drumEngine) {
 			continue; // Drum engines put their own controls on the oscillator pads
 		}
+		if (knob.group <= 3 && sound->synthMode == SynthMode::TB303) {
+			continue; // The 303's own knobs take these pads (group 7)
+		}
 		const bool offset = knob.rule == KnobRule::OFFSET_A || knob.rule == KnobRule::OFFSET_B;
 		const bool available = knobAvailable(knob.rule, sound);
 		if (offset && !available) {
@@ -1021,15 +1170,105 @@ int32_t buildParams(uint8_t* out) {
 		                             : computeCurrentValueForStandardMenuItem(value);
 		const bool open =
 		    editing && soundEditor.currentParamShortcutX == knob.x && soundEditor.currentParamShortcutY == knob.y;
-		out[i++] = knob.x;
-		out[i++] = knob.y;
-		out[i++] = knob.group;
-		out[i++] = ((pan || offset) ? 1 : 0) | (open ? 2 : 0) | (available ? 0 : 4);
-		out[i++] = static_cast<uint8_t>(std::clamp<int32_t>((value >> 25) + 64, 0, 127));
-		const int32_t v = std::clamp<int32_t>(shown + 8192, 0, 16383);
-		out[i++] = (v >> 7) & 0x7F;
-		out[i++] = v & 0x7F;
-		i += putName(out + i, knob.name);
+		i += putKnob(out + i, knob.x, knob.y, knob.group,
+		             ((pan || offset) ? 1 : 0) | (open ? 2 : 0) | (available ? 0 : 4), (value >> 25) + 64, shown,
+		             knob.name, {});
+		count++;
+	}
+
+	// The engine's own controls (group 7) and switches (group 8, flag 16), read from the params and the patch bytes
+	auto isOpen = [&](int32_t x, int32_t y) {
+		return editing && soundEditor.currentParamShortcutX == x && soundEditor.currentParamShortcutY == y;
+	};
+	int32_t engineCount = 0;
+	if (drumEngine && patched != nullptr) {
+		// Drum and synth engines: every pad of the engine's layout that holds one of its controls
+		const auto engine = sound->sources[0].drumPatch.engine();
+		uint32_t seen = 0;
+		for (int32_t x = 0; x < kDisplayWidth && engineCount < kMaxEngineKnobs; x++) {
+			for (int32_t y = 0; y < kDisplayHeight && engineCount < kMaxEngineKnobs; y++) {
+				const uint32_t param = drumShortcutParam(sound, x, y);
+				if (param >= deluge::modulation::params::kNumParams) {
+					continue;
+				}
+				const int32_t slot = deluge::dsp::drum_synth::drumSlotForParam(static_cast<int32_t>(param));
+				if (slot < 0 || slot >= 32 || (seen & (1u << slot))) {
+					continue;
+				}
+				seen |= 1u << slot;
+				const int32_t raw = patched->getValue(param);
+				const int32_t knob = std::clamp<int32_t>(
+				    (deluge::dsp::drum_synth::DrumControls::toKnob(raw) + 0x80) >> 8, 0, 127); // 0-127, as its menu
+				i += putKnob(out + i, x, y, 7, (isOpen(x, y) ? 2 : 0) | 8, knob, knob,
+				             englishOf(deluge::dsp::drum_synth::cycKnobName(engine, slot)), {});
+				count++;
+				engineCount++;
+			}
+		}
+		// BRUNO106's switches
+		if (engine == Engine::BRUNO106) {
+			using deluge::dsp::drum_synth::Patch;
+			const auto& patch = sound->sources[0].drumPatch;
+			const bool saw = patch.get(Patch::BRUNO_SAW) != 0;
+			const bool pulse = patch.get(Patch::BRUNO_PULSE) != 0;
+			const int32_t hpf = patch.get(Patch::BRUNO_HPF);
+			static constexpr deluge::l10n::String kHpfNames[] = {
+			    deluge::l10n::String::STRING_FOR_BRUNO_HPF_FLAT, deluge::l10n::String::STRING_FOR_BRUNO_HPF_BOOST,
+			    deluge::l10n::String::STRING_FOR_BRUNO_HPF_236, deluge::l10n::String::STRING_FOR_BRUNO_HPF_754};
+			const bool chorus = sound->getModFXType() == ModFXType::BRUNO_CHORUS;
+			const int32_t mode = std::clamp<int32_t>(sound->modfx.brunoChorusMode, 1, 3);
+			static constexpr deluge::l10n::String kModeNames[] = {deluge::l10n::String::STRING_FOR_BRUNO_CHORUS_I,
+			                                                      deluge::l10n::String::STRING_FOR_BRUNO_CHORUS_II,
+			                                                      deluge::l10n::String::STRING_FOR_BRUNO_CHORUS_I_II};
+			auto onOff = [](bool on) {
+				return englishOf(on ? deluge::l10n::String::STRING_FOR_ON : deluge::l10n::String::STRING_FOR_OFF);
+			};
+			i += putKnob(out + i, 2, 2, 8, 16 | (isOpen(2, 2) ? 2 : 0), saw, saw,
+			             englishOf(deluge::l10n::String::STRING_FOR_BRUNO_SAW), onOff(saw));
+			i += putKnob(out + i, 3, 2, 8, 16 | (isOpen(3, 2) ? 2 : 0), pulse, pulse,
+			             englishOf(deluge::l10n::String::STRING_FOR_BRUNO_PULSE), onOff(pulse));
+			i += putKnob(out + i, 4, 0, 8, 16 | (isOpen(4, 0) ? 2 : 0), hpf, hpf,
+			             englishOf(deluge::l10n::String::STRING_FOR_BRUNO_HPF),
+			             englishOf(kHpfNames[std::clamp<int32_t>(hpf, 0, 3)]));
+			i += putKnob(out + i, 4, 1, 8, 16 | (isOpen(4, 1) ? 2 : 0), chorus, chorus,
+			             englishOf(deluge::l10n::String::STRING_FOR_BRUNO_CHORUS_ON), onOff(chorus));
+			i +=
+			    putKnob(out + i, 4, 2, 8, 16 | (isOpen(4, 2) ? 2 : 0) | (chorus ? 0 : 4), mode, mode,
+			            englishOf(deluge::l10n::String::STRING_FOR_BRUNO_CHORUS_MODE), englishOf(kModeNames[mode - 1]));
+			count += 5;
+		}
+	}
+	else if (sound->synthMode == SynthMode::TB303 && patched != nullptr) {
+		// The 303's knobs, on their pads, and its filter switch
+		struct Tb303Knob {
+			uint8_t x;
+			uint8_t y;
+			int32_t param;
+			deluge::l10n::String name;
+		};
+		using S = deluge::l10n::String;
+		static constexpr Tb303Knob kTb303Knobs[] = {
+		    {8, 7, P::LOCAL_LPF_FREQ, S::STRING_FOR_TB303_CUTOFF},
+		    {8, 6, P::LOCAL_LPF_RESONANCE, S::STRING_FOR_TB303_RESONANCE},
+		    {4, 0, kTb303EnvModParam, S::STRING_FOR_TB303_ENV_MOD},
+		    {5, 0, kTb303DecayParam, S::STRING_FOR_TB303_DECAY},
+		    {2, 4, kTb303AccentParam, S::STRING_FOR_TB303_ACCENT},
+		    {2, 3, kTb303WaveformParam, S::STRING_FOR_TB303_WAVEFORM},
+		    {4, 5, kTb303SlideParam, S::STRING_FOR_TB303_SLIDE},
+		    {2, 5, kTb303DriveParam, S::STRING_FOR_TB303_DRIVE},
+		    {2, 6, kTb303AmpDecayParam, S::STRING_FOR_TB303_AMP_DECAY},
+		};
+		for (const Tb303Knob& k : kTb303Knobs) {
+			const int32_t raw = patched->getValue(k.param);
+			i += putKnob(out + i, k.x, k.y, 7, isOpen(k.x, k.y) ? 2 : 0, (raw >> 25) + 64,
+			             computeCurrentValueForStandardMenuItem(raw), englishOf(k.name), {});
+			count++;
+		}
+		static constexpr S kFilterNames[] = {S::STRING_FOR_TB303, S::STRING_FOR_TB303_FILTER_LP18,
+		                                     S::STRING_FOR_TB303_FILTER_DIRT};
+		const int32_t filter = std::clamp<int32_t>(static_cast<int32_t>(sound->tb303FilterMode), 0, 2);
+		i += putKnob(out + i, 5, 5, 8, 16 | (isOpen(5, 5) ? 2 : 0), filter, filter,
+		             englishOf(S::STRING_FOR_TB303_FILTER), englishOf(kFilterNames[filter]));
 		count++;
 	}
 	out[countAt] = count;
@@ -1043,7 +1282,7 @@ constexpr int32_t kMaxOutputs = 48;
 constexpr int32_t kMaxClips = 64;
 constexpr int32_t kSongNameMax = 12;
 constexpr int32_t kMaxInstances = 64;
-uint8_t songBody[4 + kMaxClips * (9 + kSongNameMax)];
+uint8_t songBody[4 + kMaxClips * (12 + kSongNameMax)];
 int32_t songBodyLen = 0;
 uint8_t lastOutputs[4 + kMaxOutputs * (6 + kSongNameMax)];
 int32_t lastOutputsLen = 0;
@@ -1166,7 +1405,7 @@ int32_t putPattern(uint8_t* out, uint32_t bits) {
 
 /// CLIPS body: version, count, then per session clip (rows view order): output index, section (127 none), flags
 /// (1 playing, 2 launch or stop pending, 4 audio, 8 soloing, 16 the current clip), note pattern (5 bytes, see
-/// clipPattern), name
+/// clipPattern), its section pad's colour (r g b, 7 bits each), name
 int32_t buildClips(uint8_t* out) {
 	int32_t i = 0;
 	out[i++] = kStateVersion;
@@ -1182,6 +1421,11 @@ int32_t buildClips(uint8_t* out) {
 		           | (clip->type == ClipType::AUDIO ? 4 : 0) | (clip->soloingInSessionMode ? 8 : 0)
 		           | (clip == current ? 16 : 0);
 		i += putPattern(out + i, clipPattern(clip));
+		const RGB section =
+		    clip->section < kMaxNumSections ? RGB(defaultClipSectionColours[clip->section]) : RGB(0, 0, 0);
+		out[i++] = section.r >> 1;
+		out[i++] = section.g >> 1;
+		out[i++] = section.b >> 1;
 		char name[kSongNameMax + 1];
 		strncpy(name, clip->name.get(), kSongNameMax);
 		name[kSongNameMax] = 0;
@@ -1278,6 +1522,100 @@ int32_t buildArranger(uint8_t* out) {
 	return i;
 }
 
+/// Where the beat is, 0-16383 over four quarter notes: from the playhead while playing, else at the song's tempo. The
+/// same sum the section pads use (session_view.cpp beatPhase), so the tablet's glows run with them.
+int32_t beatPhase4() {
+	const uint64_t quarterNote = currentSong->getQuarterNoteLength();
+	uint64_t position;
+	uint64_t period;
+	if (playbackHandler.isEitherClockActive()) {
+		position = static_cast<uint64_t>(std::max<int64_t>(playbackHandler.getActualSwungTickCount(), 0));
+		period = quarterNote * 4;
+	}
+	else {
+		position = AudioEngine::audioSampleTimer;
+		period = ((currentSong->timePerTimerTickBig * quarterNote) >> 32) * 4;
+	}
+	return (period == 0) ? 0 : static_cast<int32_t>((position % period) * 16384 / period);
+}
+
+constexpr int32_t kMaxKitSampleRows = 32;
+constexpr int32_t kKitFileMax = 20;
+uint8_t lastKitSamples[4 + kMaxKitSampleRows * (4 + kSongNameMax + kKitFileMax)];
+int32_t lastKitSamplesLen = 0;
+uint8_t lastKitActive[8];
+int32_t lastKitActiveLen = 0;
+int32_t lastBeat = -1000;
+int32_t pendingKitRow = -1; ///< Kit row whose sample to open (index in the clip's note rows)
+
+/// The kit clip being played, or nullptr
+InstrumentClip* currentKitClip() {
+	Clip* clip = getCurrentClip();
+	if (clip == nullptr || clip->type != ClipType::INSTRUMENT || clip->output == nullptr
+	    || clip->output->type != OutputType::KIT) {
+		return nullptr;
+	}
+	return static_cast<InstrumentClip*>(clip);
+}
+
+/// The sample a kit row plays from its first oscillator, or nullptr
+AudioFile* rowSample(NoteRow* row) {
+	if (row == nullptr || row->drum == nullptr || row->drum->type != DrumType::SOUND) {
+		return nullptr;
+	}
+	auto* sound = static_cast<SoundDrum*>(row->drum);
+	Source& source = sound->sources[0];
+	if (sound->getSynthMode() == SynthMode::FM || source.oscType != OscType::SAMPLE
+	    || source.ranges.getNumElements() < 1) {
+		return nullptr;
+	}
+	AudioFileHolder* holder = source.ranges.getElement(0)->getAudioFileHolder();
+	return holder != nullptr ? holder->audioFile : nullptr;
+}
+
+/// KIT_SAMPLES body: version, count, then per kit row playing a sample (note row order, bottom row first): its row
+/// index, flags (2 selected), its name, and the sample's file name. KIT_ACTIVE: version, then 5 bytes of 7 bits, bit
+/// n set while the nth of those rows is sounding.
+int32_t buildKitSamples(uint8_t* out, uint8_t* active, int32_t& activeLen) {
+	int32_t i = 0;
+	out[i++] = kStateVersion;
+	const int32_t countAt = i++;
+	int32_t count = 0;
+	uint32_t sounding = 0;
+	InstrumentClip* clip = currentKitClip();
+	if (clip != nullptr) {
+		Drum* selected = static_cast<Kit*>(clip->output)->selectedDrum;
+		for (int32_t r = 0; r < clip->noteRows.getNumElements() && count < kMaxKitSampleRows; r++) {
+			NoteRow* row = clip->noteRows.getElement(r);
+			AudioFile* file = rowSample(row);
+			if (file == nullptr) {
+				continue;
+			}
+			auto* sound = static_cast<SoundDrum*>(row->drum);
+			out[i++] = std::min<int32_t>(r, 127);
+			out[i++] = row->drum == selected ? 2 : 0;
+			char name[kSongNameMax + 1];
+			strncpy(name, sound->drumName.c_str(), kSongNameMax);
+			name[kSongNameMax] = 0;
+			i += putName(out + i, name);
+			char const* path = file->filePath.get();
+			char const* slash = strrchr(path, '/');
+			char fileName[kKitFileMax + 1];
+			strncpy(fileName, slash != nullptr ? slash + 1 : path, kKitFileMax);
+			fileName[kKitFileMax] = 0;
+			i += putName(out + i, fileName);
+			if (sound->hasActiveVoices()) {
+				sounding |= 1u << count;
+			}
+			count++;
+		}
+	}
+	out[countAt] = count;
+	active[0] = kStateVersion;
+	activeLen = 1 + putPattern(active + 1, sounding);
+	return i;
+}
+
 /// Send body under header if it changed from last (and remember it). Returns false if there wasn't room.
 bool sendIfChanged(uint8_t const* header, uint8_t const* body, int32_t len, uint8_t* last, int32_t& lastLen, bool force,
                    int32_t space) {
@@ -1311,12 +1649,35 @@ bool sendSongAndKnobs(bool force) {
 	paramsBodyLen = buildParams(paramsBody);
 	sendIfChanged(kParamsHeader, paramsBody, paramsBodyLen, lastParams, lastParamsLen, force, 320);
 
+	if (force) {
+		lastKitSamplesLen = lastKitActiveLen = 0;
+		lastBeat = -1000;
+	}
+	uint8_t kitSamples[sizeof(lastKitSamples)];
+	uint8_t kitActive[sizeof(lastKitActive)];
+	int32_t kitActiveLen = 0;
+	const int32_t kitSamplesLen = buildKitSamples(kitSamples, kitActive, kitActiveLen);
+	sendIfChanged(kKitSamplesHeader, kitSamples, kitSamplesLen, lastKitSamples, lastKitSamplesLen, force, 0);
+	sendIfChanged(kKitActiveHeader, kitActive, kitActiveLen, lastKitActive, lastKitActiveLen, force, 0);
+
 	uint8_t outputs[sizeof(lastOutputs)];
 	const int32_t outputsLen = buildOutputs(outputs);
 	sendIfChanged(kOutputsHeader, outputs, outputsLen, lastOutputs, lastOutputsLen, force, 320);
 
 	const uint8_t view = viewCode();
 	const bool songView = view == 1 || view == 2 || view == 3;
+	if (songView) {
+		// The beat, for the section glows: sent when it has moved on, the tablet runs it on at the tempo in between
+		const int32_t beat = beatPhase4();
+		const int32_t moved = (beat - lastBeat + 16384) % 16384;
+		if (force || moved > 1024 || moved < 0) {
+			const uint8_t body[3] = {kStateVersion, static_cast<uint8_t>((beat >> 7) & 0x7F),
+			                         static_cast<uint8_t>(beat & 0x7F)};
+			if (sendFramed(*midiStateCable, kBeatHeader, false, body, 3)) {
+				lastBeat = beat;
+			}
+		}
+	}
 	if (view == 1 || view == 2 || force) {
 		songBodyLen = buildClips(songBody);
 		sendIfChanged(kClipsHeader, songBody, songBodyLen, lastClips, lastClipsLen, force, 400);
@@ -1345,7 +1706,7 @@ bool sendSongAndKnobs(bool force) {
 			}
 		}
 	}
-	return songView || playbackHandler.isEitherClockActive() || (paramsBodyLen > 2);
+	return songView || playbackHandler.isEitherClockActive() || (paramsBodyLen > 2) || kitSamplesLen > 2;
 }
 
 // ---- Tablet actions, run from the COMPANION_PICK UI timer (MIDI can arrive inside the SD card routine) ----
@@ -1378,6 +1739,14 @@ void HIDSysex::requestState(MIDICable& cable, uint8_t* data, int32_t len) {
 		}
 		pendingButtonDown = false;
 		uiTimerManager.setTimer(TimerName::COMPANION_PICK, 1);
+		return;
+	}
+	if (data[2] == 11) {
+		// 11 <row> = select that kit row and open its sample's waveform (SHIFT + the sample start pad)
+		if (len >= 4) {
+			pendingKitRow = data[3];
+			uiTimerManager.setTimer(TimerName::COMPANION_PICK, 1);
+		}
 		return;
 	}
 	if (data[2] >= 6 && data[2] <= 10) {
@@ -1550,16 +1919,42 @@ void HIDSysex::sendStateIfChanged(bool force) {
 		}
 	}
 	if (view.kind != 0) {
-		const int64_t subZoom = std::max<int64_t>(1, view.xZoom / kWaveSub);
-		const int32_t head = view.playhead < 0 ? kWaveNoCol : waveCol(view.playhead, view.xScroll, subZoom);
-		if (head != lastPlayhead) {
-			uint8_t body[3] = {kStateVersion, 0, 0};
-			putCol(body + 1, head == kWaveNoCol ? 0x3FFF : head);
-			if (head == kWaveNoCol) {
-				body[1] = 0x7F;
-				body[2] = 0x7F;
+		// DIAG body: version, then the line (up to 120 characters)
+		char diag[sizeof(lastDiag)];
+		buildDiag(view, diag, sizeof(diag));
+		if (strcmp(diag, lastDiag) != 0) {
+			uint8_t body[2 + 121];
+			body[0] = kStateVersion;
+			const int32_t n = std::min<int32_t>(strlen(diag), 120);
+			body[1] = n;
+			for (int32_t c = 0; c < n; c++) {
+				body[2 + c] = diag[c] & 0x7F;
 			}
-			if (sendFramed(*midiStateCable, kPlayheadHeader, false, body, 3)) {
+			if (sendFramed(*midiStateCable, kDiagHeader, false, body, 2 + n)) {
+				strncpy(lastDiag, diag, sizeof(lastDiag) - 1);
+			}
+		}
+	}
+	if (view.kind != 0) {
+		// PLAYHEAD body: version, count, then each playhead's column (2 bytes): the clip's, or each voice's
+		const int64_t subZoom = std::max<int64_t>(1, view.xZoom / kWaveSub);
+		uint8_t body[2 + 2 * 5];
+		int32_t n = 0;
+		body[0] = kStateVersion;
+		if (view.playhead >= 0) {
+			putCol(body + 2 + 2 * n++, waveCol(view.playhead, view.xScroll, subZoom));
+		}
+		for (int32_t h = 0; h < view.numVoiceHeads && n < 5; h++) {
+			putCol(body + 2 + 2 * n++, waveCol(view.voiceHeads[h], view.xScroll, subZoom));
+		}
+		body[1] = n;
+		uint32_t key = n;
+		for (int32_t b = 2; b < 2 + 2 * n; b++) {
+			key = key * 131 + body[b];
+		}
+		const int32_t head = static_cast<int32_t>(key & 0x7FFFFFFF);
+		if (head != lastPlayhead) {
+			if (sendFramed(*midiStateCable, kPlayheadHeader, false, body, 2 + 2 * n)) {
 				lastPlayhead = head;
 			}
 		}
@@ -1861,7 +2256,7 @@ namespace {
 bool runPendingActions() {
 	if (sdRoutineLock) {
 		return pendingMarkerType >= 0 || pendingKnobX >= 0 || pendingCommand >= 0 || pendingClip >= 0
-		       || pendingSection >= 0;
+		       || pendingSection >= 0 || pendingKitRow >= 0;
 	}
 	bool again = false;
 	if (pendingMarkerType >= 0) {
@@ -1884,6 +2279,22 @@ bool runPendingActions() {
 			                        deluge::gui::menu_item::sample::StartOffset::kResolution));
 			item->companionSet(value);
 		}
+	}
+	if (pendingKitRow >= 0) {
+		InstrumentClip* clip = currentKitClip();
+		if (clip != nullptr && getRootUI() == &instrumentClipView && pendingKitRow < clip->noteRows.getNumElements()) {
+			NoteRow* row = clip->noteRows.getElement(pendingKitRow);
+			if (rowSample(row) != nullptr) {
+				if (getCurrentUI() != getRootUI()) {
+					// Leave whatever menu is open first, so the shortcut opens fresh for this row
+					getCurrentUI()->close();
+				}
+				instrumentClipView.setSelectedDrum(row->drum, true);
+				pendingKnobX = 0; // SAMPLE START pad, which opens the sample's markers
+				pendingKnobY = 7;
+			}
+		}
+		pendingKitRow = -1;
 	}
 	if (pendingKnobX >= 0) {
 		// As holding SHIFT and pressing the shortcut pad

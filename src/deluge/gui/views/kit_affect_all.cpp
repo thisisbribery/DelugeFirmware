@@ -45,21 +45,15 @@ KitAffectAll kitAffectAll{};
 
 namespace {
 
-/// The rows affect all moves: drum synths, which all share one knob and pad layout
-bool isDrumSynthRow(Drum* drum) {
+/// A drum synth row: they all share one knob and pad layout
+bool isEngineRow(Drum* drum) {
 	return drum != nullptr && drum->type == DrumType::SOUND
 	       && static_cast<SoundDrum*>(drum)->sources[0].oscType == OscType::DRUM_SYNTH;
 }
 
-/// A kit SHIFT + KIT made (LXR, Cycles or GIN), whatever rows have been added to it since
-bool isPresetKit(Kit* kit) {
-	for (Drum* drum = kit->firstDrum; drum != nullptr; drum = drum->next) {
-		if (drum->type == DrumType::SOUND
-		    && static_cast<SoundDrum*>(drum)->presetKit != deluge::dsp::drum_synth::PresetKit::NONE) {
-			return true;
-		}
-	}
-	return false;
+/// The rows affect all moves: every sound row, drum synth, sample or synth (not MIDI or gate rows)
+bool isDrumSynthRow(Drum* drum) {
+	return drum != nullptr && drum->type == DrumType::SOUND;
 }
 
 Drum* firstDrumSynthRow(Kit* kit) {
@@ -133,8 +127,15 @@ ModelStackWithAutoParam* paramOnKit(void* memory, InstrumentClip* clip, Kit* kit
 /// params, so a drum control is matched by the shortcut pad, then the gold knob, it sits on. Every other param means
 /// the same on every row. kNoParamID where the other row's engine has nothing there.
 uint32_t sameJobOn(SoundDrum* from, SoundDrum* to, params::Kind kind, int32_t paramId) {
-	if (kind != params::Kind::PATCHED || deluge::dsp::drum_synth::drumSlotForParam(paramId) < 0
-	    || from->sources[0].drumPatch.engine() == to->sources[0].drumPatch.engine()) {
+	if (kind != params::Kind::PATCHED || deluge::dsp::drum_synth::drumSlotForParam(paramId) < 0) {
+		return paramId;
+	}
+	// A drum engine's own control: only other drum engine rows have one (sample and synth rows use that param for
+	// something else)
+	if (!isEngineRow(from) || !isEngineRow(to)) {
+		return params::kNoParamID;
+	}
+	if (from->sources[0].drumPatch.engine() == to->sources[0].drumPatch.engine()) {
 		return paramId;
 	}
 	for (int32_t x = 0; x < kDisplayWidth; x++) {
@@ -179,7 +180,8 @@ void KitAffectAll::shiftAffectEntirePressed(InstrumentClip* clip) {
 
 	Kit* kit = static_cast<Kit*>(clip->output);
 	Drum* firstRow = firstDrumSynthRow(kit);
-	if (!isPresetKit(kit) || firstRow == nullptr) {
+	// Any kit with sound rows: drum synths, samples and synths alike
+	if (firstRow == nullptr) {
 		display->displayPopup(l10n::get(l10n::String::STRING_FOR_AFFECT_ALL_PRESET_KITS_ONLY));
 		return;
 	}

@@ -214,9 +214,17 @@ Error LoadInstrumentPresetUI::setupForOutputType() {
 	// I don't have this calling arrivedInNewFolder(), because as you can see below, we want to either just display the
 	// existing preset, or call confirmPresetOrNextUnlaunchedOne() to skip any which aren't "available".
 
-	// From the SHIFT + SYNTH picker: its folder, from the top
+	// From the SHIFT + SYNTH picker: its folder, on the synth being replaced if it came from there, else on the
+	// preset last browsed in it, else from the top
 	if (!pickerStartDir.isEmpty()) {
 		currentDir.set(&pickerStartDir);
+		if (instrumentToReplace && instrumentToReplace->type == outputTypeToLoad
+		    && !strcasecmp(instrumentToReplace->dirPath.get(), pickerStartDir.get())) {
+			searchFilename.set(&instrumentToReplace->name);
+		}
+		else if (!strcasecmp(pickerLastDir.get(), pickerStartDir.get())) {
+			searchFilename.set(&pickerLastName);
+		}
 	}
 
 	// If same Instrument type as we already had...
@@ -1178,12 +1186,25 @@ void LoadInstrumentPresetUI::exitAction() {
 	LoadUI::exitAction();
 }
 
-// From the SHIFT + SYNTH picker, BACK in the folder it opened on puts the old synth back and returns to the categories
+void LoadInstrumentPresetUI::rememberPickerPlace() {
+	FileItem* item = getCurrentFileItem();
+	if (pickerStartDir.isEmpty() || item == nullptr || fileIndexSelected < 0) {
+		return;
+	}
+	pickerLastDir.set(&currentDir);
+	if (item->getFilenameWithoutExtension(&pickerLastName) != Error::NONE) {
+		pickerLastName.clear();
+	}
+}
+
+// From the SHIFT + SYNTH picker, BACK in the folder it opened on puts the old synth back and returns to the categories.
+// The preset it was on is remembered, so going into that category again picks up there.
 ActionResult LoadInstrumentPresetUI::backButtonAction() {
 	if (!pickerStartDir.isEmpty() && !strcasecmp(currentDir.get(), pickerStartDir.get())) {
 		if (sdRoutineLock) {
 			return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 		}
+		rememberPickerPlace();
 		const int32_t backTo = pickerBackToType;
 		exitAction();
 		if (backTo >= 0 && getCurrentUI() == getRootUI()

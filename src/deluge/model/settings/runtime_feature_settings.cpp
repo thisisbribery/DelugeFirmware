@@ -171,7 +171,7 @@ void RuntimeFeatureSettings::init() {
 
 	// EnableDX7Engine
 	SetupOnOffSetting(settings[RuntimeFeatureSettingType::EnableDX7Engine], STRING_FOR_COMMUNITY_FEATURE_DX7_ENGINE,
-	                  "EnableDX7Engine", RuntimeFeatureStateToggle::Off);
+	                  "EnableDX7Engine", RuntimeFeatureStateToggle::On);
 
 	// EmulatedDisplay
 	SetupEmulatedDisplaySetting(settings[RuntimeFeatureSettingType::EmulatedDisplay],

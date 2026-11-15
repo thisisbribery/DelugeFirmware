@@ -49,7 +49,7 @@ struct SynthInstrument {
 // BROPHET goes after DX7, and BRUNO106 after BROPHET, so the types saved before them (Defaults > Synth instrument) keep
 // their numbers. DX7 only shows
 // with its setting on, so it usually comes straight after BRINGS.
-inline constexpr std::array<SynthInstrument, 9> kSynthInstruments{{
+inline constexpr std::array<SynthInstrument, 10> kSynthInstruments{{
     {l10n::String::STRING_FOR_SYNTH_TYPE_SUBT, "SYNTHS/SUBT", SynthMode::SUBTRACTIVE, false, false, false, false,
      false},
     {l10n::String::STRING_FOR_SYNTH_TYPE_FM, "SYNTHS/FM", SynthMode::FM, false, false, false, false, false},
@@ -63,14 +63,16 @@ inline constexpr std::array<SynthInstrument, 9> kSynthInstruments{{
      false},
     {l10n::String::STRING_FOR_SYNTH_TYPE_BRUNO106, "SYNTHS/BRUNO106", SynthMode::SUBTRACTIVE, false, false, false,
      false, false, true},
+    // The 303 (SYNTH MODE 303): after BRUNO106, so the types saved before it keep their numbers
+    {l10n::String::STRING_FOR_SYNTH_TYPE_303, "SYNTHS/303", SynthMode::TB303, false, false, false, false, false},
     {l10n::String::STRING_FOR_SYNTH_TYPE_INIT, "SYNTHS", SynthMode::SUBTRACTIVE, false, false, false, false, true},
 }};
 
 /// The ones a new track can start as (Settings > Defaults): all but INIT, which is last
 inline constexpr size_t kNumDefaultSynthInstruments = kSynthInstruments.size() - 1;
 
-/// The category folders inside each type's folder, in the order SHIFT + SYNTH offers them. label, if set, is shown
-/// instead of the name string (the same on OLED and 7SEG, which scrolls it).
+/// The category folders inside each type's folder, in the order SHIFT + SYNTH offers them (LEAD first). label, if set,
+/// is shown instead of the name string (the same on OLED and 7SEG, which scrolls it).
 struct SynthCategory {
 	l10n::String name;
 	char const* folder;
@@ -78,8 +80,8 @@ struct SynthCategory {
 };
 
 inline constexpr std::array<SynthCategory, 4> kSynthCategories{{
-    {l10n::String::STRING_FOR_SYNTH_CATEGORY_BASS, "BASS"},
     {l10n::String::STRING_FOR_SYNTH_CATEGORY_LEAD, "LEAD"},
+    {l10n::String::STRING_FOR_SYNTH_CATEGORY_BASS, "BASS"},
     {l10n::String::STRING_FOR_SYNTH_CATEGORY_PAD, "PAD"},
     {l10n::String::STRING_FOR_SYNTH_CATEGORY_MISC, "MISC"},
 }};

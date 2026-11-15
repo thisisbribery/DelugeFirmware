@@ -105,7 +105,13 @@ public:
 	RuntimeFeatureSettings();
 
 	// Traded type safety for option values for code simplicity and size, use enum from above to compare
-	inline uint32_t get(RuntimeFeatureSettingType type) { return settings[type].value; };
+	inline uint32_t get(RuntimeFeatureSettingType type) {
+		// Bribes: the DX7 engine is always on (its menu toggle and any saved Off are ignored)
+		if (type == RuntimeFeatureSettingType::EnableDX7Engine) {
+			return RuntimeFeatureStateToggle::On;
+		}
+		return settings[type].value;
+	};
 	inline bool isOn(RuntimeFeatureSettingType type) { return get(type) == RuntimeFeatureStateToggle::On; }
 
 	/**

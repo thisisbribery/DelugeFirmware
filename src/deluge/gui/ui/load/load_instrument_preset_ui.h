@@ -127,6 +127,10 @@ private:
 	char const* pickerFolder = nullptr;
 	int32_t pickerBackToType = -1;
 	String pickerStartDir;
+	// The preset last browsed from the picker and its folder, to pick up there next time
+	String pickerLastDir;
+	String pickerLastName;
+	void rememberPickerPlace();
 };
 
 extern LoadInstrumentPresetUI loadInstrumentPresetUI;
