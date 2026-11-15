@@ -18,8 +18,39 @@ std::string_view getView(const deluge::l10n::Language& language, deluge::l10n::S
 	return built_in::english.get(deluge::l10n::String::EMPTY_STRING).value(); // EMPTY_STRING
 }
 
+namespace {
+// Ring of recent lookups in the chosen language: enough for a context menu's options and the screen around them
+constexpr size_t kRecentLookups = 64;
+struct RecentLookup {
+	char const* data;
+	uint16_t size;
+	uint16_t string;
+};
+RecentLookup recentLookups[kRecentLookups]{};
+size_t recentLookupNext = 0;
+} // namespace
+
 std::string_view getView(deluge::l10n::String string) {
-	return getView(*chosenLanguage, string);
+	const std::string_view view = getView(*chosenLanguage, string);
+	RecentLookup& slot = recentLookups[recentLookupNext];
+	slot.data = view.data();
+	slot.size = view.size();
+	slot.string = util::to_underlying(string);
+	recentLookupNext = (recentLookupNext + 1) % kRecentLookups;
+	return view;
+}
+
+int32_t recentLookupOf(std::string_view text) {
+	if (text.data() == nullptr) {
+		return -1;
+	}
+	for (size_t n = 1; n <= kRecentLookups; n++) {
+		const RecentLookup& slot = recentLookups[(recentLookupNext + kRecentLookups - n) % kRecentLookups];
+		if (slot.data == text.data() && slot.size == text.size()) {
+			return slot.string;
+		}
+	}
+	return -1;
 }
 
 const char* get(const Language& language, deluge::l10n::String string) {

@@ -19,8 +19,8 @@ void requestState(MIDICable& cable, uint8_t* data, int32_t len);
 void sendStateIfChanged(bool force = false);
 /// Copy display text for the companion screen (up to 40 characters) and find which l10n string it is, by pointer
 void companionCopyText(char* dest, std::string_view text, int16_t& stringIndex);
-/// Which l10n string some display text is (-1 if none), by matching the 7-seg text
-int16_t companionLookUp(std::string_view text);
+/// Remember the OLED's popup text, for the companion screen in OLED mode
+void companionNoteOledPopup(char const* text);
 /// Choose the picker option the tablet tapped (host sends 03 02 <option>), from the COMPANION_PICK UI timer
 void runPendingPick();
 } // namespace HIDSysex

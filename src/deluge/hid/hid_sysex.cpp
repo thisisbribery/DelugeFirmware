@@ -5,6 +5,7 @@
 #include "gui/l10n/l10n.h"
 #include "gui/l10n/language.h"
 #include "gui/menu_item/menu_item.h"
+#include "gui/ui/browser/browser.h"
 #include "gui/ui/sound_editor.h"
 #include "gui/ui/ui.h"
 #include "gui/ui_timer_manager.h"
@@ -22,6 +23,8 @@
 #include "processing/engines/audio_engine.h"
 #include "processing/sound/sound_drum.h"
 #include "processing/sound/sound_instrument.h"
+#include "storage/file_item.h"
+#include "util/d_stringbuf.h"
 #include "util/pack.h"
 #include <algorithm>
 #include <cstring>
@@ -49,6 +52,10 @@ constexpr int32_t kTextMax = 40;
 constexpr uint8_t kPickerHeader[7] = {0xF0, 0x00, 0x21, 0x7B, 0x01, 0x02, 0x45};
 constexpr int32_t kPickerMaxOptions = 32;
 constexpr int32_t kPickerNameMax = 20;
+constexpr uint8_t kBrowserHeader[7] = {0xF0, 0x00, 0x21, 0x7B, 0x01, 0x02, 0x46};
+constexpr uint8_t kBrowserSelHeader[7] = {0xF0, 0x00, 0x21, 0x7B, 0x01, 0x02, 0x47};
+constexpr int32_t kBrowserWindow = 48; ///< Items sent around the selected one
+constexpr int32_t kBrowserNameMax = 24;
 
 // Engine codes: a drum_synth::Engine number (0 up, append-only, saved with sounds), or one of these
 constexpr uint8_t kCodeTb303 = 0x7A;
@@ -65,70 +72,40 @@ uint8_t lastRows[kStateMaxRows + 2];
 int32_t lastRowsLen = 0;
 uint8_t lastText[5 * (kTextMax + 1) + 2];
 int32_t lastTextLen = 0;
+char oledPopupText[kTextMax + 1] = {}; ///< The OLED's popup, in OLED mode
 
 using deluge::l10n::kNumStrings;
 namespace l10n_built_in = deluge::l10n::built_in;
 
-bool sameIgnoringCase(std::string_view a, std::string_view b) {
-	if (a.size() != b.size()) {
-		return false;
-	}
-	for (size_t i = 0; i < a.size(); i++) {
-		char x = a[i];
-		char y = b[i];
-		x = (x >= 'a' && x <= 'z') ? x - 32 : x;
-		y = (y >= 'a' && y <= 'z') ? y - 32 : y;
-		if (x != y) {
-			return false;
-		}
-	}
-	return true;
-}
-
-/// Which l10n string this text is: the 7-seg table first, then English (7-seg falls back to it). By pointer when
-/// the text came straight from the table, else, if byText, by matching the 7-seg text. -1 if none.
-int16_t stringIndexOf(std::string_view text, bool byText) {
+/// Which l10n string this text is, only when that's certain, else -1 (the text is then shown as it is, never
+/// guessed). Certain means: a recent lookup returned exactly this text for that string (identical texts share
+/// storage, so the lookup says which one was meant), or, with scanUnique, only one string uses this storage.
+int16_t resolveString(std::string_view text, bool scanUnique) {
 	if (text.empty()) {
 		return -1;
 	}
-	for (size_t i = 0; i < kNumStrings; i++) {
-		const auto s = l10n_built_in::seven_segment.get(static_cast<deluge::l10n::String>(i));
-		if (s.has_value() && s->data() == text.data() && s->size() == text.size()) {
-			return i;
-		}
+	const int32_t recent = deluge::l10n::recentLookupOf(text);
+	if (recent >= 0) {
+		return recent;
 	}
-	for (size_t i = 0; i < kNumStrings; i++) {
-		const auto s = l10n_built_in::english.get(static_cast<deluge::l10n::String>(i));
-		if (s.has_value() && s->data() == text.data() && s->size() == text.size()) {
-			return i;
-		}
-	}
-	if (!byText) {
+	if (!scanUnique) {
 		return -1;
 	}
-	// By text: every string that shows as this text on the 7-seg, its own 7-seg version or the English it falls
-	// back to. Several can match (BASS is both "Bass" and "Bass Probability"): the one whose English is the same
-	// word wins, else the shortest English.
-	int16_t best = -1;
-	size_t bestLength = SIZE_MAX;
+	int16_t found = -1;
 	for (size_t i = 1; i < kNumStrings; i++) {
 		const auto id = static_cast<deluge::l10n::String>(i);
 		const auto seg = l10n_built_in::seven_segment.get(id);
 		const auto eng = l10n_built_in::english.get(id);
-		const auto shown = seg.has_value() ? seg : eng;
-		if (!shown.has_value() || !sameIgnoringCase(*shown, text)) {
-			continue;
-		}
-		if (eng.has_value() && sameIgnoringCase(*eng, text)) {
-			return i;
-		}
-		const size_t length = eng.has_value() ? eng->size() : SIZE_MAX - 1;
-		if (length < bestLength) {
-			best = i;
-			bestLength = length;
+		const bool same = (seg.has_value() && seg->data() == text.data() && seg->size() == text.size())
+		                  || (eng.has_value() && eng->data() == text.data() && eng->size() == text.size());
+		if (same) {
+			if (found >= 0) {
+				return -1; // Shared by two strings: can't be sure which
+			}
+			found = i;
 		}
 	}
-	return best;
+	return found;
 }
 
 std::string_view englishFor(std::string_view text, int16_t stringIndex) {
@@ -211,10 +188,21 @@ int32_t buildText(uint8_t* out) {
 	int16_t popupIndex = -1;
 	std::string_view mainText;
 	std::string_view popupText;
+	DEF_STACK_STRING_BUF(oledValue, kTextMax + 1);
 	if (display->have7SEG()) {
 		auto* seg = static_cast<deluge::hid::display::SevenSegment*>(display);
 		mainText = seg->companionMainText(mainIndex);
 		popupText = seg->companionPopupText(popupIndex);
+	}
+	else {
+		// OLED mode: its text is English already. The main text is the value of the menu item being edited.
+		if (getCurrentUI() == &soundEditor && soundEditor.getCurrentMenuItem() != nullptr) {
+			soundEditor.getCurrentMenuItem()->getNotificationValue(oledValue);
+			mainText = oledValue.c_str();
+		}
+		if (display->hasPopup()) {
+			popupText = oledPopupText;
+		}
 	}
 
 	std::string_view menuName;
@@ -229,7 +217,10 @@ int32_t buildText(uint8_t* out) {
 			if (item != cachedItem || menuName.data() != cachedName) {
 				cachedItem = item;
 				cachedName = menuName.data();
-				cachedIndex = stringIndexOf(menuName, true);
+				// The item's own string when that's the name it shows, else only if certain
+				const auto own = deluge::l10n::getView(*deluge::l10n::chosenLanguage, item->name);
+				cachedIndex =
+				    (own.data() == menuName.data()) ? util::to_underlying(item->name) : resolveString(menuName, true);
 			}
 			menuName = englishFor(menuName, cachedIndex);
 		}
@@ -263,7 +254,7 @@ int32_t putEnglish(uint8_t* out, char const* text, int32_t max) {
 		return 1;
 	}
 	const std::string_view view(text);
-	const std::string_view english = englishFor(view, stringIndexOf(view, true));
+	const std::string_view english = englishFor(view, resolveString(view, true));
 	int32_t n = 0;
 	for (; n < max && n < static_cast<int32_t>(english.size()); n++) {
 		const char c = english[n];
@@ -330,6 +321,118 @@ bool updatePicker() {
 	}
 	pickerBodyLen = i;
 	return true;
+}
+
+// Browser (preset, song, pattern and sample browsers): the window of names around the selected item
+uint8_t browserBody[8 + (kBrowserNameMax + 1) + (kBrowserNameMax + 2) * kBrowserWindow];
+int32_t browserBodyLen = 0;
+bool browserWasOpen = false;
+uint32_t browserKeyDir = 0;     ///< Hash of the folder path
+int32_t browserKeyCount = -1;   ///< Items loaded
+int32_t browserKeyDeleted = -1; ///< Items before them not loaded
+int32_t browserKeyStart = -1;   ///< Absolute index of the first item sent
+int32_t browserKeyCountSent = 0;
+int32_t browserKeySelected = -2;
+
+bool browserIsOpen() {
+	UI* ui = getCurrentUI();
+	if (ui == nullptr) {
+		return false;
+	}
+	switch (ui->getUIType()) {
+	case UIType::LOAD_INSTRUMENT_PRESET:
+	case UIType::LOAD_SONG:
+	case UIType::LOAD_PATTERN:
+	case UIType::SAMPLE_BROWSER:
+		return true;
+	default:
+		return false;
+	}
+}
+
+uint32_t hashText(char const* text) {
+	uint32_t h = 2166136261u;
+	for (; text != nullptr && *text != '\0'; text++) {
+		h = (h ^ static_cast<uint8_t>(*text)) * 16777619u;
+	}
+	return h;
+}
+
+/// What to send for the browser: 0 = nothing, 1 = the whole window (BROWSER), 2 = only the selection (BROWSER_SEL).
+/// BROWSER body: version, open, base (2 bytes, absolute index of the first item), selected (2 bytes, absolute, 0x3FFF
+/// if none), count, folder name, then per item a flags byte (1 = folder) and its name.
+int32_t updateBrowser() {
+	if (!browserIsOpen()) {
+		if (!browserWasOpen) {
+			return 0;
+		}
+		browserWasOpen = false;
+		browserKeyCount = -1;
+		int32_t i = 0;
+		browserBody[i++] = kStateVersion;
+		browserBody[i++] = 0;
+		browserBody[i++] = 0;
+		browserBody[i++] = 0;
+		browserBody[i++] = 0x7F;
+		browserBody[i++] = 0x7F;
+		browserBody[i++] = 0;
+		browserBody[i++] = 0;
+		browserBodyLen = i;
+		return 1;
+	}
+	const int32_t count = Browser::fileItems.getNumElements();
+	const int32_t deleted = Browser::numFileItemsDeletedAtStart;
+	const int32_t selectedLocal = Browser::getFileIndexSelected();
+	const int32_t selected = (selectedLocal >= 0) ? deleted + selectedLocal : -1;
+	const uint32_t dir = hashText(Browser::currentDir.get());
+
+	const bool sameList =
+	    browserWasOpen && dir == browserKeyDir && count == browserKeyCount && deleted == browserKeyDeleted;
+	const bool inWindow =
+	    selected < 0 || (selected >= browserKeyStart && selected < browserKeyStart + browserKeyCountSent);
+	if (sameList && inWindow) {
+		if (selected == browserKeySelected) {
+			return 0;
+		}
+		browserKeySelected = selected;
+		return 2;
+	}
+
+	browserWasOpen = true;
+	browserKeyDir = dir;
+	browserKeyCount = count;
+	browserKeyDeleted = deleted;
+	browserKeySelected = selected;
+	int32_t startLocal = std::max<int32_t>(0, (selectedLocal >= 0 ? selectedLocal : 0) - kBrowserWindow / 2);
+	startLocal = std::max<int32_t>(0, std::min<int32_t>(startLocal, count - kBrowserWindow));
+	const int32_t sent = std::min<int32_t>(kBrowserWindow, count - startLocal);
+	browserKeyStart = deleted + startLocal;
+	browserKeyCountSent = sent;
+
+	int32_t i = 0;
+	browserBody[i++] = kStateVersion;
+	browserBody[i++] = 1;
+	browserBody[i++] = (browserKeyStart >> 7) & 0x7F;
+	browserBody[i++] = browserKeyStart & 0x7F;
+	const int32_t sel = selected < 0 ? 0x3FFF : std::min<int32_t>(selected, 0x3FFE);
+	browserBody[i++] = (sel >> 7) & 0x7F;
+	browserBody[i++] = sel & 0x7F;
+	browserBody[i++] = sent;
+	char const* path = Browser::currentDir.get();
+	char const* folder = path;
+	for (char const* c = path; c != nullptr && *c != '\0'; c++) {
+		if (*c == '/') {
+			folder = c + 1;
+		}
+	}
+	i += putName(browserBody + i, folder); // Folder and file names are names, not strings: shown as they are
+	for (int32_t n = 0; n < sent; n++) {
+		auto* item = static_cast<FileItem*>(Browser::fileItems.getElementAddress(startLocal + n));
+		browserBody[i++] = item->isFolder ? 1 : 0;
+		i += putName(browserBody + i, item->displayName != nullptr ? item->displayName : item->filename.get());
+	}
+	browserBodyLen = i;
+	return 1;
 }
 
 /// The STATE body after the header and sequence byte. Returns its length.
@@ -400,7 +503,7 @@ int32_t buildRows(uint8_t* out) {
 }
 
 void sendFramed(MIDICable& cable, uint8_t const* header, bool withSeq, uint8_t const* body, int32_t bodyLen) {
-	static uint8_t msg[7 + 1 + sizeof(pickerBody) + 1];
+	static uint8_t msg[7 + 1 + std::max(sizeof(pickerBody), sizeof(browserBody)) + 1];
 	int32_t i = 0;
 	memcpy(msg, header, 7);
 	i += 7;
@@ -474,6 +577,25 @@ void HIDSysex::sendStateIfChanged(bool force) {
 	}
 	if (updatePicker() || (force && pickerBodyLen > 0)) {
 		sendFramed(*midiStateCable, kPickerHeader, false, pickerBody, pickerBodyLen);
+	}
+
+	// The browser window is the biggest message (up to about 420 USB MIDI messages): wait for room
+	if (midiStateCable->sendBufferSpace() < 450) {
+		uiTimerManager.setTimer(TimerName::SYSEX_DISPLAY, 100);
+		return;
+	}
+	if (force) {
+		browserKeyCount = -1; // Resend the whole window
+	}
+	const int32_t browserSend = updateBrowser();
+	if (browserSend == 1) {
+		sendFramed(*midiStateCable, kBrowserHeader, false, browserBody, browserBodyLen);
+	}
+	else if (browserSend == 2) {
+		uint8_t sel[3] = {kStateVersion,
+		                  static_cast<uint8_t>((browserKeySelected < 0 ? 0x3FFF : browserKeySelected) >> 7 & 0x7F),
+		                  static_cast<uint8_t>((browserKeySelected < 0 ? 0x3FFF : browserKeySelected) & 0x7F)};
+		sendFramed(*midiStateCable, kBrowserSelHeader, false, sel, 3);
 	}
 }
 
@@ -710,15 +832,15 @@ void HIDSysex::companionCopyText(char* dest, std::string_view text, int16_t& str
 		dest[i] = text[i];
 	}
 	dest[i] = '\0';
-	// Look it up once here rather than on every redraw, and only while a companion screen is listening
+	// Look it up now, while the recent lookups still say which string it was. The scan for storage only one string
+	// uses costs more, so only while a companion screen is listening.
 	const bool listening = midiStateCable != nullptr && AudioEngine::audioSampleTimer <= midiStateUntil;
-	// By pointer on the original text (the copy is never in the table), then by matching the 7-seg text.
-	// -2 = not looked up yet: companionLookUp() does it from the copy when first sent.
-	stringIndex = listening ? stringIndexOf(text, true) : -2;
+	stringIndex = resolveString(text, listening);
 }
 
-int16_t HIDSysex::companionLookUp(std::string_view text) {
-	return stringIndexOf(text, true);
+void HIDSysex::companionNoteOledPopup(char const* text) {
+	int16_t unused;
+	companionCopyText(oledPopupText, text != nullptr ? text : "", unused);
 }
 
 void HIDSysex::runPendingPick() {

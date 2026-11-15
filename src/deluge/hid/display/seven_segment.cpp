@@ -643,9 +643,6 @@ void SevenSegment::displayPopup(char const* newText, int8_t numFlashes, bool ali
 std::string_view SevenSegment::companionMainText(int16_t& stringIndex) {
 	for (NumericLayer* layer = topLayer; layer != nullptr; layer = layer->next) {
 		if (layer->companionText[0] != '\0') {
-			if (layer->companionString == -2) {
-				layer->companionString = HIDSysex::companionLookUp(layer->companionText);
-			}
 			stringIndex = layer->companionString;
 			return layer->companionText;
 		}
@@ -655,9 +652,6 @@ std::string_view SevenSegment::companionMainText(int16_t& stringIndex) {
 }
 
 std::string_view SevenSegment::companionPopupText(int16_t& stringIndex) {
-	if (popupActive && popup.companionString == -2) {
-		popup.companionString = HIDSysex::companionLookUp(popup.companionText);
-	}
 	stringIndex = popupActive ? popup.companionString : -1;
 	return popupActive ? std::string_view(popup.companionText) : std::string_view();
 }

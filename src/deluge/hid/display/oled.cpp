@@ -678,6 +678,7 @@ void OLED::drawPermanentPopupLookingText(char const* text) {
 }
 
 void OLED::popupText(char const* text, bool persistent, PopupType type) {
+	HIDSysex::companionNoteOledPopup(text);
 
 	TextLineBreakdown textLineBreakdown;
 	textLineBreakdown.maxCharsPerLine = 19;

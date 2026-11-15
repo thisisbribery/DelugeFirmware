@@ -35,6 +35,6 @@ public:
 
 	/// The whole text this layer shows, before it's cut to 4 characters, for the companion screen. Empty if unknown.
 	char companionText[41] = {};
-	/// The l10n string the text is: -1 if none was found, -2 if not looked up yet
+	/// The l10n string the text is: -1 if not certain (then shown as it is)
 	int16_t companionString = -1;
 };

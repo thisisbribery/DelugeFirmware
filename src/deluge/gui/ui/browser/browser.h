@@ -117,6 +117,8 @@ public:
 	static String currentDir;
 	static CStringArray fileItems;
 	static int32_t numFileItemsDeletedAtStart;
+	/// For the companion screen: the selected item's index in fileItems, -1 if none
+	static int32_t getFileIndexSelected() { return fileIndexSelected; }
 	static int32_t numFileItemsDeletedAtEnd;
 	// These hold the displayName of the boundary FileItem kept when we cull items off either end of the list to stay
 	// under the memory cap. They must own a *copy* of the name (not borrow the FileItem's buffer): the FileItem they
