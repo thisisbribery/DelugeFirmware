@@ -261,6 +261,10 @@ void UITimerManager::routine() {
 					HIDSysex::runPendingPick();
 					break;
 
+				case TimerName::COMPANION_WAVE:
+					HIDSysex::sendStateIfChanged();
+					break;
+
 				// explicit fallthrough cases
 				case TimerName::METER_INDICATOR_BLINK: // really nothing for this?
 				case TimerName::NUM_TIMERS:;

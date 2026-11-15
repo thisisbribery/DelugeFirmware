@@ -1,6 +1,7 @@
 #include "gui/l10n/l10n.h"
 #include "gui/l10n/strings.h"
 #include "util/misc.h"
+#include <algorithm>
 
 namespace deluge::l10n {
 Language const* chosenLanguage = nullptr;
@@ -51,6 +52,30 @@ int32_t recentLookupOf(std::string_view text) {
 		}
 	}
 	return -1;
+}
+
+int32_t recentLookupByContent(std::string_view text, size_t depth) {
+	if (text.empty()) {
+		return -1;
+	}
+	depth = std::min(depth, kRecentLookups);
+	int32_t found = -1;
+	std::string_view foundEnglish;
+	for (size_t n = 1; n <= depth; n++) {
+		const RecentLookup& slot = recentLookups[(recentLookupNext + kRecentLookups - n) % kRecentLookups];
+		if (slot.data == nullptr || std::string_view(slot.data, slot.size) != text) {
+			continue;
+		}
+		const auto english = getView(built_in::english, static_cast<String>(slot.string));
+		if (found < 0) {
+			found = slot.string;
+			foundEnglish = english;
+		}
+		else if (english != foundEnglish) {
+			return -1; // Two recent strings with this text that mean different things: not certain
+		}
+	}
+	return found;
 }
 
 const char* get(const Language& language, deluge::l10n::String string) {

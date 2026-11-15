@@ -41,6 +41,7 @@ enum class TimerName {
 	OLED_SCROLLING_AND_BLINKING,
 	SYSEX_DISPLAY,
 	COMPANION_PICK, ///< Choose the picker option a companion screen tapped
+	COMPANION_WAVE, ///< Keep a companion screen's waveform view up to date (scroll, zoom, playhead)
 	METER_INDICATOR_BLINK,
 	SEND_MIDI_FEEDBACK_FOR_AUTOMATION,
 	INTERPOLATION_SHORTCUT_BLINK,

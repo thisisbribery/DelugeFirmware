@@ -71,6 +71,8 @@ public:
 
 	// ui
 	UIType getUIType() override { return UIType::SAMPLE_BROWSER; }
+	/// Whether the pads show the waveform of the sample being previewed (in waveformBasicNavigator)
+	bool isShowingSamplePreview() const { return currentlyShowingSamplePreview; }
 	bool canDisplayFavourites() override { return true; }
 
 protected:

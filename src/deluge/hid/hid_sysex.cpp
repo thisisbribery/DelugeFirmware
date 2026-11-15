@@ -6,9 +6,15 @@
 #include "gui/l10n/language.h"
 #include "gui/menu_item/menu_item.h"
 #include "gui/ui/browser/browser.h"
+#include "gui/ui/browser/sample_browser.h"
+#include "gui/ui/sample_marker_editor.h"
 #include "gui/ui/sound_editor.h"
 #include "gui/ui/ui.h"
 #include "gui/ui_timer_manager.h"
+#include "gui/views/audio_clip_view.h"
+#include "gui/waveform/waveform_basic_navigator.h"
+#include "gui/waveform/waveform_render_data.h"
+#include "gui/waveform/waveform_renderer.h"
 #include "hid/button.h"
 #include "hid/buttons.h"
 #include "hid/display/oled.h"
@@ -17,14 +23,19 @@
 #include "io/midi/midi_engine.h"
 #include "io/midi/sysex.h"
 #include "memory/general_memory_allocator.h"
+#include "model/clip/audio_clip.h"
 #include "model/clip/clip.h"
 #include "model/drum/drum.h"
 #include "model/instrument/kit.h"
+#include "model/sample/sample.h"
+#include "model/sample/sample_holder_for_voice.h"
 #include "model/song/song.h"
+#include "playback/playback_handler.h"
 #include "processing/engines/audio_engine.h"
 #include "processing/sound/sound_drum.h"
 #include "processing/sound/sound_instrument.h"
 #include "storage/file_item.h"
+#include "storage/multi_range/multisample_range.h"
 #include "util/d_stringbuf.h"
 #include "util/pack.h"
 #include <algorithm>
@@ -189,20 +200,27 @@ int32_t buildText(uint8_t* out) {
 	int16_t popupIndex = -1;
 	std::string_view mainText;
 	std::string_view popupText;
-	DEF_STACK_STRING_BUF(oledValue, kTextMax + 1);
+	DEF_STACK_STRING_BUF(itemValue, kTextMax + 1);
 	if (display->have7SEG()) {
 		auto* seg = static_cast<deluge::hid::display::SevenSegment*>(display);
 		mainText = seg->companionMainText(mainIndex);
 		popupText = seg->companionPopupText(popupIndex);
 	}
-	else {
-		// OLED mode: its text is English already. The main text is the value of the menu item being edited.
-		if (getCurrentUI() == &soundEditor && soundEditor.getCurrentMenuItem() != nullptr) {
-			soundEditor.getCurrentMenuItem()->getNotificationValue(oledValue);
-			mainText = oledValue.c_str();
+	else if (display->hasPopup()) {
+		popupText = oledPopupText; // OLED mode: its text is English already
+	}
+	// Editing a menu item: the main text is its value, whatever the display is showing (a 7-seg scrolls the name
+	// first), so the tablet shows the name and the value together
+	if (getCurrentUI() == &soundEditor && soundEditor.getCurrentMenuItem() != nullptr) {
+		soundEditor.getCurrentMenuItem()->getNotificationValue(itemValue);
+		if (itemValue.size() > 0) {
+			mainText = itemValue.c_str();
+			// The value was just looked up (an option's text) or is a number: only a copy here, so match it against
+			// the latest lookups by text, which gives up when two of them differ in meaning
+			mainIndex = display->have7SEG() ? deluge::l10n::recentLookupByContent(mainText) : -1;
 		}
-		if (display->hasPopup()) {
-			popupText = oledPopupText;
+		else if (!display->have7SEG()) {
+			mainText = {};
 		}
 	}
 
@@ -522,6 +540,246 @@ void sendFramed(MIDICable& cable, uint8_t const* header, bool withSeq, uint8_t c
 	msg[i++] = 0xF7;
 	cable.sendSysex(msg, i);
 }
+
+// ---- Waveform (audio clip view, sample marker editor, sample browser preview) ----
+constexpr uint8_t kWaveHeader[7] = {0xF0, 0x00, 0x21, 0x7B, 0x01, 0x02, 0x48};
+constexpr uint8_t kPlayheadHeader[7] = {0xF0, 0x00, 0x21, 0x7B, 0x01, 0x02, 0x49};
+constexpr int32_t kWaveSub = 12;                        ///< Tablet columns per pad column
+constexpr int32_t kWaveChunks = kWaveSub;               ///< Each chunk is kDisplayWidth tablet columns
+constexpr int32_t kWaveCols = kDisplayWidth * kWaveSub; ///< 192
+constexpr int32_t kWaveChunksPerCall = 4;               ///< Peak work per call, to keep frames short
+constexpr int32_t kWaveMaxMarkers = 6;
+constexpr int32_t kWaveBodyMax = 8 + 1 + kWaveMaxMarkers * 3 + 1 + kStateNameMax + 2 * kWaveCols;
+constexpr int32_t kWaveNoCol = 0x3FFF;
+
+WaveformRenderData waveChunks[kWaveChunks];
+Sample* waveSample = nullptr;
+uint8_t waveBody[kWaveBodyMax];
+int32_t waveBodyLen = 0;
+uint8_t lastWave[kWaveBodyMax];
+int32_t lastWaveLen = 0;
+bool waveWasOpen = false;
+uint32_t waveLastSendTime = 0;
+int32_t lastPlayhead = -2;
+
+/// The tablet column of a sample position, clamped to a little past either edge
+int32_t waveCol(int64_t pos, int64_t xScroll, int64_t subZoom) {
+	const int64_t col = (pos - xScroll) / subZoom;
+	return static_cast<int32_t>(std::clamp<int64_t>(col, -1, kWaveCols + 1));
+}
+
+/// 14-bit marker column, -1 kept as 0x3FFE so the tablet can tell "off the left" from "none"
+void putCol(uint8_t* out, int32_t col) {
+	const int32_t v = col < 0 ? 0x3FFE : std::min<int32_t>(col, 0x3FFD);
+	out[0] = (v >> 7) & 0x7F;
+	out[1] = v & 0x7F;
+}
+
+/// The file name without its folders
+char const* fileNameOf(Sample* sample) {
+	char const* path = sample->filePath.get();
+	char const* slash = strrchr(path, '/');
+	return slash != nullptr ? slash + 1 : path;
+}
+
+struct WaveView {
+	uint8_t kind = 0; ///< 0 none, 1 audio clip, 2 sample marker editor, 3 sample browser
+	Sample* sample = nullptr;
+	int64_t xScroll = 0;
+	int64_t xZoom = 1;
+	bool reversed = false;
+	bool recording = false;
+	int32_t numMarkers = 0;
+	uint8_t markerType[kWaveMaxMarkers];
+	int64_t markerPos[kWaveMaxMarkers];
+	int64_t playhead = -1; ///< Sample position, or -1
+};
+
+void addMarker(WaveView& v, uint8_t type, int64_t pos) {
+	if (v.numMarkers < kWaveMaxMarkers) {
+		v.markerType[v.numMarkers] = type;
+		v.markerPos[v.numMarkers] = pos;
+		v.numMarkers++;
+	}
+}
+
+/// What waveform the Deluge's pads are showing, if any. Marker types: 0 start, 1 loop start, 2 loop end, 3 end (as
+/// MarkerType), 4 clip start, 5 clip end; 0x10 set on the one being edited.
+WaveView currentWaveView() {
+	WaveView v;
+	UI* ui = getCurrentUI();
+	if (ui == nullptr) {
+		return v;
+	}
+	switch (ui->getUIType()) {
+	case UIType::AUDIO_CLIP: {
+		AudioClip* clip = getCurrentAudioClip();
+		if (clip == nullptr) {
+			return v;
+		}
+		v.recording = clip->getCurrentlyRecordingLinearly();
+		v.sample = v.recording ? clip->recorder->sample : static_cast<Sample*>(clip->sampleHolder.audioFile);
+		if (v.sample == nullptr) {
+			return v;
+		}
+		v.kind = 1;
+		const int32_t scrollTicks = currentSong->xScroll[NAVIGATION_CLIP];
+		const int32_t zoomTicks = currentSong->xZoom[NAVIGATION_CLIP];
+		clip->getScrollAndZoomInSamples(scrollTicks, zoomTicks, &v.xScroll, &v.xZoom);
+		v.reversed = clip->sampleControls.isCurrentlyReversed();
+		// Ticks to samples with the same sum the pads use: the scroll position of that tick
+		int64_t pos;
+		int64_t unusedZoom;
+		clip->getScrollAndZoomInSamples(0, zoomTicks, &pos, &unusedZoom);
+		addMarker(v, 4, pos);
+		clip->getScrollAndZoomInSamples(clip->loopLength, zoomTicks, &pos, &unusedZoom);
+		addMarker(v, 5, pos);
+		if (playbackHandler.isEitherClockActive() && currentSong->isClipActive(clip)) {
+			clip->getScrollAndZoomInSamples(static_cast<int32_t>(clip->getLivePos()), zoomTicks, &pos, &unusedZoom);
+			v.playhead = pos;
+		}
+		return v;
+	}
+	case UIType::SAMPLE_MARKER_EDITOR: {
+		v.sample = waveformBasicNavigator.sample;
+		if (v.sample == nullptr) {
+			return v;
+		}
+		v.kind = 2;
+		v.xScroll = waveformBasicNavigator.xScroll;
+		v.xZoom = waveformBasicNavigator.xZoom;
+		const int32_t editing = util::to_underlying(sampleMarkerEditor.markerType);
+		auto mark = [&](int32_t type, int64_t pos) { addMarker(v, type | (type == editing ? 0x10 : 0), pos); };
+		AudioClip* clip = (getCurrentClip() != nullptr && getCurrentClip()->type == ClipType::AUDIO)
+		                      ? getCurrentAudioClip()
+		                      : nullptr;
+		if (clip != nullptr) {
+			mark(0, clip->sampleHolder.startPos);
+			mark(3, clip->sampleHolder.endPos);
+		}
+		else if (soundEditor.currentMultiRange != nullptr) {
+			auto& holder = static_cast<MultisampleRange*>(soundEditor.currentMultiRange)->sampleHolder;
+			mark(0, holder.startPos);
+			if (holder.loopStartPos != 0) {
+				mark(1, holder.loopStartPos);
+			}
+			if (holder.loopEndPos != 0) {
+				mark(2, holder.loopEndPos);
+			}
+			mark(3, holder.endPos);
+		}
+		return v;
+	}
+	case UIType::SAMPLE_BROWSER:
+		if (!sampleBrowser.isShowingSamplePreview() || waveformBasicNavigator.sample == nullptr) {
+			return v;
+		}
+		v.kind = 3;
+		v.sample = waveformBasicNavigator.sample;
+		v.xScroll = waveformBasicNavigator.xScroll;
+		v.xZoom = waveformBasicNavigator.xZoom;
+		return v;
+	default:
+		return v;
+	}
+}
+
+/// Work out the waveform body. Returns 0 = nothing to send, 1 = send WAVEFORM. WAVEFORM body: version, open, kind,
+/// flags (1 reversed, 2 recording, 4 every column known), columns (2 bytes), marker count, per marker its type and
+/// column (2 bytes, 0x3FFE = left of the window), file name, then per column min and max (0 to 127, 64 = silence;
+/// 127 then 0 = not known yet). Columns are kDisplayWidth * kWaveSub across the window the pads show.
+int32_t updateWave(WaveView const& v) {
+	int32_t i = 0;
+	if (v.kind == 0) {
+		waveSample = nullptr;
+		if (!waveWasOpen) {
+			return 0;
+		}
+		waveWasOpen = false;
+		waveBody[i++] = kStateVersion;
+		waveBody[i++] = 0;
+		waveBodyLen = i;
+		return 1;
+	}
+	waveWasOpen = true;
+	const int64_t subZoom = std::max<int64_t>(1, v.xZoom / kWaveSub);
+	if (v.sample != waveSample) {
+		waveSample = v.sample;
+		for (auto& chunk : waveChunks) {
+			chunk.xScroll = -1; // Work everything out again
+		}
+	}
+
+	bool complete = true;
+	if (!v.recording) {
+		int32_t done = 0;
+		for (int32_t c = 0; c < kWaveChunks; c++) {
+			WaveformRenderData& chunk = waveChunks[c];
+			const int64_t chunkScroll = v.xScroll + static_cast<int64_t>(c) * kDisplayWidth * subZoom;
+			const bool fresh = chunk.xScroll == chunkScroll && chunk.xZoom == subZoom;
+			bool chunkComplete = fresh;
+			if (fresh) {
+				for (auto status : chunk.colStatus) {
+					if (status == ColumnStatus::NOT_INVESTIGATED || status == ColumnStatus::PLACEHOLDER) {
+						chunkComplete = false;
+						break;
+					}
+				}
+			}
+			if (chunkComplete) {
+				continue;
+			}
+			if (done >= kWaveChunksPerCall || sdRoutineLock) {
+				complete = false;
+				continue;
+			}
+			done++;
+			if (!waveformRenderer.findPeaksPerCol(v.sample, chunkScroll, subZoom, &chunk, nullptr, 0, kDisplayWidth,
+			                                      false)) {
+				complete = false;
+			}
+		}
+	}
+	else {
+		complete = false;
+	}
+
+	waveBody[i++] = kStateVersion;
+	waveBody[i++] = 1;
+	waveBody[i++] = v.kind;
+	waveBody[i++] = (v.reversed ? 1 : 0) | (v.recording ? 2 : 0) | (complete ? 4 : 0);
+	waveBody[i++] = (kWaveCols >> 7) & 0x7F;
+	waveBody[i++] = kWaveCols & 0x7F;
+	waveBody[i++] = v.numMarkers;
+	for (int32_t m = 0; m < v.numMarkers; m++) {
+		waveBody[i++] = v.markerType[m];
+		putCol(waveBody + i, waveCol(v.markerPos[m], v.xScroll, subZoom));
+		i += 2;
+	}
+	i += putName(waveBody + i, fileNameOf(v.sample));
+	for (int32_t c = 0; c < kWaveChunks; c++) {
+		WaveformRenderData& chunk = waveChunks[c];
+		const bool usable = !v.recording && chunk.xZoom == subZoom
+		                    && chunk.xScroll == v.xScroll + static_cast<int64_t>(c) * kDisplayWidth * subZoom;
+		for (int32_t col = 0; col < kDisplayWidth; col++) {
+			const ColumnStatus status = chunk.colStatus[col];
+			if (!usable || status == ColumnStatus::NOT_INVESTIGATED) {
+				waveBody[i++] = 127;
+				waveBody[i++] = 0;
+			}
+			else if (status == ColumnStatus::BEYOND_WAVEFORM) {
+				waveBody[i++] = 64;
+				waveBody[i++] = 64;
+			}
+			else {
+				waveBody[i++] = static_cast<uint8_t>(std::clamp<int32_t>((chunk.minPerCol[col] >> 25) + 64, 0, 127));
+				waveBody[i++] = static_cast<uint8_t>(std::clamp<int32_t>((chunk.maxPerCol[col] >> 25) + 64, 0, 127));
+			}
+		}
+	}
+	waveBodyLen = i;
+	return (complete || v.recording) ? 1 : 2; // 2 = still filling in: send now and then
+}
 } // namespace
 
 void HIDSysex::requestState(MIDICable& cable, uint8_t* data, int32_t len) {
@@ -619,6 +877,48 @@ void HIDSysex::sendStateIfChanged(bool force) {
 		                  static_cast<uint8_t>((browserKeySelected < 0 ? 0x3FFF : browserKeySelected) >> 7 & 0x7F),
 		                  static_cast<uint8_t>((browserKeySelected < 0 ? 0x3FFF : browserKeySelected) & 0x7F)};
 		sendFramed(*midiStateCable, kBrowserSelHeader, false, sel, 3);
+	}
+
+	// Waveform: the biggest message (about 460 bytes). Polled from a timer while open, as scrolling and the playhead
+	// don't always redraw the display.
+	const WaveView view = currentWaveView();
+	if (view.kind != 0) {
+		uiTimerManager.setTimer(TimerName::COMPANION_WAVE, 40);
+	}
+	if (view.kind == 0 && !waveWasOpen) {
+		return;
+	}
+	if (midiStateCable->sendBufferSpace() < 250) {
+		uiTimerManager.setTimer(TimerName::COMPANION_WAVE, 60);
+		return;
+	}
+	if (force) {
+		lastWaveLen = 0;
+		lastPlayhead = -2;
+	}
+	const int32_t waveSend = updateWave(view);
+	const bool changed = waveBodyLen != lastWaveLen || memcmp(waveBody, lastWave, waveBodyLen) != 0;
+	// While columns are still loading, send at most every 150 ms
+	const bool due = waveSend == 1 || AudioEngine::audioSampleTimer - waveLastSendTime > kSampleRate * 3 / 20;
+	if (waveSend != 0 && changed && due) {
+		sendFramed(*midiStateCable, kWaveHeader, false, waveBody, waveBodyLen);
+		memcpy(lastWave, waveBody, waveBodyLen);
+		lastWaveLen = waveBodyLen;
+		waveLastSendTime = AudioEngine::audioSampleTimer;
+	}
+	if (view.kind != 0) {
+		const int64_t subZoom = std::max<int64_t>(1, view.xZoom / kWaveSub);
+		const int32_t head = view.playhead < 0 ? kWaveNoCol : waveCol(view.playhead, view.xScroll, subZoom);
+		if (head != lastPlayhead) {
+			uint8_t body[3] = {kStateVersion, 0, 0};
+			putCol(body + 1, head == kWaveNoCol ? 0x3FFF : head);
+			if (head == kWaveNoCol) {
+				body[1] = 0x7F;
+				body[2] = 0x7F;
+			}
+			sendFramed(*midiStateCable, kPlayheadHeader, false, body, 3);
+			lastPlayhead = head;
+		}
 	}
 }
 
