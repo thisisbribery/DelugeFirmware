@@ -1296,6 +1296,12 @@ PLACE_SDRAM_DATA Language english{
         {STRING_FOR_BROPHET_FREQ_A, "Freq A"},
         {STRING_FOR_BROPHET_PWIDTH_A, "PW A"},
         {STRING_FOR_BROPHET_BOTH, "Both"},
+        {STRING_FOR_VOICE_SPREAD, "Pan spread"},
+        {STRING_FOR_VOICE_SPREAD_SHORT, "PSPR"},
+        {STRING_FOR_VOICE_SPREAD_MODE, "Spread mode"},
+        {STRING_FOR_VOICE_SPREAD_MODE_SHORT, "SMOD"},
+        {STRING_FOR_VOICE_SPREAD_KEY, "Key"},
+        {STRING_FOR_VOICE_SPREAD_PING_PONG, "Ping pong"},
     },
 };
 } // namespace deluge::l10n::built_in

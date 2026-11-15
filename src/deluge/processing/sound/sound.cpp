@@ -1047,6 +1047,27 @@ Error Sound::readTagFromFileOrError(Deserializer& reader, char const* tagName, P
 		reader.exitTag("unison", true);
 	}
 
+	// Bribes VOICE > SPREAD
+	else if (!strcmp(tagName, "voiceSpread")) {
+		reader.match('{');
+		while (*(tagName = reader.readNextTagOrAttributeName())) {
+			if (!strcmp(tagName, "amount")) {
+				voiceStereoSpread = std::clamp(reader.readTagOrAttributeValueInt(), 0_i32, kMaxVoiceStereoSpread);
+				reader.exitTag("amount");
+			}
+			else if (!strcmp(tagName, "mode")) {
+				voiceSpreadMode =
+				    static_cast<VoiceSpreadMode>(std::clamp(reader.readTagOrAttributeValueInt(), 0_i32,
+				                                            (int32_t)util::to_underlying(VoiceSpreadMode::PING_PONG)));
+				reader.exitTag("mode");
+			}
+			else {
+				reader.exitTag(tagName);
+			}
+		}
+		reader.exitTag("voiceSpread", true);
+	}
+
 	else if (!strcmp(tagName, "oscAPitchAdjust")) {
 		ENSURE_PARAM_MANAGER_EXISTS
 		patchedParams->readParam(reader, patchedParamsSummary, params::LOCAL_OSC_A_PITCH_ADJUST, readAutomationUpToPos);
@@ -2092,6 +2113,11 @@ void Sound::noteOnPostArpeggiator(ModelStackWithSoundFlags* modelStack, int32_t 
 			const ActiveVoice& voice = voiceToReuse != nullptr ? *voiceToReuse : this->acquireVoice();
 			int32_t envelopePositions[kNumEnvelopes];
 
+			// VOICE > SPREAD: a fresh poly voice takes its place in the stereo field (reused mono voices keep theirs)
+			if (voiceToReuse == nullptr) {
+				voice->spreadPan = voiceSpreadActive() ? nextVoiceSpreadPan(noteCodePostArp) : 0;
+			}
+
 			if (voiceToReuse != nullptr) [[unlikely]] {
 				// The osc phases and stuff will remain
 				for (int32_t e = 0; e < kNumEnvelopes; e++) {
@@ -2995,9 +3021,11 @@ void Sound::render(ModelStackWithThreeMainThings* modelStack, std::span<StereoSa
 	if (anyVoicesActive) {
 
 		// Very often, we'll just apply panning here at the Sound level rather than the Voice level
+		// VOICE > SPREAD also needs every voice to pan itself
 		bool applyingPanAtVoiceLevel =
 		    !renderingTb303 && AudioEngine::renderInStereo
-		    && paramManager->getPatchCableSet()->doesParamHaveSomethingPatchedToIt(params::LOCAL_PAN);
+		    && (voiceSpreadActive()
+		        || paramManager->getPatchCableSet()->doesParamHaveSomethingPatchedToIt(params::LOCAL_PAN));
 
 		if (renderingTb303) {
 			renderTb303(paramManager, sound_mono);
@@ -3546,6 +3574,32 @@ void Sound::setupUnisonStereoSpread() {
 
 			unisonPan[u] = sign * (lowestVoice + voiceSpacing * u);
 		}
+	}
+}
+
+// VOICE > SPREAD: where the next voice sits, +-1073741824 = hard left / right at full spread.
+// The SPREAD amount scales this live in Voice::render, so turning it moves held notes too.
+int32_t Sound::nextVoiceSpreadPan(int32_t noteCode) {
+	constexpr int32_t kFull = 1073741824;
+	switch (voiceSpreadMode) {
+	case VoiceSpreadMode::KEY:
+		// Middle C in the centre, two and a half octaves either side reaches the edge
+		return std::clamp<int32_t>(noteCode - 60, -30, 30) * (kFull / 30);
+	case VoiceSpreadMode::RANDOM:
+		return ((int32_t)getRandom255() - 128) * (kFull >> 7);
+	case VoiceSpreadMode::PING_PONG:
+		// Each new voice takes the other side
+		voiceSpreadCounter ^= 1;
+		return (voiceSpreadCounter & 1) ? -kFull : kFull;
+	case VoiceSpreadMode::ALTERNATE:
+	default: {
+		// Eight fixed places, taken round robin: outer pair first, then inner pairs,
+		// always swapping sides, so two-note chords go wide and fuller chords fill in
+		static constexpr int8_t kPlaces[8] = {-7, 7, -3, 3, -5, 5, -1, 1};
+		int32_t place = kPlaces[voiceSpreadCounter & 7];
+		voiceSpreadCounter = (voiceSpreadCounter + 1) & 7;
+		return place * (kFull / 7);
+	}
 	}
 }
 
@@ -4931,6 +4985,14 @@ void Sound::writeToFile(Serializer& writer, bool savingSong, ParamManager* param
 	writer.writeAttribute("spread", unisonStereoSpread, false);
 	writer.closeTag();
 
+	// Bribes VOICE > SPREAD, only written when it's been touched
+	if (voiceStereoSpread != 0 || voiceSpreadMode != VoiceSpreadMode::ALTERNATE) {
+		writer.writeOpeningTagBeginning("voiceSpread");
+		writer.writeAttribute("amount", voiceStereoSpread, false);
+		writer.writeAttribute("mode", util::to_underlying(voiceSpreadMode), false);
+		writer.closeTag();
+	}
+
 	if (paramManager) {
 		writer.writeOpeningTagBeginning("defaultParams", true);
 		Sound::writeParamsToFile(writer, paramManager, false);
@@ -5507,6 +5569,11 @@ bool Sound::renderingVoicesInStereo(ModelStackWithSoundFlags* modelStack) {
 	}
 
 	if (modelStack->paramManager->getPatchCableSet()->doesParamHaveSomethingPatchedToIt(params::LOCAL_PAN)) {
+		return true;
+	}
+
+	// VOICE > SPREAD pans each voice on its own
+	if (voiceSpreadActive()) {
 		return true;
 	}
 

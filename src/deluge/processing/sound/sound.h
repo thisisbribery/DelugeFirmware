@@ -39,6 +39,15 @@
 struct CableGroup;
 class StereoSample;
 class Voice;
+
+// How VOICE > SPREAD places each new voice
+enum class VoiceSpreadMode : uint8_t {
+	ALTERNATE, // round robin over 8 fixed places, alternating sides, like a poly synth's voice slots
+	KEY,       // low notes left, high notes right
+	RANDOM,    // a new random place per note
+	PING_PONG, // hard left, hard right, alternating, widening with the amount
+};
+constexpr int32_t kMaxVoiceStereoSpread = 50;
 class Kit;
 class ParamManagerForTimeline;
 class TimelineCounter;
@@ -154,6 +163,16 @@ public:
 	uint8_t numUnison = 1;
 	int8_t unisonDetune = 8;
 	uint8_t unisonStereoSpread = 0;
+
+	// Bribes VOICE > SPREAD: each new poly voice gets its own place in the stereo field at note-on,
+	// like a poly synth's voice pan spread. 0 = off (everything stays on the pan knob).
+	uint8_t voiceStereoSpread = 0;
+	VoiceSpreadMode voiceSpreadMode = VoiceSpreadMode::ALTERNATE;
+	uint8_t voiceSpreadCounter = 0;
+	[[nodiscard]] bool voiceSpreadActive() const {
+		return voiceStereoSpread != 0 && polyphonic == PolyphonyMode::POLY && synthMode != SynthMode::TB303;
+	}
+	int32_t nextVoiceSpreadPan(int32_t noteCode);
 
 	// For sending MIDI notes for SoundDrums
 	uint8_t outputMidiChannel = MIDI_CHANNEL_NONE;

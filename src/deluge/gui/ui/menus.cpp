@@ -238,6 +238,7 @@
 #include "gui/menu_item/unison/stereoSpread.h"
 #include "gui/menu_item/unpatched_param.h"
 #include "gui/menu_item/unpatched_param/pan.h"
+#include "gui/menu_item/voice/pan_spread.h"
 #include "gui/menu_item/voice/polyphony.h"
 #include "gui/menu_item/voice/portamento.h"
 #include "gui/menu_item/voice/priority.h"
@@ -468,15 +469,17 @@ PLACE_SDRAM_BSS voice::PolyphonyType polyphonyMenu{STRING_FOR_POLYPHONY};
 PLACE_SDRAM_BSS voice::VoiceCount voice::polyphonicVoiceCountMenu{STRING_FOR_MAX_VOICES};
 PLACE_SDRAM_BSS voice::Portamento portaMenu{STRING_FOR_PORTAMENTO};
 PLACE_SDRAM_BSS voice::Priority priorityMenu{STRING_FOR_PRIORITY};
+PLACE_SDRAM_BSS voice::PanSpread voice::panSpreadMenu{STRING_FOR_VOICE_SPREAD};
+PLACE_SDRAM_BSS voice::PanSpreadMode voice::panSpreadModeMenu{STRING_FOR_VOICE_SPREAD_MODE};
 
-PLACE_SDRAM_BSS HorizontalMenu voiceMenu{
-    STRING_FOR_VOICE,
-    {&priorityMenu, &polyphonyMenu, &voice::polyphonicVoiceCountMenu, &portaMenu, &unisonMenu},
-    HorizontalMenu::Layout::FIXED};
-PLACE_SDRAM_BSS HorizontalMenu voiceMenuWithoutUnison{
-    STRING_FOR_VOICE,
-    {&priorityMenu, &polyphonyMenu, &voice::polyphonicVoiceCountMenu, &portaMenu},
-    HorizontalMenu::Layout::FIXED};
+PLACE_SDRAM_BSS HorizontalMenu voiceMenu{STRING_FOR_VOICE,
+                                         {&priorityMenu, &polyphonyMenu, &voice::polyphonicVoiceCountMenu, &portaMenu,
+                                          &voice::panSpreadMenu, &voice::panSpreadModeMenu, &unisonMenu},
+                                         HorizontalMenu::Layout::FIXED};
+PLACE_SDRAM_BSS HorizontalMenu voiceMenuWithoutUnison{STRING_FOR_VOICE,
+                                                      {&priorityMenu, &polyphonyMenu, &voice::polyphonicVoiceCountMenu,
+                                                       &portaMenu, &voice::panSpreadMenu, &voice::panSpreadModeMenu},
+                                                      HorizontalMenu::Layout::FIXED};
 PLACE_SDRAM_BSS HorizontalMenuGroup voiceMenuGroup{{&unisonMenu, &voiceMenuWithoutUnison}};
 
 // Envelope 1-4 menu -----------------------------------------------------------------------------
@@ -2763,7 +2766,7 @@ PLACE_SDRAM_DATA MenuItem* paramShortcutsForSoundsSecondLayer[][kDisplayHeight] 
     {nullptr,	        nullptr,	            nullptr,	        nullptr,	        nullptr,	                nullptr,	nullptr,	nullptr              },
     {nullptr,	        nullptr,	            nullptr,	        nullptr,	        nullptr,	                nullptr,	nullptr,	nullptr              },
     {nullptr,	        nullptr,	            nullptr,	        nullptr,	        nullptr,	                nullptr,	nullptr,	&stutterDirectionMenu},
-    {nullptr,	        nullptr,	            nullptr,	        nullptr,	        nullptr,	                nullptr,	nullptr,	nullptr              },
+    {nullptr,	        nullptr,	            nullptr,	        &voice::panSpreadMenu,	nullptr,	        nullptr,	nullptr,	nullptr              },
     {nullptr,	        &voice::polyphonicVoiceCountMenu, nullptr,  nullptr,	        &unison::stereoSpreadMenu,  &compRatio,	nullptr,	nullptr              },
     {&env3ReleaseMenu,	&env3SustainMenu,	    &env3DecayMenu,	    &env3AttackMenu,	nullptr,	                nullptr,	nullptr,	nullptr              },
     {&env4ReleaseMenu,	&env4SustainMenu,	    &env4DecayMenu,	    &env4AttackMenu,	nullptr,	                nullptr,	nullptr,	nullptr              },

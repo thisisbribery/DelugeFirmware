@@ -92,6 +92,9 @@ public:
 
 	int32_t overrideAmplitudeEnvelopeReleaseRate;
 
+	// VOICE > SPREAD offset added to this voice's pan (+-1073741824 = full width), set at note-on
+	int32_t spreadPan{0};
+
 	bool justCreated{false};
 
 	uint32_t getLocalLFOPhaseIncrement(LFO_ID lfoId, deluge::modulation::params::Local param);

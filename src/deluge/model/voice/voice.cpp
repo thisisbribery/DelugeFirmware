@@ -1341,9 +1341,12 @@ skipAutoRelease: {}
 		doPanning = false;
 	}
 	else {
-		// Set up panning
-		doPanning = (AudioEngine::renderInStereo
-		             && shouldDoPanning(paramFinalValues[params::LOCAL_PAN], &amplitudeL, &amplitudeR));
+		// Set up panning, plus this voice's VOICE > SPREAD place scaled by the current amount
+		int32_t pan = paramFinalValues[params::LOCAL_PAN];
+		if (spreadPan != 0 && sound.voiceSpreadActive()) {
+			pan = add_saturate(pan, (int32_t)(((int64_t)spreadPan * sound.voiceStereoSpread) / kMaxVoiceStereoSpread));
+		}
+		doPanning = (AudioEngine::renderInStereo && shouldDoPanning(pan, &amplitudeL, &amplitudeR));
 	}
 
 	uint32_t sourcesToRenderInStereo = 0;
