@@ -260,6 +260,13 @@ void Patch::setBrophet() {
 	params_[BROPHET_PM_DEST] = static_cast<uint8_t>(brophet::PolyModDest::FREQ_A);
 }
 
+void Patch::setBruno106() {
+	params_[ENGINE] = static_cast<uint8_t>(Engine::BRUNO106);
+	params_[BRUNO_SAW] = 1;
+	params_[BRUNO_PULSE] = 0;
+	params_[BRUNO_HPF] = static_cast<uint8_t>(bruno106::Hpf::FLAT);
+}
+
 void Patch::setCycPreset(Engine engine) {
 	params_[ENGINE] = static_cast<uint8_t>(engine);
 	params_[XIA_PUNCH] = 0;
@@ -382,6 +389,9 @@ DrumControls DrumControls::defaultsFor(Engine engine) {
 	if (isBrophet(engine)) {
 		return brophetControlsFor();
 	}
+	if (isBruno106(engine)) {
+		return bruno106ControlsFor();
+	}
 	if (isCyc(engine)) {
 		// The Cyc engines start where the originals do, their own amp decay included
 		const auto& d = kCycDefaults[static_cast<size_t>(cycKind(engine))];
@@ -461,7 +471,11 @@ uint8_t Patch::maxValue(Param p) {
 	case BROPHET_SYNC:
 	case BROPHET_LOW_B:
 	case BROPHET_FIXED_B:
+	case BRUNO_SAW:
+	case BRUNO_PULSE:
 		return 1;
+	case BRUNO_HPF:
+		return static_cast<uint8_t>(bruno106::Hpf::NUM) - 1;
 	case XIA_PUNCH:
 	case SNAPPY_DECAY:
 	case CONTROLS_VERSION:
@@ -535,6 +549,10 @@ bool Patch::isUsedBy(Param p, Engine engine) {
 	case BROPHET_FIXED_B:
 	case BROPHET_PM_DEST:
 		return isBrophet(engine);
+	case BRUNO_SAW:
+	case BRUNO_PULSE:
+	case BRUNO_HPF:
+		return isBruno106(engine);
 	default:
 		return isXia(engine);
 	}
@@ -631,13 +649,19 @@ int32_t sharedControlSlot(Engine engine, StandardSlot slot) {
 		          DrumControls::RINGS_STRUCTURE};
 		break;
 	case Engine::BROPHET:
-		// Poly mod's two depths where the pitch envelope would be (envelope 2 is its envelope), osc B's detune and osc
-		// A's pulse width as the characters. No drive or decay: the Deluge's filter and envelopes are its own.
+		// No pitch envelope: mod rate / depth stay the Deluge's vibrato, as on any synth. Osc B's detune and osc A's
+		// pulse width as the characters. No drive or decay: the Deluge's filter and envelopes are its own.
 		if (slot == StandardSlot::DECAY || slot == StandardSlot::DRIVE) {
 			return -1;
 		}
-		shared = {DrumControls::BROPHET_PM_ENV, DrumControls::BROPHET_PM_OSC_B, DrumControls::BROPHET_FINE_B,
-		          DrumControls::BROPHET_PW_A};
+		shared = {-1, -1, DrumControls::BROPHET_FINE_B, DrumControls::BROPHET_PW_A};
+		break;
+	case Engine::BRUNO106:
+		// As BROPHET: vibrato on mod rate / depth, sub and pulse width as the characters. No drive or decay.
+		if (slot == StandardSlot::DECAY || slot == StandardSlot::DRIVE) {
+			return -1;
+		}
+		shared = {-1, -1, DrumControls::BRUNO_SUB, DrumControls::BRUNO_PW};
 		break;
 	default: // The Cyc engines: Sweep, Contour, Color, Shape
 		shared = {DrumControls::CYC_MACRO3, DrumControls::CYC_MACRO4, DrumControls::CYC_MACRO1,
@@ -822,8 +846,9 @@ RowSetup rowSetupForEngine(Engine engine, uint8_t variant) {
 		    static_cast<rings::Model>(std::min<uint8_t>(variant, static_cast<uint8_t>(rings::Model::NUM_MODELS) - 1)));
 		return rowSetupForRings(c.value(DrumControls::RINGS_DAMPING));
 	}
-	if (isBrophet(engine)) {
-		// A synth's envelope, not a hit's: picking BROPHET sets the rest up as a synth too (see setDrumEngine)
+	if (isBrophet(engine) || isBruno106(engine)) {
+		// A synth's envelope, not a hit's: picking BROPHET or BRUNO106 sets the rest up as a synth too (see
+		// setDrumEngine)
 		return {0, 25, -1, false, 20, 0, 40, 15};
 	}
 	return xiaPresetFor(engine, variant).row;
@@ -845,6 +870,9 @@ DrumControls controlsFromPatch(const Patch& patch) {
 	}
 	if (isBrophet(engine)) {
 		return brophetControlsFor();
+	}
+	if (isBruno106(engine)) {
+		return bruno106ControlsFor();
 	}
 	if (!isLxr(engine)) {
 		return DrumControls::defaultsFor(engine);
@@ -1184,8 +1212,12 @@ void Voice::render(const Patch& patch, const DrumControls& controls, int32_t* bu
 		renderBrophet(settingsFrom_, controls, buffer, numSamples, basePhaseIncrement, amplitude, amplitudeIncrement);
 		return;
 	}
+	if (isBruno106(settings_.engine)) {
+		renderBruno106(settingsFrom_, controls, buffer, numSamples, basePhaseIncrement, amplitude, amplitudeIncrement);
+		return;
+	}
 	if (isRings(settings_.engine)) {
-		ultrakikReady_ = ginReady_ = cycReady_ = brophetReady_ = false;
+		ultrakikReady_ = ginReady_ = cycReady_ = brophetReady_ = bruno106Ready_ = false;
 		xiaEngine_ = Engine::DRUM;
 		renderRings(settingsFrom_, controls, buffer, numSamples, basePhaseIncrement, amplitude, amplitudeIncrement);
 		return;
@@ -1197,6 +1229,7 @@ void Voice::render(const Patch& patch, const DrumControls& controls, int32_t* bu
 			ginReady_ = false;
 			cycReady_ = false;
 			brophetReady_ = false;
+			bruno106Ready_ = false;
 			xiaEngine_ = Engine::DRUM;
 		}
 		if (pendingTrigger_) {
@@ -1213,6 +1246,7 @@ void Voice::render(const Patch& patch, const DrumControls& controls, int32_t* bu
 			ultrakikReady_ = false;
 			cycReady_ = false;
 			brophetReady_ = false;
+			bruno106Ready_ = false;
 			xiaEngine_ = Engine::DRUM;
 		}
 		if (pendingTrigger_) {
@@ -1229,6 +1263,7 @@ void Voice::render(const Patch& patch, const DrumControls& controls, int32_t* bu
 			ginReady_ = false;
 			ultrakikReady_ = false;
 			brophetReady_ = false;
+			bruno106Ready_ = false;
 			xiaEngine_ = Engine::DRUM;
 		}
 		if (pendingTrigger_) {
@@ -1355,7 +1390,7 @@ bool Voice::quiet() const {
 	if (isRings(settings_.engine)) {
 		return rings_ != nullptr && ringsReady_ && ringsAge_ >= kRingsMinSamples && rings::level(*rings_) < kQuietLevel;
 	}
-	if (isBrophet(settings_.engine)) {
+	if (isBrophet(settings_.engine) || isBruno106(settings_.engine)) {
 		return false; // Its oscillators never fade: the Deluge's envelope ends the note
 	}
 	if (isUltrakik(settings_.engine)) {
@@ -1418,6 +1453,7 @@ void Voice::startXia(Engine engine) {
 	ginReady_ = false;
 	ultrakikReady_ = false;
 	brophetReady_ = false;
+	bruno106Ready_ = false;
 	if (engine == Engine::TIA) {
 		xia::reset(xia_.tia);
 	}
@@ -1830,7 +1866,7 @@ void Voice::renderBrophet(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const
                           int32_t* buffer, int32_t numSamples, uint32_t basePhaseIncrement, int32_t amplitude,
                           int32_t amplitudeIncrement) {
 	if (!brophetReady_) {
-		ultrakikReady_ = ginReady_ = cycReady_ = false;
+		ultrakikReady_ = ginReady_ = cycReady_ = bruno106Ready_ = false;
 		xiaEngine_ = Engine::DRUM;
 		xia_.brophet = brophet::Voice{};
 		brophetReady_ = true;
@@ -1856,6 +1892,75 @@ void Voice::renderBrophet(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const
 		for (int32_t i = 0; i < n; i++) {
 			amplitude += amplitudeIncrement;
 			// A full saw lands as the LXR engines' full sine does. q31_from_float saturates in the one instruction.
+			out[i] =
+			    add_saturate(out[i], q31_from_float(chunk[i] * static_cast<float>(amplitude) * (1.f / 2147483648.f)));
+		}
+		out += n;
+		remaining -= n;
+	}
+}
+
+} // namespace deluge::dsp::drum_synth
+
+// BRUNO106 ------------------------------------------------------------------------------------------------------------
+
+namespace deluge::dsp::drum_synth {
+
+bruno106::Settings bruno106Settings(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const DrumControls& controls) {
+	using S = DrumControls;
+	bruno106::Settings s{};
+	s.sawOn = p[Patch::BRUNO_SAW] != 0;
+	s.pulseOn = p[Patch::BRUNO_PULSE] != 0;
+	s.pw = ringsKnob(controls, S::BRUNO_PW);
+	s.sub = bruno106::subLevel(ringsKnob(controls, S::BRUNO_SUB));
+	s.noise = bruno106::noiseLevel(ringsKnob(controls, S::BRUNO_NOISE));
+	return s;
+}
+
+DrumControls bruno106ControlsFor() {
+	using S = DrumControls;
+	DrumControls c;
+	for (int32_t i = 0; i < S::NUM_SLOTS; i++) {
+		c.values[i] = S::fromValue(64);
+	}
+	c.values[S::BRUNO_PW] = S::fromValue(0);
+	c.values[S::BRUNO_SUB] = S::fromValue(0);
+	c.values[S::BRUNO_NOISE] = S::fromValue(0);
+	c.values[S::BRUNO_SLOP] = S::fromValue(40);
+	c.values[S::CYC_DRIVE] = S::fromValue(0);
+	c.values[S::LXR_DRIVE] = S::fromValue(0);
+	return c;
+}
+
+void Voice::renderBruno106(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const DrumControls& controls,
+                           int32_t* buffer, int32_t numSamples, uint32_t basePhaseIncrement, int32_t amplitude,
+                           int32_t amplitudeIncrement) {
+	if (!bruno106Ready_) {
+		ultrakikReady_ = ginReady_ = cycReady_ = brophetReady_ = false;
+		xiaEngine_ = Engine::DRUM;
+		xia_.bruno106 = bruno106::Voice{};
+		bruno106Ready_ = true;
+		pendingTrigger_ = true;
+	}
+	if (pendingTrigger_) {
+		pendingTrigger_ = false;
+		// Each note its own slop and starting phase
+		static uint32_t seed = 0x6A09E667;
+		seed += 0x9E3779B9;
+		bruno106::trigger(xia_.bruno106, ringsKnob(controls, DrumControls::BRUNO_SLOP), seed);
+	}
+	const bruno106::Settings s = bruno106Settings(p, controls);
+
+	constexpr int32_t kChunk = 64;
+	std::array<float, kChunk> chunk;
+	int32_t* out = buffer;
+	int32_t remaining = numSamples;
+	while (remaining > 0) {
+		const int32_t n = std::min(remaining, kChunk);
+		bruno106::render(xia_.bruno106, s, basePhaseIncrement, chunk.data(), n);
+		for (int32_t i = 0; i < n; i++) {
+			amplitude += amplitudeIncrement;
+			// A full saw lands as BROPHET's does. q31_from_float saturates in the one instruction.
 			out[i] =
 			    add_saturate(out[i], q31_from_float(chunk[i] * static_cast<float>(amplitude) * (1.f / 2147483648.f)));
 		}

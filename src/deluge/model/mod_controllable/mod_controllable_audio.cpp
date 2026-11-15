@@ -467,6 +467,9 @@ void ModControllableAudio::writeAttributesToFile(Serializer& writer) {
 	// Community Firmware parameters (always write them after the official ones, just before closing the parent tag)
 	writer.writeAttribute("hpfMode", (char*)lpfTypeToString(hpfMode));
 	writer.writeAttribute("filterRoute", (char*)filterRouteToString(filterRoute));
+	if (modFXType_ == ModFXType::BRUNO_CHORUS) {
+		writer.writeAttribute("brunoChorusMode", modfx.brunoChorusMode);
+	}
 	// The drive is a param now, written with the others
 	if (saturation.type != deluge::dsp::SaturationSettings{}.type) {
 		writer.writeAttribute("satType", deluge::dsp::saturationTypeToString(saturation.type));
@@ -790,6 +793,10 @@ Error ModControllableAudio::readTagFromFile(Deserializer& reader, char const* ta
 	if (!strcmp(tagName, "lpfMode")) {
 		lpfMode = stringToLPFType(reader.readTagOrAttributeValue());
 		reader.exitTag("lpfMode");
+	}
+	else if (!strcmp(tagName, "brunoChorusMode")) {
+		modfx.brunoChorusMode = static_cast<uint8_t>(std::clamp<int32_t>(reader.readTagOrAttributeValueInt(), 1, 3));
+		reader.exitTag("brunoChorusMode");
 	}
 	else if (!strcmp(tagName, "hpfMode")) {
 		hpfMode = stringToLPFType(reader.readTagOrAttributeValue());
@@ -1527,6 +1534,8 @@ char const* ModControllableAudio::getLPFModeDisplayName() {
 		return l10n::get(STRING_FOR_DRIVE);
 	case FilterMode::BROPHET:
 		return l10n::get(STRING_FOR_BROPHET_FILTER);
+	case FilterMode::BRUNO106:
+		return l10n::get(STRING_FOR_BRUNO106_FILTER);
 	case FilterMode::SVF_BAND:
 		return l10n::get(STRING_FOR_SVF_BAND);
 	case FilterMode::SVF_NOTCH:

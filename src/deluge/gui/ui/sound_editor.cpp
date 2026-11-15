@@ -1911,6 +1911,10 @@ ActionResult SoundEditor::potentialShortcutPadAction(int32_t x, int32_t y, bool 
 			enterOrUpdateSoundEditor(on);
 			showShortcutName(x, y);
 			blinkModButtonFor(const_cast<MenuItem*>(item));
+			// BRUNO CHORUS's pad is a switch: each press flips it
+			if (item == &brunoChorusOnMenu) {
+				brunoChorusOnMenu.flipFromPad();
+			}
 		}
 	}
 

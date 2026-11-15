@@ -27,13 +27,14 @@ enum class FilterMode {
 	TRANSISTOR_24DB,
 	TRANSISTOR_24DB_DRIVE, // filter logic relies on ladders being first and contiguous
 	BROPHET,   // Pro-54's old filter (see dsp/filter/brophet.h). Counted with the ladders: its morph is drive
+	BRUNO106,  // KR-106's IR3109 filter (see dsp/filter/bruno106.h). Counted with the ladders: its morph is drive
 	SVF_BAND,  // first HPF mode
 	SVF_NOTCH, // last LPF mode
 	HPLADDER,
 	OFF, // Keep last as a sentinel. Signifies that the filter is not on, used for filter reset logic
 };
 constexpr int32_t kNumFilterModes = util::to_underlying(FilterMode::OFF) + 1;
-constexpr FilterMode kLastLadder = FilterMode::BROPHET;
+constexpr FilterMode kLastLadder = FilterMode::BRUNO106;
 constexpr int32_t kNumLPFModes = util::to_underlying(FilterMode::SVF_NOTCH) + 1;
 constexpr FilterMode lastLpfMode = FilterMode::SVF_NOTCH;
 constexpr FilterMode firstHPFMode = FilterMode::SVF_BAND;
@@ -57,8 +58,8 @@ namespace deluge::dsp::filter {
 
 enum class FilterFamily { LP_LADDER, SVF, HP_LADDER, NONE };
 constexpr uint8_t kNumFamilies = 3;
-enum LpLadderType { LP12, LP24, DRIVE, BROPHET };
-constexpr uint8_t kNumLadders = 4;
+enum LpLadderType { LP12, LP24, DRIVE, BROPHET, BRUNO106 };
+constexpr uint8_t kNumLadders = 5;
 enum SVFType { BAND, NOTCH };
 constexpr uint8_t kNumSVF = 2;
 enum HPFType { HP12 };
@@ -106,6 +107,10 @@ public:
 		case FilterMode::BROPHET:
 			family = FilterFamily::LP_LADDER;
 			type = LpLadderType::BROPHET;
+			break;
+		case FilterMode::BRUNO106:
+			family = FilterFamily::LP_LADDER;
+			type = LpLadderType::BRUNO106;
 			break;
 		}
 	}

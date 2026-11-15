@@ -31,6 +31,21 @@ void ModFXProcessor::processModFX(std::span<StereoSample> buffer, const ModFXTyp
 	// if nothing rendered into the clip then we can just return
 	if (anySoundComingIn == false)
 		return;
+	if (modFXType == ModFXType::BRUNO_CHORUS) {
+		if (modFXBuffer == nullptr) {
+			return;
+		}
+		if (!brunoChorus.started) {
+			memset(modFXBuffer, 0, kModFXBufferSize * sizeof(StereoSample));
+			brunoChorus.reset();
+		}
+		static_assert(kModFXBufferSize * sizeof(StereoSample)
+		              >= deluge::dsp::drum_synth::bruno106::Chorus::kMemoryFloats * sizeof(float));
+		brunoChorus.process(buffer, reinterpret_cast<float*>(modFXBuffer), brunoChorusMode);
+		*postFXVolume = multiply_32x32_rshift32(*postFXVolume, 1518500250) << 1; // Divide by sqrt(2), as the chorus
+		return;
+	}
+	brunoChorus.started = false;
 	if (modFXType != ModFXType::NONE) {
 
 		LFOType modFXLFOWaveType{};
@@ -75,6 +90,7 @@ void ModFXProcessor::processModFX(std::span<StereoSample> buffer, const ModFXTyp
 			                                      thisModFXDelayDepth, feedback, AudioEngine::renderInStereo);
 			break;
 		case ModFXType::GRAIN:
+		case ModFXType::BRUNO_CHORUS: // handled above
 			break;
 		case ModFXType::DIMENSION:
 			processModFXBuffer<ModFXType::DIMENSION>(buffer, modFXRate, modFXDepth, modFXLFOWaveType, modFXDelayOffset,
@@ -268,6 +284,7 @@ StereoSample ModFXProcessor::processOnePhaserSample(StereoSample sample, int32_t
 }
 
 void ModFXProcessor::resetMemory() {
+	brunoChorus.started = false;
 	if (modFXBuffer) {
 		memset(modFXBuffer, 0, kModFXBufferSize * sizeof(StereoSample));
 	}

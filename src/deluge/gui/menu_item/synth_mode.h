@@ -140,6 +140,8 @@ public:
 		}
 		// BROPHET, after Pro-53
 		list.push_back({K::DRUM, ::SynthMode::SUBTRACTIVE, Engine::BROPHET, 0, STRING_FOR_BROPHET});
+		// BRUNO106, after the KR-106
+		list.push_back({K::DRUM, ::SynthMode::SUBTRACTIVE, Engine::BRUNO106, 0, STRING_FOR_BRUNO106});
 		static constexpr std::array<Entry, 19> kDrumEngines{{
 		    {K::DRUM, ::SynthMode::SUBTRACTIVE, Engine::DRUM, 0, STRING_FOR_DRUM_ENGINE_DRUM},
 		    {K::DRUM, ::SynthMode::SUBTRACTIVE, Engine::SNARE, 0, STRING_FOR_DRUM_ENGINE_SNARE},

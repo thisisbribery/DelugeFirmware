@@ -526,9 +526,13 @@ void Sound::setDrumSynthKnobs(deluge::dsp::drum_synth::Engine engine) {
 		          DrumControls::RINGS_STRUCTURE};
 		break;
 	case Engine::BROPHET:
-		// Poly mod's depths, from osc B and from envelope 2, then osc B's detune and osc A's pulse width
-		layout = {DrumControls::BROPHET_PM_OSC_B, DrumControls::BROPHET_PM_ENV, DrumControls::BROPHET_FINE_B,
-		          DrumControls::BROPHET_PW_A};
+		// A synth: mod rate / depth are the Deluge's vibrato (LFO 1 rate, LFO 1 to pitch), as on any synth. Osc B's
+		// detune and osc A's pulse width on Custom 2 / 3.
+		layout = {-1, -1, DrumControls::BROPHET_FINE_B, DrumControls::BROPHET_PW_A};
+		break;
+	case Engine::BRUNO106:
+		// A synth: vibrato on mod rate / depth, as BROPHET. Sub and pulse width on Custom 2 / 3.
+		layout = {-1, -1, DrumControls::BRUNO_SUB, DrumControls::BRUNO_PW};
 		break;
 	default:
 		// The Cyc engines: Sweep / Contour, Color / Shape
@@ -556,7 +560,7 @@ void Sound::setDrumSynthKnobs(deluge::dsp::drum_synth::Engine engine) {
 		layout.custom3 = sharedControlSlot(engine, StandardSlot::CHARACTER_B);
 	}
 
-	if (deluge::dsp::drum_synth::isBrophet(engine)) {
+	if (deluge::dsp::drum_synth::isBrophet(engine) || deluge::dsp::drum_synth::isBruno106(engine)) {
 		// A synth: the Deluge's own attack and release
 		modKnobs[2][1].paramDescriptor.setToHaveParamOnly(params::LOCAL_ENV_0_ATTACK);
 		modKnobs[2][0].paramDescriptor.setToHaveParamOnly(params::LOCAL_ENV_0_RELEASE);
@@ -638,6 +642,10 @@ char const* Sound::getPatchedParamDisplayNameOverride(int32_t p) {
 	const auto engine = sources[0].drumPatch.engine();
 	if (deluge::dsp::drum_synth::isBrophet(engine)) {
 		const auto name = deluge::dsp::drum_synth::brophetKnobName(slot);
+		return (name == EMPTY_STRING) ? nullptr : deluge::l10n::get(name);
+	}
+	if (deluge::dsp::drum_synth::isBruno106(engine)) {
+		const auto name = deluge::dsp::drum_synth::bruno106KnobName(slot);
 		return (name == EMPTY_STRING) ? nullptr : deluge::l10n::get(name);
 	}
 	if (deluge::dsp::drum_synth::isRings(engine)) {
@@ -739,7 +747,7 @@ ModFXType Sound::getModFXType() {
 bool Sound::setModFXType(ModFXType newType) {
 
 	if (util::one_of(newType, {ModFXType::FLANGER, ModFXType::CHORUS, ModFXType::CHORUS_STEREO, ModFXType::WARBLE,
-	                           ModFXType::DIMENSION})) {
+	                           ModFXType::DIMENSION, ModFXType::BRUNO_CHORUS})) {
 		modfx.setupBuffer();
 		disableGrain();
 	}
@@ -3116,6 +3124,22 @@ void Sound::render(ModelStackWithThreeMainThings* modelStack, std::span<StereoSa
 
 	int32_t modFXDepth = paramFinalValues[params::GLOBAL_MOD_FX_DEPTH - params::FIRST_GLOBAL];
 	int32_t modFXRate = paramFinalValues[params::GLOBAL_MOD_FX_RATE - params::FIRST_GLOBAL];
+
+	// BRUNO106's HPF slider: once per track on the summed voices, before the Mod FX, as on the hardware. FLAT (and any
+	// other engine) skips it altogether.
+	{
+		namespace ds = deluge::dsp::drum_synth;
+		const ds::bruno106::Hpf hpf =
+		    (sources[0].oscType == OscType::DRUM_SYNTH && ds::isBruno106(sources[0].drumPatch.engine()))
+		        ? static_cast<ds::bruno106::Hpf>(std::min<uint8_t>(sources[0].drumPatch.get(ds::Patch::BRUNO_HPF), 3))
+		        : ds::bruno106::Hpf::FLAT;
+		if (hpf != ds::bruno106::Hpf::FLAT) {
+			brunoHpf_.process(sound_stereo, hpf);
+		}
+		else {
+			brunoHpf_.idle();
+		}
+	}
 
 	processSRRAndBitcrushing(sound_stereo, &postFXVolume, paramManager);
 	processFX(sound_stereo, modFXType_, modFXRate, modFXDepth, delayWorkingState, &postFXVolume, paramManager,

@@ -128,6 +128,7 @@
 #include "gui/menu_item/midi/sub.h"
 #include "gui/menu_item/midi/takeover.h"
 #include "gui/menu_item/midi/transpose.h"
+#include "gui/menu_item/mod_fx/bruno_chorus.h"
 #include "gui/menu_item/mod_fx/depth_patched.h"
 #include "gui/menu_item/mod_fx/depth_unpatched.h"
 #include "gui/menu_item/mod_fx/feedback.h"
@@ -490,6 +491,8 @@ PLACE_SDRAM_BSS HorizontalMenuGroup lfoMenuGroup{{&lfo1Menu, &lfo2Menu, &lfo3Men
 
 // Mod FX ----------------------------------------------------------------------------------
 PLACE_SDRAM_BSS mod_fx::Type modFXTypeMenu{STRING_FOR_TYPE, STRING_FOR_MODFX_TYPE};
+PLACE_SDRAM_BSS mod_fx::BrunoChorusMode brunoChorusModeMenu{STRING_FOR_BRUNO_CHORUS_MODE};
+PLACE_SDRAM_BSS mod_fx::BrunoChorusOnOff brunoChorusOnMenu{STRING_FOR_BRUNO_CHORUS_ON, STRING_FOR_BRUNO_CHORUS};
 PLACE_SDRAM_BSS mod_fx::Rate modFXRateMenu{STRING_FOR_RATE, STRING_FOR_MODFX_RATE, params::GLOBAL_MOD_FX_RATE};
 PLACE_SDRAM_BSS mod_fx::Feedback modFXFeedbackMenu{STRING_FOR_FEEDBACK, STRING_FOR_MODFX_FEEDBACK,
                                                    params::UNPATCHED_MOD_FX_FEEDBACK};
@@ -502,6 +505,7 @@ PLACE_SDRAM_BSS submenu::ModFxHorizontalMenu modFXMenu{
     STRING_FOR_MOD_FX,
     {
         &modFXTypeMenu,
+        &brunoChorusModeMenu,
         &modFXDepthMenu,
         &modFXRateMenu,
         &modFXFeedbackMenu,
@@ -1655,6 +1659,13 @@ PLACE_SDRAM_BSS drum_synth::BrophetControl brophetMixAMenu{STRING_FOR_BROPHET_MI
 PLACE_SDRAM_BSS drum_synth::BrophetControl brophetMixBMenu{STRING_FOR_BROPHET_MIX_B, XiaSlot::BROPHET_MIX_B};
 PLACE_SDRAM_BSS drum_synth::BrophetControl brophetNoiseMenu{STRING_FOR_BROPHET_NOISE, XiaSlot::BROPHET_NOISE};
 PLACE_SDRAM_BSS drum_synth::BrophetControl brophetAnalogMenu{STRING_FOR_BROPHET_ANALOG, XiaSlot::BROPHET_ANALOG};
+PLACE_SDRAM_BSS drum_synth::OffOn bruno106SawMenu{STRING_FOR_BRUNO_SAW, DrumParam::BRUNO_SAW};
+PLACE_SDRAM_BSS drum_synth::OffOn bruno106PulseMenu{STRING_FOR_BRUNO_PULSE, DrumParam::BRUNO_PULSE};
+PLACE_SDRAM_BSS drum_synth::Bruno106Control bruno106PwMenu{STRING_FOR_BRUNO_PW, XiaSlot::BRUNO_PW};
+PLACE_SDRAM_BSS drum_synth::Bruno106Control bruno106SubMenu{STRING_FOR_BRUNO_SUB, XiaSlot::BRUNO_SUB};
+PLACE_SDRAM_BSS drum_synth::Bruno106Control bruno106NoiseMenu{STRING_FOR_BRUNO_NOISE, XiaSlot::BRUNO_NOISE};
+PLACE_SDRAM_BSS drum_synth::Bruno106Control bruno106SlopMenu{STRING_FOR_BRUNO_SLOP, XiaSlot::BRUNO_SLOP};
+PLACE_SDRAM_BSS drum_synth::Bruno106Hpf bruno106HpfMenu{STRING_FOR_BRUNO_HPF};
 PLACE_SDRAM_BSS KitGateOut kitGateOutMenu{STRING_FOR_KIT_GATE_OUT};
 PLACE_SDRAM_BSS KitRowGate kitRowGateMenu{STRING_FOR_ROW_GATE};
 // Items the current engine doesn't use hide themselves
@@ -1765,6 +1776,13 @@ PLACE_SDRAM_BSS menu_item::Submenu drumSynthMenu{
         &brophetMixBMenu,
         &brophetNoiseMenu,
         &brophetAnalogMenu,
+        &bruno106SawMenu,
+        &bruno106PulseMenu,
+        &bruno106PwMenu,
+        &bruno106SubMenu,
+        &bruno106NoiseMenu,
+        &bruno106SlopMenu,
+        &bruno106HpfMenu,
         &drumSnappyDecayMenu,
     },
 };
@@ -1943,6 +1961,19 @@ PLACE_SDRAM_DATA std::array<DrumColumn, 14> drumEditorBrophetLayout{{
     {&lpfFreqMenu, DrumKind::NUMBER, DrumGroup::SOUND},
     {&lpfResMenu, DrumKind::NUMBER, DrumGroup::SOUND},
 }};
+// BRUNO106: the DCO's switches and sliders as on its panel (saw, pulse, width, sub, noise), slop, then the Deluge's
+// filter (the BRUNO106 one when picked)
+PLACE_SDRAM_DATA std::array<DrumColumn, 9> drumEditorBruno106Layout{{
+    {&bruno106SawMenu, DrumKind::CHOICE, DrumGroup::OSC},
+    {&bruno106PulseMenu, DrumKind::CHOICE, DrumGroup::OSC},
+    {&bruno106PwMenu, DrumKind::NUMBER, DrumGroup::OSC},
+    {&bruno106SubMenu, DrumKind::NUMBER, DrumGroup::PITCH},
+    {&bruno106NoiseMenu, DrumKind::NUMBER, DrumGroup::NOISE},
+    {&bruno106SlopMenu, DrumKind::NUMBER, DrumGroup::MOD2},
+    {&bruno106HpfMenu, DrumKind::CHOICE, DrumGroup::SOUND},
+    {&lpfFreqMenu, DrumKind::NUMBER, DrumGroup::SOUND},
+    {&lpfResMenu, DrumKind::NUMBER, DrumGroup::SOUND},
+}};
 
 // Drum synth shortcut pads. On a drum synth sound, the MOD1 and MOD2 columns hold the standard layout, the same on
 // every engine: from the bottom of MOD1 up, decay, drive, pitch, pitch envelope amount and speed, character A and B and
@@ -1951,7 +1982,8 @@ PLACE_SDRAM_DATA std::array<DrumColumn, 14> drumEditorBrophetLayout{{
 // with more settings than that (ULTRAKIK) puts four more on the OSC1 pads a drum synth has no use for: pulse width,
 // retrigger phase, feedback and wave index, bottom up. Every other pad keeps its usual job, except those whose param is
 // one of the drum controls (osc 1's pulse width, the carriers' feedback, the wave indexes), which do nothing: they
-// would edit the control raw. The synth engines (RINGS, BROPHET) lay out as a synth instead: see synthLayouts.
+// would edit the control raw. The synth engines (RINGS, BROPHET, BRUNO106) lay out as a synth instead: see
+// synthLayouts.
 extern SynthModeSelection synthModeMenu;
 extern MenuItem* paramShortcutsForSounds[][kDisplayHeight];
 namespace {
@@ -2025,11 +2057,11 @@ PLACE_SDRAM_DATA DrumLayout drumLayouts[] = {
 constexpr int32_t kNumModSlots = static_cast<int32_t>(StandardSlot::NUM_MOD_SLOTS);
 constexpr int32_t kNumOsc1Extras = kNumStandardSlots - kNumModSlots;
 
-// The synth engines (RINGS, BROPHET) lay out as a synth does, not as a drum: their basic settings on the OSC1 and
-// OSC2 pads that already name them (level, transpose, type, pulse width, noise, sync), and only what has no such pad
-// on the FM MOD 1 and 2 columns, matched to those pads' names where one fits (a level, a pitch, the mod destination).
-// Indexed [column - OSC1][row], bottom row first. A pad without a setting here keeps its usual job (one whose param
-// is a drum control does nothing). SYNTH MODE is on its own pad (VOLUME column), as on any synth.
+// The synth engines (RINGS, BROPHET, BRUNO106) lay out as a synth does, not as a drum: their basic settings on the OSC1
+// and OSC2 pads that already name them (level, transpose, type, pulse width, noise, sync), and only what has no such
+// pad on the FM MOD 1 and 2 columns, matched to those pads' names where one fits (a level, a pitch, the mod
+// destination). Indexed [column - OSC1][row], bottom row first. A pad without a setting here keeps its usual job (one
+// whose param is a drum control does nothing). SYNTH MODE is on its own pad (VOLUME column), as on any synth.
 constexpr int32_t kNumSynthColumns = 4; ///< OSC1, OSC2, FM MOD 1, FM MOD 2
 using SynthColumns = std::array<std::array<MenuItem*, kDisplayHeight>, kNumSynthColumns>;
 struct SynthLayout {
@@ -2069,6 +2101,22 @@ PLACE_SDRAM_DATA SynthLayout synthLayouts[] = {
           nullptr},
          // FM MOD 2: level, transpose, -, -, -, -, mod dest
          {&brophetPmEnvMenu, &brophetAnalogMenu, nullptr, nullptr, nullptr, nullptr, &brophetPmDestMenu, nullptr},
+     }}},
+    // BRUNO106: one DCO. OSC1 holds it: the Deluge's own level and tuning, the saw switch as its type, the pulse width,
+    // the noise level on the noise pad. OSC2 holds the DCO's other waves: the sub level on its level, the pulse switch
+    // as its type, and the pulse width again. FM MOD 1: the HPF, BRUNO CHORUS on / off and its mode. FM MOD 2: slop on
+    // its transpose (as BROPHET's analog drift).
+    {DrumEngine::BRUNO106,
+     {{
+         // OSC1: level, transpose, type, pulse width, -, -, -, noise
+         {&source0VolumeMenu, &source0TransposeMenu, &bruno106SawMenu, &bruno106PwMenu, nullptr, nullptr, nullptr,
+          &bruno106NoiseMenu},
+         // OSC2: level, -, type, pulse width
+         {&bruno106SubMenu, nullptr, &bruno106PulseMenu, &bruno106PwMenu, nullptr, nullptr, nullptr, nullptr},
+         // FM MOD 1: the panel's right half, bottom up: HPF, chorus on / off (each press flips it), chorus mode
+         {&bruno106HpfMenu, &brunoChorusOnMenu, &brunoChorusModeMenu, nullptr, nullptr, nullptr, nullptr, nullptr},
+         // FM MOD 2: -, transpose
+         {nullptr, &bruno106SlopMenu, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr},
      }}},
 };
 
@@ -2204,7 +2252,8 @@ namespace deluge::gui::menu_item::drum_synth {
 PLACE_SDRAM_BSS Editor drumSynthEditor{STRING_FOR_DRUM_SYNTH, drumEditorDrumLayout,    drumEditorSnareLayout,
                                        drumEditorMetalLayout, drumEditorTiaLayout,     drumEditorIiaLayout,
                                        drumEditorCycLayout,   drumEditorGinLayout,     drumEditorUltrakikLayout,
-                                       drumEditorRingsLayout, drumEditorBrophetLayout, &drumSynthMenu};
+                                       drumEditorRingsLayout, drumEditorBrophetLayout, drumEditorBruno106Layout,
+                                       &drumSynthMenu};
 } // namespace deluge::gui::menu_item::drum_synth
 
 // Not FM

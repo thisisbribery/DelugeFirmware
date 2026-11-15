@@ -13,6 +13,8 @@
 #pragma once
 
 #include "dsp/drum_synth/brophet.h"
+#include "dsp/drum_synth/bruno106.h"
+#include "dsp/drum_synth/bruno106_hpf.h"
 #include "dsp/drum_synth/cyc.h"
 #include "dsp/drum_synth/gin.h"
 #include "dsp/drum_synth/gin_kits.h"
@@ -29,7 +31,7 @@ namespace deluge::dsp::drum_synth {
 
 /// The three LXR voice structures, then two engines from the XIA set for the Model:Cycles (see xia.h), then the Cyc
 /// engines (see cyc.h), then GIN (see gin.h), then ULTRAKIK (see ultrakik.h), then RINGS (see rings.h), then BROPHET
-/// (see brophet.h). New engines go on the end: the number is saved with the sound.
+/// (see brophet.h), then BRUNO106 (see bruno106.h). New engines go on the end: the number is saved with the sound.
 enum class Engine : uint8_t {
 	DRUM,  ///< Kick and toms: main osc, FM or mixed mod osc, pitch envelope
 	SNARE, ///< Pitched osc with pitch envelope, plus filtered sample-and-hold noise
@@ -49,6 +51,8 @@ enum class Engine : uint8_t {
 	RINGS,    ///< Mutable Instruments Rings: modal and string resonators, one per voice. Not a drum: a pitched synth.
 	BROPHET,  ///< Pro-54's voice (after Pro-53): two oscillators, sync, poly mod, noise. A synth, through the Deluge's
 	          ///< filters (the BROPHET one being Pro-54's own) and envelopes.
+	BRUNO106, ///< KR-106's DCO voice (after the Juno-106): saw, pulse with its width, sub, noise. A synth, through the
+	          ///< Deluge's filters (the BRUNO106 one being KR-106's IR3109) and envelopes.
 	NUM_ENGINES,
 };
 
@@ -80,6 +84,11 @@ constexpr bool isRings(Engine engine) {
 /// Whether an engine is BROPHET
 constexpr bool isBrophet(Engine engine) {
 	return engine == Engine::BROPHET;
+}
+
+/// Whether an engine is BRUNO106
+constexpr bool isBruno106(Engine engine) {
+	return engine == Engine::BRUNO106;
 }
 
 /// Whether an engine is one of the three LXR voices
@@ -159,12 +168,17 @@ struct DrumControls {
 		BROPHET_PW_B = 1,     ///< Osc B pulse width
 		BROPHET_FREQ_B = 2,   ///< Osc B against osc A, 64 = unison, 0 / 127 = two octaves down / up, in semitones
 		BROPHET_FINE_B = 3,   ///< Osc B detune, 64 = none, half a semitone each way: Custom 2
-		BROPHET_PM_ENV = 5,   ///< Poly mod from envelope 2: mod depth
-		BROPHET_PM_OSC_B = 6, ///< Poly mod from osc B: mod rate
+		BROPHET_PM_ENV = 5,   ///< Poly mod from envelope 2
+		BROPHET_PM_OSC_B = 6, ///< Poly mod from osc B
 		BROPHET_MIX_A = 7,
 		BROPHET_MIX_B = 8,
 		BROPHET_NOISE = 10,
 		BROPHET_ANALOG = 11, ///< Drift per note, as Pro-53's Analog knob
+		// BRUNO106: the DCO's sliders, plus Slop. No drive or decay: the Deluge's filter and envelopes do those.
+		BRUNO_PW = 0,    ///< Pulse width, 0 = square, 127 = narrowest (as the PWM slider on manual): Custom 3
+		BRUNO_SUB = 1,   ///< Sub level: Custom 2
+		BRUNO_NOISE = 2, ///< Noise level
+		BRUNO_SLOP = 3,  ///< Per note spread of tuning, pulse width and level, as real voices differ
 		NUM_SLOTS = 12,
 	};
 	/// Raw Deluge param values: the whole int32 range, centre 0
@@ -370,6 +384,10 @@ public:
 		BROPHET_LOW_B,   ///< 1 = osc B in its low range, as an LFO
 		BROPHET_FIXED_B, ///< 1 = osc B off the keys (Pro-53's keyboard button out), at middle C and its own frequency
 		BROPHET_PM_DEST, ///< brophet::PolyModDest
+		// BRUNO106's switches. Its continuous settings are on Deluge params: see DrumControls.
+		BRUNO_SAW,   ///< 1 = saw on
+		BRUNO_PULSE, ///< 1 = pulse on
+		BRUNO_HPF,   ///< bruno106::Hpf: the slider, run once per track on the summed voices (see Sound::render)
 		NUM_PARAMS,
 	};
 
@@ -395,6 +413,9 @@ public:
 	/// Switch to BROPHET with its switches at their defaults: osc A saw, osc B saw on the keys, no sync, poly mod to
 	/// osc A's frequency. Its continuous settings are on Deluge params: see brophetControlsFor().
 	void setBrophet();
+	/// Switch to BRUNO106 with its switches at their defaults: saw on, pulse off. Its continuous settings are on Deluge
+	/// params: see bruno106ControlsFor().
+	void setBruno106();
 
 	[[nodiscard]] uint8_t get(Param p) const { return params_[p]; }
 	void set(Param p, uint8_t value);
@@ -467,6 +488,12 @@ brophet::Settings brophetSettings(const std::array<uint8_t, Patch::NUM_PARAMS>& 
 
 /// BROPHET's starting knobs: both oscillators full, osc B a few cents up, a little drift
 DrumControls brophetControlsFor();
+
+/// BRUNO106's settings from its controls and patch
+bruno106::Settings bruno106Settings(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const DrumControls& controls);
+
+/// BRUNO106's starting knobs: square width, no sub or noise, a little slop
+DrumControls bruno106ControlsFor();
 
 /// A GIN kit sound's continuous settings, as controls
 DrumControls ginControlsFor(const gin::KitSound& sound);
@@ -547,6 +574,8 @@ private:
 	                 int32_t numSamples, uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement);
 	void renderBrophet(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const DrumControls& controls, int32_t* buffer,
 	                   int32_t numSamples, uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement);
+	void renderBruno106(const std::array<uint8_t, Patch::NUM_PARAMS>& p, const DrumControls& controls, int32_t* buffer,
+	                    int32_t numSamples, uint32_t basePhaseIncrement, int32_t amplitude, int32_t amplitudeIncrement);
 
 	void updateSettings(const Patch& patch, const DrumControls& controls);
 	void startLxr();
@@ -590,6 +619,7 @@ private:
 		gin::Voice gin;
 		ultrakik::Voice ultrakik;
 		brophet::Voice brophet;
+		bruno106::Voice bruno106;
 	} xia_{};
 	std::array<int32_t, xia::kBlockSize> xiaBlock_{};
 	int32_t xiaBlockPos_ = xia::kBlockSize;
@@ -598,6 +628,7 @@ private:
 	bool ginReady_ = false;               ///< xia_ holds GIN's state
 	bool ultrakikReady_ = false;          ///< xia_ holds ULTRAKIK's state
 	bool brophetReady_ = false;           ///< xia_ holds BROPHET's state
+	bool bruno106Ready_ = false;          ///< xia_ holds BRUNO106's state
 	int32_t polyModEnvelope_ = INT32_MIN; ///< BROPHET's poly mod envelope, as the Deluge gives it
 	rings::Voice* rings_ = nullptr;       ///< RINGS' state, given by the Deluge voice
 	bool ringsReady_ = false;             ///< rings_ has been reset since it was given

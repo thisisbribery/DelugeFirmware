@@ -18,6 +18,7 @@
 #pragma once
 
 #include "definitions_cxx.hpp"
+#include "dsp/drum_synth/bruno106_hpf.h"
 #include "dsp/tb303/open303.h"
 #include "model/mod_controllable/mod_controllable_audio.h"
 #include "model/sample/sample_recorder.h"
@@ -420,6 +421,7 @@ public:
 	virtual const char* getName() { return nullptr; }
 
 private:
+	deluge::dsp::drum_synth::bruno106::HpfState brunoHpf_; ///< BRUNO106's HPF slider, on the summed voices
 	uint32_t getGlobalLFOPhaseIncrement(LFO_ID lfoId, deluge::modulation::params::Global param);
 	void recalculateFineTuner();
 	void recalculateModulatorTransposer(uint8_t m, ModelStackWithSoundFlags* modelStack);

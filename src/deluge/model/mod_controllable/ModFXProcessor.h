@@ -17,6 +17,7 @@
 #pragma once
 
 #include "definitions_cxx.hpp"
+#include "dsp/drum_synth/bruno106_chorus.h"
 #include "dsp/stereo_sample.h"
 #include "modulation/lfo.h"
 #include "util/containers.h"
@@ -67,6 +68,9 @@ public:
 	uint16_t modFXBufferWriteIndex{0};
 	LFO modFXLFO;
 	LFO modFXLFOStereo;
+	/// BRUNO CHORUS: its state (its delay lines are modFXBuffer) and mode, 1 to 3 (I, II, I+II)
+	deluge::dsp::drum_synth::bruno106::Chorus brunoChorus;
+	uint8_t brunoChorusMode{1};
 	void processModFX(std::span<StereoSample> buffer, const ModFXType& modFXType, int32_t modFXRate, int32_t modFXDepth,
 	                  int32_t* postFXVolume, UnpatchedParamSet* unpatchedParams, bool anySoundComingIn);
 	void resetMemory();

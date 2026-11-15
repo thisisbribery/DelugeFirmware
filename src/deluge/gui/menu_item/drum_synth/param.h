@@ -117,6 +117,22 @@ inline void setupBrophetSound() {
 	setCable(params::LOCAL_LPF_FREQ, PatchSource::ENVELOPE_1, 18);
 }
 
+/// BRUNO106 is a synth too: the BRUNO106 filter (KR-106's IR3109) a little closed, a touch of resonance, envelope 2
+/// opening it, and a held envelope 1, as BROPHET
+inline void setupBruno106Sound() {
+	namespace params = deluge::modulation::params;
+	Sound& sound = *soundEditor.currentSound;
+	auto user = [](int32_t p, int32_t value) { setSoundParam(p, getParamFromUserValue(p, value)); };
+	sound.lpfMode = FilterMode::BRUNO106;
+	user(params::LOCAL_LPF_FREQ, 28);
+	user(params::LOCAL_LPF_RESONANCE, 12);
+	user(params::LOCAL_ENV_1_ATTACK, 0);
+	user(params::LOCAL_ENV_1_DECAY, 22);
+	user(params::LOCAL_ENV_1_SUSTAIN, 12);
+	user(params::LOCAL_ENV_1_RELEASE, 15);
+	setCable(params::LOCAL_LPF_FREQ, PatchSource::ENVELOPE_1, 18);
+}
+
 /// Set the sound being edited up as a drum synth row sits in its kit: transpose, both envelopes as percussive
 /// one-shots, envelope 2 on pitch where the engine wants a drop, polyphony, filters open (the high pass on for hats and
 /// cymbals), osc 2 and noise off, tune centred. Whatever the row was before (a sample, an LXR kick tuned down 29
@@ -254,6 +270,9 @@ inline void setDrumEngine(Engine engine, uint8_t variant = 0, bool fresh = false
 	else if (deluge::dsp::drum_synth::isBrophet(engine)) {
 		patch.setBrophet();
 	}
+	else if (deluge::dsp::drum_synth::isBruno106(engine)) {
+		patch.setBruno106();
+	}
 	else {
 		patch.setPreset(deluge::dsp::drum_synth::presetForLxrEngine(engine));
 	}
@@ -262,6 +281,9 @@ inline void setDrumEngine(Engine engine, uint8_t variant = 0, bool fresh = false
 	setEngineDecay(row);
 	if (deluge::dsp::drum_synth::isBrophet(engine)) {
 		setupBrophetSound();
+	}
+	if (deluge::dsp::drum_synth::isBruno106(engine)) {
+		setupBruno106Sound();
 	}
 	setDrumKnobs(sound, engine);
 	soundEditor.markInstrumentAsEdited();
@@ -388,6 +410,18 @@ public:
 	}
 };
 
+/// A continuous setting of BRUNO106
+class Bruno106Control final : public Control {
+public:
+	using Control::Control;
+
+	bool isRelevant(ModControllableAudio* modControllable, int32_t whichThing) const override {
+		const auto* sound = static_cast<Sound*>(modControllable);
+		return sound->sources[0].oscType == OscType::DRUM_SYNTH
+		       && deluge::dsp::drum_synth::isBruno106(sound->sources[0].drumPatch.engine());
+	}
+};
+
 /// A drum synth setting kept in the patch as a number, 0-127: GIN's EQ gain and level, ULTRAKIK's crush, bend time and
 /// snap. Menu edits only: not a patched param.
 class PatchNumber final : public Integer {
@@ -473,6 +507,25 @@ public:
 		using enum l10n::String;
 		return {l10n::getView(STRING_FOR_OFF), l10n::getView(STRING_FOR_ON)};
 	}
+};
+
+/// BRUNO106's HPF slider, shown in the slider's order (bass boost, flat, 236 Hz, 754 Hz) though saved FLAT first
+class Bruno106Hpf final : public Choice {
+public:
+	explicit Bruno106Hpf(l10n::String name) : Choice(name, Patch::BRUNO_HPF) {}
+
+	void readCurrentValue() override { setValue(kToMenu[std::min<uint8_t>(currentPatch().get(param_), 3)]); }
+	void writeCurrentValue() override { currentPatch().set(param_, kToSaved[std::clamp<int32_t>(getValue(), 0, 3)]); }
+	deluge::vector<std::string_view> getOptions(OptType optType) override {
+		(void)optType;
+		using enum l10n::String;
+		return {l10n::getView(STRING_FOR_BRUNO_HPF_BOOST), l10n::getView(STRING_FOR_BRUNO_HPF_FLAT),
+		        l10n::getView(STRING_FOR_BRUNO_HPF_236), l10n::getView(STRING_FOR_BRUNO_HPF_754)};
+	}
+
+private:
+	static constexpr uint8_t kToMenu[4] = {1, 0, 2, 3};  ///< Saved FLAT, BOOST, 236, 754 to the slider's order
+	static constexpr uint8_t kToSaved[4] = {1, 0, 2, 3}; ///< and back
 };
 
 class MixMode final : public Choice {

@@ -42,11 +42,14 @@ struct SynthInstrument {
 	bool brophet;
 	/// The stock blank synth, as SHIFT + SYNTH made before: no folder of its own, not a default instrument
 	bool init;
+	/// BRUNO106 (the KR-106 DCO voice in SYNTH MODE). As BROPHET: its presets are the way in.
+	bool bruno106 = false;
 };
 
-// BROPHET goes after DX7 so the types saved before it (Defaults > Synth instrument) keep their numbers. DX7 only shows
+// BROPHET goes after DX7, and BRUNO106 after BROPHET, so the types saved before them (Defaults > Synth instrument) keep
+// their numbers. DX7 only shows
 // with its setting on, so it usually comes straight after BRINGS.
-inline constexpr std::array<SynthInstrument, 8> kSynthInstruments{{
+inline constexpr std::array<SynthInstrument, 9> kSynthInstruments{{
     {l10n::String::STRING_FOR_SYNTH_TYPE_SUBT, "SYNTHS/SUBT", SynthMode::SUBTRACTIVE, false, false, false, false,
      false},
     {l10n::String::STRING_FOR_SYNTH_TYPE_FM, "SYNTHS/FM", SynthMode::FM, false, false, false, false, false},
@@ -58,6 +61,8 @@ inline constexpr std::array<SynthInstrument, 8> kSynthInstruments{{
      false},
     {l10n::String::STRING_FOR_SYNTH_TYPE_BROPHET, "SYNTHS/BROPHET", SynthMode::SUBTRACTIVE, false, false, false, true,
      false},
+    {l10n::String::STRING_FOR_SYNTH_TYPE_BRUNO106, "SYNTHS/BRUNO106", SynthMode::SUBTRACTIVE, false, false, false,
+     false, false, true},
     {l10n::String::STRING_FOR_SYNTH_TYPE_INIT, "SYNTHS", SynthMode::SUBTRACTIVE, false, false, false, false, true},
 }};
 

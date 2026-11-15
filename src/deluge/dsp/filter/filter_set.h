@@ -19,6 +19,7 @@
 
 #include "definitions_cxx.hpp"
 #include "dsp/filter/brophet.h"
+#include "dsp/filter/bruno106.h"
 #include "dsp/filter/hpladder.h"
 #include "dsp/filter/lpladder.h"
 #include "dsp/filter/svf.h"
@@ -34,6 +35,7 @@ union LowPass {
 	LpLadderFilter ladder;
 	SVFilter svf;
 	BrophetFilter brophet;
+	Bruno106Filter bruno106;
 	LowPass() {}
 };
 

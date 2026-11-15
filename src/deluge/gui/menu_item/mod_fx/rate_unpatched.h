@@ -24,7 +24,9 @@ public:
 	using UnpatchedParam::UnpatchedParam;
 
 	bool isRelevant(ModControllableAudio* modControllable, int32_t whichThing) const {
-		return modControllable->getModFXType() != ModFXType::NONE;
+		// BRUNO CHORUS's rate is its mode's, as on the hardware
+		return modControllable->getModFXType() != ModFXType::NONE
+		       && modControllable->getModFXType() != ModFXType::BRUNO_CHORUS;
 	}
 };
 } // namespace deluge::gui::menu_item::mod_fx

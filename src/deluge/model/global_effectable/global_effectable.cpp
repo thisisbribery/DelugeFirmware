@@ -1194,7 +1194,7 @@ void GlobalEffectable::processFXForGlobalEffectable(std::span<StereoSample> buff
 	// TODO: this saves a tiny amount of memory at the cost of needing allocations during the audio render cycle...
 	// seems kinda dumb
 	if (util::one_of(modFXTypeNow, {ModFXType::CHORUS_STEREO, ModFXType::CHORUS, ModFXType::FLANGER, ModFXType::WARBLE,
-	                                ModFXType::DIMENSION})) {
+	                                ModFXType::DIMENSION, ModFXType::BRUNO_CHORUS})) {
 		modfx.setupBuffer();
 		disableGrain();
 	}
@@ -1226,6 +1226,7 @@ deluge::vector<std::string_view> getModNames() {
 	    l10n::getView(STRING_FOR_WARBLE),
 	    l10n::getView(STRING_FOR_DIMENSION), //<
 	    l10n::getView(STRING_FOR_GRAIN),     //<
+	    l10n::getView(STRING_FOR_BRUNO_CHORUS),
 	};
 }
 
@@ -1278,6 +1279,8 @@ const char* modFXToString(ModFXType type) {
 		return l10n::get(STRING_FOR_DIMENSION);
 	case ModFXType::GRAIN:
 		return l10n::get(STRING_FOR_GRAIN);
+	case ModFXType::BRUNO_CHORUS:
+		return l10n::get(STRING_FOR_BRUNO_CHORUS);
 	case ModFXType::WARBLE:
 		return l10n::get(STRING_FOR_WARBLE);
 	default:

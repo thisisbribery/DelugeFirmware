@@ -177,6 +177,23 @@ inline deluge::l10n::String brophetKnobName(int32_t slot) {
 	}
 }
 
+/// What BRUNO106 calls the setting on a control slot, or EMPTY_STRING for a slot it doesn't use
+inline deluge::l10n::String bruno106KnobName(int32_t slot) {
+	using enum deluge::l10n::String;
+	switch (slot) {
+	case DrumControls::BRUNO_PW:
+		return STRING_FOR_BRUNO_PW;
+	case DrumControls::BRUNO_SUB:
+		return STRING_FOR_BRUNO_SUB;
+	case DrumControls::BRUNO_NOISE:
+		return STRING_FOR_BRUNO_NOISE;
+	case DrumControls::BRUNO_SLOP:
+		return STRING_FOR_BRUNO_SLOP;
+	default:
+		return EMPTY_STRING;
+	}
+}
+
 /// What GIN calls the setting on a control slot
 inline deluge::l10n::String ginKnobName(int32_t slot) {
 	using enum deluge::l10n::String;

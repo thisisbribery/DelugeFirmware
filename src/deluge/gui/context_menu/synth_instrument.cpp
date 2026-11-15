@@ -93,6 +93,8 @@ size_t typeOf(SoundInstrument* synth) {
 	                   && dsp::drum_synth::isRings(synth->sources[0].drumPatch.engine());
 	const bool brophet = synth->sources[0].oscType == OscType::DRUM_SYNTH
 	                     && dsp::drum_synth::isBrophet(synth->sources[0].drumPatch.engine());
+	const bool bruno106 = synth->sources[0].oscType == OscType::DRUM_SYNTH
+	                      && dsp::drum_synth::isBruno106(synth->sources[0].drumPatch.engine());
 	const bool wavetable =
 	    synth->getSynthMode() == SynthMode::SUBTRACTIVE
 	    && (synth->sources[0].oscType == OscType::WAVETABLE || synth->sources[1].oscType == OscType::WAVETABLE);
@@ -101,11 +103,12 @@ size_t typeOf(SoundInstrument* synth) {
 		if (type.init) {
 			continue;
 		}
-		if (rings     ? type.rings
-		    : brophet ? type.brophet
-		    : dx      ? type.dx
-		              : (!type.dx && !type.rings && !type.brophet && type.mode == synth->getSynthMode()
-                    && type.wavetable == wavetable)) {
+		if (rings      ? type.rings
+		    : brophet  ? type.brophet
+		    : bruno106 ? type.bruno106
+		    : dx       ? type.dx
+		         : (!type.dx && !type.rings && !type.brophet && !type.bruno106 && type.mode == synth->getSynthMode()
+		            && type.wavetable == wavetable)) {
 			return i;
 		}
 	}

@@ -76,6 +76,14 @@ q31_t tempRenderBuffer[SSI_TX_BUFFER_NUM_SAMPLES * 2]; // * 2 to accomodate ster
 				lpfilter.brophet.filterMono(startSample, endSample, sampleIncrement);
 			}
 		}
+		else if (lpfMode_ == FilterMode::BRUNO106) {
+			if (feedback) {
+				lpfilter.bruno106.filterMonoFeedback(startSample, endSample, sampleIncrement, feedbackL_, feedback);
+			}
+			else {
+				lpfilter.bruno106.filterMono(startSample, endSample, sampleIncrement);
+			}
+		}
 		else if ((lpfMode_ == FilterMode::SVF_BAND) || (lpfMode_ == FilterMode::SVF_NOTCH)) {
 			if (feedback) {
 				lpfilter.svf.filterMonoFeedback(startSample, endSample, sampleIncrement, feedbackL_, feedback);
@@ -103,6 +111,14 @@ q31_t tempRenderBuffer[SSI_TX_BUFFER_NUM_SAMPLES * 2]; // * 2 to accomodate ster
 			}
 			else {
 				lpfilter.brophet.filterStereo(startSample, endSample);
+			}
+		}
+		else if (lpfMode_ == FilterMode::BRUNO106) {
+			if (feedback) {
+				lpfilter.bruno106.filterStereoFeedback(startSample, endSample, feedbackL_, feedbackR_, feedback);
+			}
+			else {
+				lpfilter.bruno106.filterStereo(startSample, endSample);
 			}
 		}
 		else if ((lpfMode_ == FilterMode::SVF_BAND) || (lpfMode_ == FilterMode::SVF_NOTCH)) {
@@ -246,6 +262,12 @@ int32_t FilterSet::setConfig(q31_t lpfFrequency, q31_t lpfResonance, FilterMode 
 			}
 			filterGain = lpfilter.brophet.configure(lpfFrequency, lpfResonance, lpfMode_, lpfMorph, filterGain);
 		}
+		else if (lpfMode_ == FilterMode::BRUNO106) {
+			if (lastLPFMode_ != FilterMode::BRUNO106) {
+				lpfilter.bruno106.reset(lastLPFMode_ == FilterMode::OFF);
+			}
+			filterGain = lpfilter.bruno106.configure(lpfFrequency, lpfResonance, lpfMode_, lpfMorph, filterGain);
+		}
 		else if ((lpfMode_ == FilterMode::SVF_BAND) || (lpfMode_ == FilterMode::SVF_NOTCH)) {
 			if (SpecificFilter(lastLPFMode_).getFamily() != FilterFamily::SVF) {
 				lpfilter.svf.reset(lastLPFMode_ == FilterMode::OFF);
@@ -254,7 +276,7 @@ int32_t FilterSet::setConfig(q31_t lpfFrequency, q31_t lpfResonance, FilterMode 
 		}
 		else {
 			if (SpecificFilter(lastLPFMode_).getFamily() != FilterFamily::LP_LADDER
-			    || lastLPFMode_ == FilterMode::BROPHET) {
+			    || lastLPFMode_ == FilterMode::BROPHET || lastLPFMode_ == FilterMode::BRUNO106) {
 				lpfilter.ladder.reset(lastLPFMode_ == FilterMode::OFF);
 			}
 			filterGain = lpfilter.ladder.configure(lpfFrequency, lpfResonance, lpfMode_, lpfMorph, filterGain);

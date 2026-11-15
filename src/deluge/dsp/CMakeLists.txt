@@ -16,6 +16,10 @@ set_source_files_properties(
   ${CMAKE_CURRENT_LIST_DIR}/drum_synth/ultrakik_presets.cpp
   ${CMAKE_CURRENT_LIST_DIR}/drum_synth/rings.cpp
   ${CMAKE_CURRENT_LIST_DIR}/drum_synth/brophet.cpp
+  ${CMAKE_CURRENT_LIST_DIR}/drum_synth/bruno106.cpp
+  ${CMAKE_CURRENT_LIST_DIR}/drum_synth/bruno106_hpf.cpp
+  ${CMAKE_CURRENT_LIST_DIR}/drum_synth/bruno106_chorus.cpp
+  ${CMAKE_CURRENT_LIST_DIR}/filter/bruno106.cpp
   PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON
 )
 

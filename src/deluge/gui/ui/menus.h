@@ -4,6 +4,7 @@
 #include "gui/menu_item/edit_name.h"
 #include "gui/menu_item/filter/param.h"
 #include "gui/menu_item/firmware/version.h"
+#include "gui/menu_item/mod_fx/bruno_chorus.h"
 #include "gui/menu_item/note/fill.h"
 #include "gui/menu_item/note/iterance_divisor.h"
 #include "gui/menu_item/note/iterance_preset.h"
@@ -39,6 +40,7 @@ class HorizontalMenuContainer;
 } // namespace deluge::gui::menu_item
 
 extern gui::menu_item::patched_param::IntegerNonFM noiseMenu;
+extern gui::menu_item::mod_fx::BrunoChorusOnOff brunoChorusOnMenu;
 extern gui::menu_item::osc::Sync oscSyncMenu;
 extern gui::menu_item::osc::source::WaveIndex source0WaveIndexMenu;
 extern gui::menu_item::osc::source::WaveIndex source1WaveIndexMenu;
