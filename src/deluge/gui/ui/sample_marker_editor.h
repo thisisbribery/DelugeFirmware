@@ -59,6 +59,10 @@ public:
 	/// Lock the loop so the start and end are always the same number of samples apart
 	void loopLock();
 
+	/// Move a marker to a sample position, as a companion screen drag asks: kept between its neighbours and inside the
+	/// sample, then it becomes the marker being edited. Returns false if this marker isn't available here.
+	bool companionMoveMarker(MarkerType type, int64_t pos);
+
 	MarkerType markerType;
 
 	int8_t blinkPhase;

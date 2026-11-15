@@ -46,6 +46,7 @@
 #include "storage/multi_range/multisample_range.h"
 #include "util/cfunctions.h"
 #include "util/misc.h"
+#include <algorithm>
 
 using namespace deluge::gui;
 
@@ -264,6 +265,59 @@ void SampleMarkerEditor::getColsOnScreen(MarkerColumn* cols) {
 	cols[util::to_underlying(MarkerType::END)].pos = getCurrentSampleHolder().endPos;
 	cols[util::to_underlying(MarkerType::END)].colOnScreen =
 	    getEndColOnScreen(cols[util::to_underlying(MarkerType::END)].pos);
+}
+
+bool SampleMarkerEditor::companionMoveMarker(MarkerType type, int64_t pos) {
+	if (waveformBasicNavigator.sample == nullptr || type < MarkerType::START || type > MarkerType::END) {
+		return false;
+	}
+	const bool audioClip = getCurrentClip()->type == ClipType::AUDIO;
+	if (audioClip && (type == MarkerType::LOOP_START || type == MarkerType::LOOP_END)) {
+		return false;
+	}
+	MarkerColumn cols[kNumMarkerTypes];
+	getColsOnScreen(cols);
+	const int64_t start = cols[util::to_underlying(MarkerType::START)].pos;
+	const int64_t loopStart = cols[util::to_underlying(MarkerType::LOOP_START)].pos;
+	const int64_t loopEnd = cols[util::to_underlying(MarkerType::LOOP_END)].pos;
+	const int64_t end = cols[util::to_underlying(MarkerType::END)].pos;
+	const int64_t length = static_cast<int64_t>(waveformBasicNavigator.sample->lengthInSamples);
+
+	// Keep start < loop start < loop end < end (a loop marker at 0 is off)
+	int64_t lo = 0;
+	int64_t hi = length;
+	switch (type) {
+	case MarkerType::START:
+		hi = (loopStart != 0 ? loopStart : (loopEnd != 0 ? loopEnd : end)) - 1;
+		break;
+	case MarkerType::LOOP_START:
+		lo = std::max<int64_t>(start, 1);
+		hi = (loopEnd != 0 ? loopEnd : end) - 1;
+		break;
+	case MarkerType::LOOP_END:
+		lo = (loopStart != 0 ? loopStart : start) + 1;
+		hi = end;
+		break;
+	default: // END
+		lo = std::max({start, loopStart, loopEnd}) + 1;
+		hi = length;
+		break;
+	}
+	if (hi < lo) {
+		return false;
+	}
+	pos = std::clamp(pos, lo, hi);
+	markerType = type;
+	writeValue(static_cast<uint32_t>(pos), type);
+	blinkPhase = 0;
+	uiNeedsRendering(this, 0xFFFFFFFF, 0);
+	if (display->haveOLED()) {
+		renderUIsForOled();
+	}
+	else {
+		displayText();
+	}
+	return true;
 }
 
 void SampleMarkerEditor::selectEncoderAction(int8_t offset) {

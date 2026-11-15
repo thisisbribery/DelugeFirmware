@@ -24,6 +24,7 @@
 #include "modulation/params/param_set.h"
 #include "processing/engines/audio_engine.h"
 #include "processing/sound/sound.h"
+#include <algorithm>
 
 namespace deluge::gui::menu_item::sample {
 
@@ -38,6 +39,13 @@ public:
 
 	bool isRelevant(ModControllableAudio* modControllable, int32_t) const override {
 		return isSampleModeSample(modControllable, source_id_);
+	}
+
+	/// Set the offset (-kResolution to kResolution), as a companion screen drag does, and show it
+	void companionSet(int32_t value) {
+		this->setValue(std::clamp<int32_t>(value, -kResolution, kResolution));
+		writeCurrentValue();
+		readValueAgain();
 	}
 
 	[[nodiscard]] int32_t getMaxValue() const override { return kResolution; }

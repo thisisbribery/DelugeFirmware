@@ -1,16 +1,21 @@
 #include "hid/hid_sysex.h"
 #include "dsp/drum_synth/drum_synth.h"
 #include "extern.h"
+#include "gui/colour/rgb.h"
 #include "gui/context_menu/context_menu.h"
 #include "gui/l10n/l10n.h"
 #include "gui/l10n/language.h"
 #include "gui/menu_item/menu_item.h"
+#include "gui/menu_item/sample/start_offset.h"
+#include "gui/menu_item/value_scaling.h"
 #include "gui/ui/browser/browser.h"
 #include "gui/ui/browser/sample_browser.h"
+#include "gui/ui/menus.h"
 #include "gui/ui/sample_marker_editor.h"
 #include "gui/ui/sound_editor.h"
 #include "gui/ui/ui.h"
 #include "gui/ui_timer_manager.h"
+#include "gui/views/arranger_view.h"
 #include "gui/views/audio_clip_view.h"
 #include "gui/waveform/waveform_basic_navigator.h"
 #include "gui/waveform/waveform_render_data.h"
@@ -25,11 +30,17 @@
 #include "memory/general_memory_allocator.h"
 #include "model/clip/audio_clip.h"
 #include "model/clip/clip.h"
+#include "model/clip/clip_instance.h"
+#include "model/clip/instrument_clip.h"
 #include "model/drum/drum.h"
 #include "model/instrument/kit.h"
+#include "model/note/note_row.h"
+#include "model/output.h"
 #include "model/sample/sample.h"
 #include "model/sample/sample_holder_for_voice.h"
 #include "model/song/song.h"
+#include "playback/mode/arrangement.h"
+#include "playback/mode/session.h"
 #include "playback/playback_handler.h"
 #include "processing/engines/audio_engine.h"
 #include "processing/sound/sound_drum.h"
@@ -583,7 +594,7 @@ char const* fileNameOf(Sample* sample) {
 }
 
 struct WaveView {
-	uint8_t kind = 0; ///< 0 none, 1 audio clip, 2 sample marker editor, 3 sample browser
+	uint8_t kind = 0; ///< 0 none, 1 audio clip, 2 sample marker editor, 3 sample browser, 4 start offset
 	Sample* sample = nullptr;
 	int64_t xScroll = 0;
 	int64_t xZoom = 1;
@@ -668,6 +679,41 @@ WaveView currentWaveView() {
 			}
 			mark(3, holder.endPos);
 		}
+		return v;
+	}
+	case UIType::SOUND_EDITOR: {
+		// Start offset (synth oscillators and kit rows alike): the whole sample, its start and end, and where the
+		// offset makes it start (the sum Voice::applyStartOffsetToGuide does, ignoring reverse)
+		MenuItem* item = soundEditor.getCurrentMenuItem();
+		const int32_t source = item == &sample0StartOffsetMenu ? 0 : item == &sample1StartOffsetMenu ? 1 : -1;
+		if (source < 0 || soundEditor.currentSound == nullptr || soundEditor.currentParamManager == nullptr) {
+			return v;
+		}
+		Source& src = soundEditor.currentSound->sources[source];
+		if (src.ranges.getNumElements() < 1) {
+			return v;
+		}
+		auto* range = static_cast<MultisampleRange*>(
+		    soundEditor.currentMultiRange != nullptr ? soundEditor.currentMultiRange : src.ranges.getElement(0));
+		v.sample = static_cast<Sample*>(range->sampleHolder.audioFile);
+		if (v.sample == nullptr || v.sample->lengthInSamples < 2) {
+			return v;
+		}
+		v.kind = 4;
+		const int64_t length = static_cast<int64_t>(v.sample->lengthInSamples);
+		v.xScroll = 0;
+		v.xZoom = std::max<int64_t>(kWaveSub, (length + kDisplayWidth - 1) / kDisplayWidth);
+		v.reversed = src.sampleControls.isCurrentlyReversed();
+		const int64_t start = range->sampleHolder.startPos;
+		const int64_t end = std::min<int64_t>(range->sampleHolder.getEndPos(), length);
+		addMarker(v, 0, start);
+		addMarker(v, 3, end);
+		const int32_t param = soundEditor.currentParamManager->getPatchedParamSet()->getValue(
+		    deluge::modulation::params::LOCAL_OSC_A_START_OFFSET + source);
+		const int64_t shift = (static_cast<int64_t>(param) * length) >> 30;
+		int64_t offsetPos = src.offsetWraps ? (((start + shift) % length) + length) % length
+		                                    : std::clamp<int64_t>(start + shift, 0, length - 1);
+		addMarker(v, 6 | 0x10, offsetPos);
 		return v;
 	}
 	case UIType::SAMPLE_BROWSER:
@@ -780,6 +826,373 @@ int32_t updateWave(WaveView const& v) {
 	waveBodyLen = i;
 	return (complete || v.recording) ? 1 : 2; // 2 = still filling in: send now and then
 }
+
+// ---- Knobs: the main settings of the synth or kit row being played, read from its params ----
+constexpr uint8_t kParamsHeader[7] = {0xF0, 0x00, 0x21, 0x7B, 0x01, 0x02, 0x4A};
+constexpr uint8_t kTransportHeader[7] = {0xF0, 0x00, 0x21, 0x7B, 0x01, 0x02, 0x4B};
+constexpr uint8_t kOutputsHeader[7] = {0xF0, 0x00, 0x21, 0x7B, 0x01, 0x02, 0x4C};
+constexpr uint8_t kClipsHeader[7] = {0xF0, 0x00, 0x21, 0x7B, 0x01, 0x02, 0x4D};
+constexpr uint8_t kArrangerHeader[7] = {0xF0, 0x00, 0x21, 0x7B, 0x01, 0x02, 0x4E};
+constexpr uint8_t kArrangerPosHeader[7] = {0xF0, 0x00, 0x21, 0x7B, 0x01, 0x02, 0x4F};
+
+/// A setting shown as a knob: the shortcut pad that opens it (what a tap presses), the group the tablet puts it in,
+/// the param it reads, and its English name. Read straight from the sound's params: no menu item is asked anything
+/// here, as menu items read the sound editor's state, which isn't set up (or is stale) outside the editor.
+struct KnobDef {
+	uint8_t x;
+	uint8_t y;
+	uint8_t group;  ///< 0 oscillators, 1 filters, 2 envelope 1, 3 envelope 2, 4 voice, 5 effects, 6 LFOs
+	bool unpatched; ///< In the unpatched param set, else the patched one
+	uint16_t param;
+	char const* name;
+};
+namespace P = deluge::modulation::params;
+constexpr KnobDef kKnobs[] = {
+    {2, 0, 0, false, P::LOCAL_OSC_A_VOLUME, "Osc 1 level"},
+    {3, 0, 0, false, P::LOCAL_OSC_B_VOLUME, "Osc 2 level"},
+    {2, 7, 0, false, P::LOCAL_NOISE_VOLUME, "Noise level"},
+    {8, 7, 1, false, P::LOCAL_LPF_FREQ, "LPF frequency"},
+    {8, 6, 1, false, P::LOCAL_LPF_RESONANCE, "LPF resonance"},
+    {8, 4, 1, false, P::LOCAL_LPF_MORPH, "LPF morph"},
+    {9, 7, 1, false, P::LOCAL_HPF_FREQ, "HPF frequency"},
+    {9, 6, 1, false, P::LOCAL_HPF_RESONANCE, "HPF resonance"},
+    {9, 4, 1, false, P::LOCAL_HPF_MORPH, "HPF morph"},
+    {8, 3, 2, false, P::LOCAL_ENV_0_ATTACK, "Attack"},
+    {8, 2, 2, false, P::LOCAL_ENV_0_DECAY, "Decay"},
+    {8, 1, 2, false, P::LOCAL_ENV_0_SUSTAIN, "Sustain"},
+    {8, 0, 2, false, P::LOCAL_ENV_0_RELEASE, "Release"},
+    {9, 3, 3, false, P::LOCAL_ENV_1_ATTACK, "Attack"},
+    {9, 2, 3, false, P::LOCAL_ENV_1_DECAY, "Decay"},
+    {9, 1, 3, false, P::LOCAL_ENV_1_SUSTAIN, "Sustain"},
+    {9, 0, 3, false, P::LOCAL_ENV_1_RELEASE, "Release"},
+    {6, 0, 4, false, P::GLOBAL_VOLUME_POST_FX, "Level"},
+    {6, 3, 4, false, P::LOCAL_PAN, "Pan"},
+    {7, 0, 4, true, P::UNPATCHED_PORTAMENTO, "Portamento"},
+    {12, 7, 5, false, P::GLOBAL_MOD_FX_RATE, "Mod FX rate"},
+    {12, 6, 5, false, P::GLOBAL_MOD_FX_DEPTH, "Mod FX depth"},
+    {12, 5, 5, true, P::UNPATCHED_MOD_FX_FEEDBACK, "Mod FX feedback"},
+    {13, 3, 5, false, P::GLOBAL_REVERB_AMOUNT, "Reverb amount"},
+    {14, 0, 5, false, P::GLOBAL_DELAY_RATE, "Delay rate"},
+    {14, 3, 5, false, P::GLOBAL_DELAY_FEEDBACK, "Delay amount"},
+    {6, 6, 5, true, P::UNPATCHED_BITCRUSHING, "Bitcrush"},
+    {6, 5, 5, true, P::UNPATCHED_SAMPLE_RATE_REDUCTION, "Decimation"},
+    {10, 6, 5, true, P::UNPATCHED_BASS, "Bass"},
+    {11, 6, 5, true, P::UNPATCHED_TREBLE, "Treble"},
+    {12, 0, 6, false, P::GLOBAL_LFO_FREQ_1, "LFO 1 rate"},
+    {13, 0, 6, false, P::LOCAL_LFO_LOCAL_FREQ_1, "LFO 2 rate"},
+};
+constexpr int32_t kNumKnobs = sizeof(kKnobs) / sizeof(kKnobs[0]);
+constexpr int32_t kKnobNameMax = 18;
+constexpr int32_t kParamsBodyMax = 4 + kNumKnobs * (7 + kKnobNameMax);
+
+uint8_t paramsBody[kParamsBodyMax];
+int32_t paramsBodyLen = 0;
+uint8_t lastParams[kParamsBodyMax];
+int32_t lastParamsLen = 0;
+
+/// The sound being played and its params: the synth, or the kit's selected row. False if neither.
+bool currentSoundAndParams(Sound*& sound, ParamManagerForTimeline*& params) {
+	Clip* clip = getCurrentClip();
+	if (clip == nullptr || clip->type != ClipType::INSTRUMENT || clip->output == nullptr) {
+		return false;
+	}
+	auto* instrumentClip = static_cast<InstrumentClip*>(clip);
+	if (clip->output->type == OutputType::SYNTH) {
+		sound = static_cast<SoundInstrument*>(clip->output);
+		params = &clip->paramManager;
+	}
+	else if (clip->output->type == OutputType::KIT) {
+		Drum* drum = static_cast<Kit*>(clip->output)->selectedDrum;
+		if (drum == nullptr || drum->type != DrumType::SOUND) {
+			return false;
+		}
+		NoteRow* row = instrumentClip->getNoteRowForDrum(drum);
+		if (row == nullptr) {
+			return false;
+		}
+		sound = static_cast<SoundDrum*>(drum);
+		params = &row->paramManager;
+	}
+	else {
+		return false;
+	}
+	return params->containsAnyMainParamCollections();
+}
+
+/// PARAMS body: version, open, count, then per knob its pad x and y, group, flags (1 bipolar, 2 open in the menu),
+/// position (0 to 127, 64 = middle), the value the Deluge shows (2 bytes, plus 8192), and its English name
+int32_t buildParams(uint8_t* out) {
+	int32_t i = 0;
+	out[i++] = kStateVersion;
+	Sound* sound = nullptr;
+	ParamManagerForTimeline* params = nullptr;
+	if (!currentSoundAndParams(sound, params)) {
+		out[i++] = 0;
+		return i;
+	}
+	out[i++] = 1;
+	const int32_t countAt = i++;
+	int32_t count = 0;
+	// Drum engines put their own controls on the oscillator pads, and FM has no filters
+	const bool drumEngine = sound->sources[0].oscType == OscType::DRUM_SYNTH;
+	const bool fm = sound->getSynthMode() == SynthMode::FM;
+	const bool editing = getCurrentUI() == &soundEditor;
+	PatchedParamSet* patched = params->getPatchedParamSet();
+	UnpatchedParamSet* unpatched = params->getUnpatchedParamSet();
+	for (int32_t k = 0; k < kNumKnobs; k++) {
+		const KnobDef& knob = kKnobs[k];
+		if ((knob.group == 0 && drumEngine) || (knob.group == 1 && fm)) {
+			continue;
+		}
+		if (knob.unpatched ? unpatched == nullptr : patched == nullptr) {
+			continue;
+		}
+		const int32_t value = knob.unpatched ? unpatched->getValue(knob.param) : patched->getValue(knob.param);
+		const bool pan = !knob.unpatched && knob.param == P::LOCAL_PAN;
+		const int32_t shown = pan ? computeCurrentValueForPan(value) : computeCurrentValueForStandardMenuItem(value);
+		const bool open =
+		    editing && soundEditor.currentParamShortcutX == knob.x && soundEditor.currentParamShortcutY == knob.y;
+		out[i++] = knob.x;
+		out[i++] = knob.y;
+		out[i++] = knob.group;
+		out[i++] = (pan ? 1 : 0) | (open ? 2 : 0);
+		out[i++] = static_cast<uint8_t>(std::clamp<int32_t>((value >> 25) + 64, 0, 127));
+		const int32_t v = std::clamp<int32_t>(shown + 8192, 0, 16383);
+		out[i++] = (v >> 7) & 0x7F;
+		out[i++] = v & 0x7F;
+		i += putName(out + i, knob.name);
+		count++;
+	}
+	out[countAt] = count;
+	return i;
+}
+
+// ---- Transport, song (session clips and outputs), arranger ----
+uint8_t lastTransport[12];
+int32_t lastTransportLen = 0;
+constexpr int32_t kMaxOutputs = 48;
+constexpr int32_t kMaxClips = 64;
+constexpr int32_t kSongNameMax = 12;
+constexpr int32_t kMaxInstances = 160;
+uint8_t songBody[4 + kMaxClips * (4 + kSongNameMax)];
+int32_t songBodyLen = 0;
+uint8_t lastOutputs[4 + kMaxOutputs * (6 + kSongNameMax)];
+int32_t lastOutputsLen = 0;
+uint8_t lastClips[sizeof(songBody)];
+int32_t lastClipsLen = 0;
+uint8_t lastArranger[8 + kMaxOutputs * 2 + kMaxInstances * 4];
+int32_t lastArrangerLen = 0;
+int32_t lastArrangerPos = -2;
+
+/// What the Deluge is showing, for the tablet: 0 other, 1 song rows, 2 song grid, 3 arranger, 4 instrument clip,
+/// 5 audio clip, 6 keyboard, 7 automation, 8 performance
+uint8_t viewCode() {
+	UI* root = getRootUI();
+	if (root == nullptr) {
+		return 0;
+	}
+	switch (root->getUIType()) {
+	case UIType::SESSION:
+		return currentSong->sessionLayout == SessionLayoutType::SessionLayoutTypeGrid ? 2 : 1;
+	case UIType::ARRANGER:
+		return 3;
+	case UIType::INSTRUMENT_CLIP:
+		return 4;
+	case UIType::AUDIO_CLIP:
+		return 5;
+	case UIType::KEYBOARD_SCREEN:
+		return 6;
+	case UIType::AUTOMATION:
+		return 7;
+	case UIType::PERFORMANCE:
+		return 8;
+	default:
+		return 0;
+	}
+}
+
+/// TRANSPORT body: version, flags (1 playing, 2 recording, 4 arrangement playing, 8 metronome, 16 recording to the
+/// arrangement), tempo times 100 (3 bytes), view code
+int32_t buildTransport(uint8_t* out) {
+	int32_t i = 0;
+	const bool playing = playbackHandler.isEitherClockActive();
+	out[i++] = kStateVersion;
+	out[i++] = (playing ? 1 : 0) | (playbackHandler.isCurrentlyRecording() ? 2 : 0)
+	           | (playing && currentPlaybackMode == &arrangement ? 4 : 0) | (playbackHandler.metronomeOn ? 8 : 0)
+	           | (playbackHandler.recording == RecordingMode::ARRANGEMENT ? 16 : 0);
+	const int32_t bpm = std::clamp<int32_t>(
+	    static_cast<int32_t>(playbackHandler.calculateBPMForDisplay() * 100.0f + 0.5f), 0, (1 << 21) - 1);
+	out[i++] = (bpm >> 14) & 0x7F;
+	out[i++] = (bpm >> 7) & 0x7F;
+	out[i++] = bpm & 0x7F;
+	out[i++] = viewCode();
+	return i;
+}
+
+/// OUTPUTS body: version, count, index of the current one (127 none), then per output (arranger order, top first):
+/// type, flags (1 muted in the arranger, 2 soloing in the arranger, 4 has a clip active), colour r g b (7 bits each),
+/// name
+int32_t buildOutputs(uint8_t* out) {
+	int32_t i = 0;
+	out[i++] = kStateVersion;
+	const int32_t countAt = i++;
+	const int32_t currentAt = i++;
+	out[currentAt] = 127;
+	Output* current = getCurrentClip() != nullptr ? getCurrentClip()->output : nullptr;
+	int32_t n = 0;
+	for (Output* o = currentSong->firstOutput; o != nullptr && n < kMaxOutputs; o = o->next, n++) {
+		if (o == current) {
+			out[currentAt] = n;
+		}
+		out[i++] = static_cast<uint8_t>(o->type) & 0x7F;
+		out[i++] = (o->mutedInArrangementMode ? 1 : 0) | (o->soloingInArrangementMode ? 2 : 0)
+		           | (o->getActiveClip() != nullptr ? 4 : 0);
+		const RGB rgb = RGB::fromHue(o->colour);
+		out[i++] = rgb.r >> 1;
+		out[i++] = rgb.g >> 1;
+		out[i++] = rgb.b >> 1;
+		char name[kSongNameMax + 1];
+		strncpy(name, o->name.get(), kSongNameMax);
+		name[kSongNameMax] = 0;
+		i += putName(out + i, name);
+	}
+	out[countAt] = n;
+	return i;
+}
+
+/// CLIPS body: version, count, then per session clip (rows view order): output index, section (127 none), flags
+/// (1 playing, 2 launch or stop pending, 4 audio, 8 soloing, 16 the current clip), name
+int32_t buildClips(uint8_t* out) {
+	int32_t i = 0;
+	out[i++] = kStateVersion;
+	const int32_t countAt = i++;
+	const int32_t total = std::min<int32_t>(currentSong->sessionClips.getNumElements(), kMaxClips);
+	Clip* current = getCurrentClip();
+	for (int32_t c = 0; c < total; c++) {
+		Clip* clip = currentSong->sessionClips.getClipAtIndex(c);
+		const int32_t outputIndex = clip->output != nullptr ? currentSong->getOutputIndex(clip->output) : 127;
+		out[i++] = static_cast<uint8_t>(std::clamp<int32_t>(outputIndex, 0, 127));
+		out[i++] = clip->section < kMaxNumSections ? clip->section : 127;
+		out[i++] = (currentSong->isClipActive(clip) ? 1 : 0) | (clip->armState != ArmState::OFF ? 2 : 0)
+		           | (clip->type == ClipType::AUDIO ? 4 : 0) | (clip->soloingInSessionMode ? 8 : 0)
+		           | (clip == current ? 16 : 0);
+		char name[kSongNameMax + 1];
+		strncpy(name, clip->name.get(), kSongNameMax);
+		name[kSongNameMax] = 0;
+		i += putName(out + i, name);
+	}
+	out[countAt] = total;
+	return i;
+}
+
+/// 14-bit fraction of the arrangement length
+int32_t songFraction(int64_t pos, int64_t length) {
+	return static_cast<int32_t>(std::clamp<int64_t>(pos * 16383 / std::max<int64_t>(length, 1), 0, 16383));
+}
+
+int64_t arrangementLength() {
+	return std::max<int64_t>(arrangerView.getMaxLength(), 1);
+}
+
+/// ARRANGER body: version, length in ticks (4 bytes, 7 bits each), then per output (as OUTPUTS) the number of clip
+/// instances and each one's start and end as 14-bit fractions of the length
+int32_t buildArranger(uint8_t* out) {
+	int32_t i = 0;
+	out[i++] = kStateVersion;
+	const int64_t length = arrangementLength();
+	for (int32_t b = 3; b >= 0; b--) {
+		out[i++] = (length >> (7 * b)) & 0x7F;
+	}
+	int32_t instances = 0;
+	int32_t n = 0;
+	for (Output* o = currentSong->firstOutput; o != nullptr && n < kMaxOutputs; o = o->next, n++) {
+		const int32_t countAt = i++;
+		int32_t count = 0;
+		for (int32_t k = 0; k < o->clipInstances.getNumElements() && instances < kMaxInstances; k++) {
+			ClipInstance* instance = o->clipInstances.getElement(k);
+			const int32_t a = songFraction(instance->pos, length);
+			const int32_t e = songFraction(static_cast<int64_t>(instance->pos) + instance->length, length);
+			out[i++] = (a >> 7) & 0x7F;
+			out[i++] = a & 0x7F;
+			out[i++] = (e >> 7) & 0x7F;
+			out[i++] = e & 0x7F;
+			count++;
+			instances++;
+		}
+		out[countAt] = count;
+	}
+	return i;
+}
+
+/// Send body under header if it changed from last (and remember it). Returns false if there wasn't room.
+bool sendIfChanged(uint8_t const* header, uint8_t const* body, int32_t len, uint8_t* last, int32_t& lastLen, bool force,
+                   int32_t space) {
+	if (!force && len == lastLen && memcmp(body, last, len) == 0) {
+		return true;
+	}
+	if (midiStateCable->sendBufferSpace() < space) {
+		return false;
+	}
+	sendFramed(*midiStateCable, header, false, body, len);
+	memcpy(last, body, len);
+	lastLen = len;
+	return true;
+}
+
+/// The rest of the companion screen, after the waveform: knobs, transport, song and arranger. Returns true if it
+/// should be polled (playback running, or a song view open), as these change without the display redrawing.
+bool sendSongAndKnobs(bool force) {
+	// Never while the card routine runs or a browser is open: loading a preset or song swaps sounds, params and outputs
+	// over several steps, and redraws during it would read them half-built
+	if (currentSong == nullptr || sdRoutineLock || browserIsOpen()) {
+		return false;
+	}
+	if (force) {
+		lastParamsLen = lastTransportLen = lastOutputsLen = lastClipsLen = lastArrangerLen = 0;
+		lastArrangerPos = -2;
+	}
+	uint8_t transport[sizeof(lastTransport)];
+	const int32_t transportLen = buildTransport(transport);
+	sendIfChanged(kTransportHeader, transport, transportLen, lastTransport, lastTransportLen, force, 40);
+
+	paramsBodyLen = buildParams(paramsBody);
+	sendIfChanged(kParamsHeader, paramsBody, paramsBodyLen, lastParams, lastParamsLen, force, 320);
+
+	uint8_t outputs[sizeof(lastOutputs)];
+	const int32_t outputsLen = buildOutputs(outputs);
+	sendIfChanged(kOutputsHeader, outputs, outputsLen, lastOutputs, lastOutputsLen, force, 320);
+
+	const uint8_t view = viewCode();
+	const bool songView = view == 1 || view == 2 || view == 3;
+	if (view == 1 || view == 2 || force) {
+		songBodyLen = buildClips(songBody);
+		sendIfChanged(kClipsHeader, songBody, songBodyLen, lastClips, lastClipsLen, force, 400);
+	}
+	if (view == 3 || force) {
+		uint8_t arranger[sizeof(lastArranger)];
+		const int32_t arrangerLen = buildArranger(arranger);
+		sendIfChanged(kArrangerHeader, arranger, arrangerLen, lastArranger, lastArrangerLen, force, 400);
+		const bool arrangementPlaying = playbackHandler.isEitherClockActive() && currentPlaybackMode == &arrangement;
+		const int32_t pos = arrangementPlaying ? songFraction(arrangement.getLivePos(), arrangementLength()) : 0x3FFF;
+		if (pos != lastArrangerPos && midiStateCable->sendBufferSpace() >= 20) {
+			const uint8_t body[3] = {kStateVersion, static_cast<uint8_t>((pos >> 7) & 0x7F),
+			                         static_cast<uint8_t>(pos & 0x7F)};
+			sendFramed(*midiStateCable, kArrangerPosHeader, false, body, 3);
+			lastArrangerPos = pos;
+		}
+	}
+	return songView || playbackHandler.isEitherClockActive() || (paramsBodyLen > 2);
+}
+
+// ---- Tablet actions, run from the COMPANION_PICK UI timer (MIDI can arrive inside the SD card routine) ----
+int32_t pendingMarkerType = -1; ///< Waveform drag: marker type (0-3 MarkerType, 6 start offset)
+int32_t pendingMarkerFraction = 0;
+int32_t pendingKnobX = -1; ///< Knob tap: its shortcut pad
+int32_t pendingKnobY = 0;
+int32_t pendingCommand = -1; ///< Top bar: 0 play, 1 record, 2 select, 3 back, 4 select left, 5 select right
+bool pendingCommandDown = false;
+int32_t pendingClip = -1;    ///< Session clip to launch or stop
+int32_t pendingSection = -1; ///< Section to launch
 } // namespace
 
 void HIDSysex::requestState(MIDICable& cable, uint8_t* data, int32_t len) {
@@ -803,6 +1216,48 @@ void HIDSysex::requestState(MIDICable& cable, uint8_t* data, int32_t len) {
 		uiTimerManager.setTimer(TimerName::COMPANION_PICK, 1);
 		return;
 	}
+	if (data[2] >= 6 && data[2] <= 10) {
+		// 6 <marker> <hi> <lo> = drag a waveform marker to that 14-bit fraction of the window; 7 <x> <y> = open the
+		// setting on that shortcut pad (a knob tap); 8 <command> = top bar button; 9 <hi> <lo> = launch or stop that
+		// session clip; 10 <section> = launch that section
+		switch (data[2]) {
+		case 6:
+			if (len < 6) {
+				return;
+			}
+			pendingMarkerType = data[3];
+			pendingMarkerFraction = (data[4] << 7) | data[5];
+			break;
+		case 7:
+			if (len < 5) {
+				return;
+			}
+			pendingKnobX = data[3];
+			pendingKnobY = data[4];
+			break;
+		case 8:
+			if (len < 4) {
+				return;
+			}
+			pendingCommand = data[3];
+			pendingCommandDown = false;
+			break;
+		case 9:
+			if (len < 5) {
+				return;
+			}
+			pendingClip = (data[3] << 7) | data[4];
+			break;
+		default:
+			if (len < 4) {
+				return;
+			}
+			pendingSection = data[3];
+			break;
+		}
+		uiTimerManager.setTimer(TimerName::COMPANION_PICK, 1);
+		return;
+	}
 	if (data[2] == 2) {
 		// Tapped a picker tile: choose that option from the UI timer, like a select press (MIDI arrives on a task
 		// that can run inside the SD card routine)
@@ -820,7 +1275,7 @@ void HIDSysex::requestState(MIDICable& cable, uint8_t* data, int32_t len) {
 }
 
 void HIDSysex::sendStateIfChanged(bool force) {
-	if (midiStateCable == nullptr || AudioEngine::audioSampleTimer > midiStateUntil) {
+	if (midiStateCable == nullptr || AudioEngine::audioSampleTimer > midiStateUntil || currentSong == nullptr) {
 		return;
 	}
 	// Room for a full burst (STATE, KIT_ROWS, TEXT and a PICKER are up to about 360 USB MIDI messages)
@@ -879,10 +1334,13 @@ void HIDSysex::sendStateIfChanged(bool force) {
 		sendFramed(*midiStateCable, kBrowserSelHeader, false, sel, 3);
 	}
 
+	// Knobs, transport, song and arranger. Polled while playing or in a song view, as they change without redraws.
+	const bool pollSong = sendSongAndKnobs(force);
+
 	// Waveform: the biggest message (about 460 bytes). Polled from a timer while open, as scrolling and the playhead
 	// don't always redraw the display.
 	const WaveView view = currentWaveView();
-	if (view.kind != 0) {
+	if (view.kind != 0 || pollSong) {
 		uiTimerManager.setTimer(TimerName::COMPANION_WAVE, 40);
 	}
 	if (view.kind == 0 && !waveWasOpen) {
@@ -1212,8 +1670,114 @@ bool runPendingBrowser() {
 }
 } // namespace
 
+namespace {
+/// The tablet's other actions. Returns true if one wants to run again.
+bool runPendingActions() {
+	if (sdRoutineLock) {
+		return pendingMarkerType >= 0 || pendingKnobX >= 0 || pendingCommand >= 0 || pendingClip >= 0
+		       || pendingSection >= 0;
+	}
+	bool again = false;
+	if (pendingMarkerType >= 0) {
+		const int32_t type = pendingMarkerType;
+		pendingMarkerType = -1;
+		const WaveView v = currentWaveView();
+		const int64_t subZoom = std::max<int64_t>(1, v.xZoom / kWaveSub);
+		const int64_t pos = v.xScroll + (pendingMarkerFraction * subZoom * kWaveCols) / 16384;
+		if (v.kind == 2 && type <= 3) {
+			sampleMarkerEditor.companionMoveMarker(static_cast<MarkerType>(type), pos);
+		}
+		else if (v.kind == 4 && type == 6 && v.sample != nullptr) {
+			// Start offset: the setting that starts the sample there, through the menu item as a knob turn would
+			auto* item = static_cast<deluge::gui::menu_item::sample::StartOffset*>(soundEditor.getCurrentMenuItem());
+			const int64_t length = static_cast<int64_t>(v.sample->lengthInSamples);
+			const int64_t start = v.markerPos[0];
+			const int64_t param = ((pos - start) << 30) / std::max<int64_t>(length, 1);
+			const int32_t value = static_cast<int32_t>(
+			    std::clamp<int64_t>(param >> 22, -deluge::gui::menu_item::sample::StartOffset::kResolution,
+			                        deluge::gui::menu_item::sample::StartOffset::kResolution));
+			item->companionSet(value);
+		}
+	}
+	if (pendingKnobX >= 0) {
+		// As holding SHIFT and pressing the shortcut pad
+		const int32_t x = pendingKnobX;
+		const int32_t y = pendingKnobY;
+		Buttons::buttonAction(deluge::hid::button::SHIFT, true, false);
+		const ActionResult result = soundEditor.potentialShortcutPadAction(x, y, true);
+		soundEditor.potentialShortcutPadAction(x, y, false);
+		Buttons::ignoreCurrentShiftForSticky();
+		Buttons::buttonAction(deluge::hid::button::SHIFT, false, false);
+		if (result == ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE) {
+			again = true;
+		}
+		else {
+			pendingKnobX = -1;
+		}
+	}
+	if (pendingCommand >= 0) {
+		switch (pendingCommand) {
+		case 0:
+			playbackHandler.playButtonPressed(kInternalButtonPressLatency);
+			pendingCommand = -1;
+			break;
+		case 1:
+			playbackHandler.recordButtonPressed();
+			pendingCommand = -1;
+			break;
+		case 2:
+		case 3: {
+			// Press, then let go on the next run, like a finger on the button
+			const deluge::hid::Button button =
+			    pendingCommand == 2 ? deluge::hid::button::SELECT_ENC : deluge::hid::button::BACK;
+			const ActionResult result = Buttons::buttonAction(button, !pendingCommandDown, false);
+			if (result == ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE) {
+				again = true;
+			}
+			else if (!pendingCommandDown) {
+				pendingCommandDown = true;
+				again = true;
+			}
+			else {
+				pendingCommandDown = false;
+				pendingCommand = -1;
+			}
+			break;
+		}
+		case 4:
+		case 5:
+			if (getCurrentUI() != nullptr) {
+				getCurrentUI()->selectEncoderAction(pendingCommand == 4 ? -1 : 1);
+			}
+			pendingCommand = -1;
+			break;
+		default:
+			pendingCommand = -1;
+			break;
+		}
+	}
+	if (pendingClip >= 0) {
+		if (pendingClip < currentSong->sessionClips.getNumElements()) {
+			session.toggleClipStatus(currentSong->sessionClips.getClipAtIndex(pendingClip), nullptr, false,
+			                         kInternalButtonPressLatency);
+			uiNeedsRendering(getCurrentUI(), 0xFFFFFFFF, 0xFFFFFFFF);
+		}
+		pendingClip = -1;
+	}
+	if (pendingSection >= 0) {
+		if (pendingSection < kMaxNumSections) {
+			session.armSection(pendingSection, kInternalButtonPressLatency);
+			uiNeedsRendering(getCurrentUI(), 0xFFFFFFFF, 0xFFFFFFFF);
+		}
+		pendingSection = -1;
+	}
+	return again;
+}
+} // namespace
+
 void HIDSysex::runPendingPick() {
-	if (runPendingBrowser()) {
+	const bool again = runPendingActions();
+	if (runPendingBrowser() || again) {
 		uiTimerManager.setTimer(TimerName::COMPANION_PICK, 20);
 		return;
 	}
