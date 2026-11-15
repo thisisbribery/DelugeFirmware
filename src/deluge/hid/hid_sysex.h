@@ -13,11 +13,14 @@ void sendDisplayIfChanged();
 void readBlock(MIDICable& cable);
 /// Companion screen: what's selected (track, engine, preset, kit row), sent as small messages when it changes.
 /// Host sends F0 00 21 7B 01 02 03 <mode> F7: mode 0 = subscribe and send everything now, mode 1 = keep alive
-/// (repeat about once a second; sending stops 2 s after the last one). Replies are 0x42 STATE and 0x43 KIT_ROWS.
+/// (repeat about once a second; sending stops 2 s after the last one), mode 2 <n> = choose picker option n.
+/// Replies: 0x42 STATE, 0x43 KIT_ROWS, 0x44 TEXT, 0x45 PICKER (any open context menu).
 void requestState(MIDICable& cable, uint8_t* data, int32_t len);
 void sendStateIfChanged(bool force = false);
 /// Copy display text for the companion screen (up to 40 characters) and find which l10n string it is, by pointer
 void companionCopyText(char* dest, std::string_view text, int16_t& stringIndex);
 /// Which l10n string some display text is (-1 if none), by matching the 7-seg text
 int16_t companionLookUp(std::string_view text);
+/// Choose the picker option the tablet tapped (host sends 03 02 <option>), from the COMPANION_PICK UI timer
+void runPendingPick();
 } // namespace HIDSysex

@@ -1,11 +1,14 @@
 #include "hid/hid_sysex.h"
 #include "dsp/drum_synth/drum_synth.h"
+#include "extern.h"
+#include "gui/context_menu/context_menu.h"
 #include "gui/l10n/l10n.h"
 #include "gui/l10n/language.h"
 #include "gui/menu_item/menu_item.h"
 #include "gui/ui/sound_editor.h"
 #include "gui/ui/ui.h"
 #include "gui/ui_timer_manager.h"
+#include "hid/button.h"
 #include "hid/display/oled.h"
 #include "hid/display/seven_segment.h"
 #include "io/midi/midi_device.h"
@@ -43,6 +46,9 @@ constexpr uint8_t kStateHeader[7] = {0xF0, 0x00, 0x21, 0x7B, 0x01, 0x02, 0x42};
 constexpr uint8_t kRowsHeader[7] = {0xF0, 0x00, 0x21, 0x7B, 0x01, 0x02, 0x43};
 constexpr uint8_t kTextHeader[7] = {0xF0, 0x00, 0x21, 0x7B, 0x01, 0x02, 0x44};
 constexpr int32_t kTextMax = 40;
+constexpr uint8_t kPickerHeader[7] = {0xF0, 0x00, 0x21, 0x7B, 0x01, 0x02, 0x45};
+constexpr int32_t kPickerMaxOptions = 32;
+constexpr int32_t kPickerNameMax = 20;
 
 // Engine codes: a drum_synth::Engine number (0 up, append-only, saved with sounds), or one of these
 constexpr uint8_t kCodeTb303 = 0x7A;
@@ -63,6 +69,22 @@ int32_t lastTextLen = 0;
 using deluge::l10n::kNumStrings;
 namespace l10n_built_in = deluge::l10n::built_in;
 
+bool sameIgnoringCase(std::string_view a, std::string_view b) {
+	if (a.size() != b.size()) {
+		return false;
+	}
+	for (size_t i = 0; i < a.size(); i++) {
+		char x = a[i];
+		char y = b[i];
+		x = (x >= 'a' && x <= 'z') ? x - 32 : x;
+		y = (y >= 'a' && y <= 'z') ? y - 32 : y;
+		if (x != y) {
+			return false;
+		}
+	}
+	return true;
+}
+
 /// Which l10n string this text is: the 7-seg table first, then English (7-seg falls back to it). By pointer when
 /// the text came straight from the table, else, if byText, by matching the 7-seg text. -1 if none.
 int16_t stringIndexOf(std::string_view text, bool byText) {
@@ -81,15 +103,32 @@ int16_t stringIndexOf(std::string_view text, bool byText) {
 			return i;
 		}
 	}
-	if (byText) {
-		for (size_t i = 1; i < kNumStrings; i++) {
-			const auto s = l10n_built_in::seven_segment.get(static_cast<deluge::l10n::String>(i));
-			if (s.has_value() && *s == text) {
-				return i;
-			}
+	if (!byText) {
+		return -1;
+	}
+	// By text: every string that shows as this text on the 7-seg, its own 7-seg version or the English it falls
+	// back to. Several can match (BASS is both "Bass" and "Bass Probability"): the one whose English is the same
+	// word wins, else the shortest English.
+	int16_t best = -1;
+	size_t bestLength = SIZE_MAX;
+	for (size_t i = 1; i < kNumStrings; i++) {
+		const auto id = static_cast<deluge::l10n::String>(i);
+		const auto seg = l10n_built_in::seven_segment.get(id);
+		const auto eng = l10n_built_in::english.get(id);
+		const auto shown = seg.has_value() ? seg : eng;
+		if (!shown.has_value() || !sameIgnoringCase(*shown, text)) {
+			continue;
+		}
+		if (eng.has_value() && sameIgnoringCase(*eng, text)) {
+			return i;
+		}
+		const size_t length = eng.has_value() ? eng->size() : SIZE_MAX - 1;
+		if (length < bestLength) {
+			best = i;
+			bestLength = length;
 		}
 	}
-	return -1;
+	return best;
 }
 
 std::string_view englishFor(std::string_view text, int16_t stringIndex) {
@@ -207,6 +246,92 @@ int32_t buildText(uint8_t* out) {
 	return i;
 }
 
+// Picker (any context menu): last one sent, to send only on change. Static so the big buffers stay off the stack.
+void const* pickerKeyMenu = nullptr;
+int32_t pickerKeyOption = -1;
+char const* const* pickerKeyOptions = nullptr;
+size_t pickerKeyCount = 0;
+bool pickerWasOpen = false;
+uint8_t pickerBody[4 + (kPickerNameMax + 1) * (kPickerMaxOptions + 1)];
+int32_t pickerBodyLen = 0;
+int32_t pendingPick = -1; ///< Option the tablet tapped, chosen from the UI timer
+
+/// Append a length byte and the English of a context menu text, up to kPickerNameMax characters
+int32_t putEnglish(uint8_t* out, char const* text, int32_t max) {
+	if (text == nullptr) {
+		out[0] = 0;
+		return 1;
+	}
+	const std::string_view view(text);
+	const std::string_view english = englishFor(view, stringIndexOf(view, true));
+	int32_t n = 0;
+	for (; n < max && n < static_cast<int32_t>(english.size()); n++) {
+		const char c = english[n];
+		out[1 + n] = (c >= 0x20 && c <= 0x7E) ? c : '?';
+	}
+	out[0] = n;
+	return n + 1;
+}
+
+/// The open context menu, or nullptr
+deluge::gui::ContextMenu* openPicker() {
+	UI* ui = getCurrentUI();
+	if (ui == nullptr || ui->getUIType() != UIType::CONTEXT_MENU) {
+		return nullptr;
+	}
+	return static_cast<deluge::gui::ContextMenu*>(ui);
+}
+
+/// Rebuild the PICKER body if the menu, its options or the highlighted one changed. Returns whether it changed.
+/// Body: version, open (0/1), highlighted option, option count, title, then each option, all English.
+bool updatePicker() {
+	deluge::gui::ContextMenu* menu = openPicker();
+	if (menu == nullptr) {
+		if (!pickerWasOpen) {
+			return false;
+		}
+		pickerWasOpen = false;
+		pickerKeyMenu = nullptr;
+		pickerBody[0] = kStateVersion;
+		pickerBody[1] = 0;
+		pickerBody[2] = 0;
+		pickerBody[3] = 0;
+		pickerBody[4] = 0;
+		pickerBodyLen = 5;
+		return true;
+	}
+	const auto options = menu->getOptions();
+	const bool sameList = pickerWasOpen && menu == pickerKeyMenu && options.data() == pickerKeyOptions
+	                      && options.size() == pickerKeyCount;
+	if (sameList) {
+		// Same list: only the highlight can have moved. Translating the list again would cost a few ms per turn.
+		if (menu->currentOption == pickerKeyOption) {
+			return false;
+		}
+		pickerKeyOption = menu->currentOption;
+		pickerBody[2] = std::clamp<int32_t>(menu->currentOption, 0, 0x7F);
+		return true;
+	}
+	pickerWasOpen = true;
+	pickerKeyMenu = menu;
+	pickerKeyOption = menu->currentOption;
+	pickerKeyOptions = options.data();
+	pickerKeyCount = options.size();
+
+	const int32_t count = std::min<int32_t>(options.size(), kPickerMaxOptions);
+	int32_t i = 0;
+	pickerBody[i++] = kStateVersion;
+	pickerBody[i++] = 1;
+	pickerBody[i++] = std::clamp<int32_t>(menu->currentOption, 0, 0x7F);
+	pickerBody[i++] = count;
+	i += putEnglish(pickerBody + i, menu->getTitle(), kPickerNameMax);
+	for (int32_t o = 0; o < count; o++) {
+		i += putEnglish(pickerBody + i, options[o], kPickerNameMax);
+	}
+	pickerBodyLen = i;
+	return true;
+}
+
 /// The STATE body after the header and sequence byte. Returns its length.
 int32_t buildState(uint8_t* out) {
 	Clip* clip = (currentSong != nullptr) ? currentSong->getCurrentClip() : nullptr;
@@ -275,7 +400,7 @@ int32_t buildRows(uint8_t* out) {
 }
 
 void sendFramed(MIDICable& cable, uint8_t const* header, bool withSeq, uint8_t const* body, int32_t bodyLen) {
-	uint8_t msg[7 + 1 + sizeof(lastText) + 1];
+	static uint8_t msg[7 + 1 + sizeof(pickerBody) + 1];
 	int32_t i = 0;
 	memcpy(msg, header, 7);
 	i += 7;
@@ -294,6 +419,15 @@ void HIDSysex::requestState(MIDICable& cable, uint8_t* data, int32_t len) {
 	if (len < 3) {
 		return;
 	}
+	if (data[2] == 2) {
+		// Tapped a picker tile: choose that option from the UI timer, like a select press (MIDI arrives on a task
+		// that can run inside the SD card routine)
+		if (len >= 4) {
+			pendingPick = data[3];
+			uiTimerManager.setTimer(TimerName::COMPANION_PICK, 1);
+		}
+		return;
+	}
 	const bool wasActive = midiStateCable == &cable && AudioEngine::audioSampleTimer <= midiStateUntil;
 	midiStateCable = &cable;
 	midiStateUntil = AudioEngine::audioSampleTimer + 2 * kSampleRate;
@@ -305,7 +439,8 @@ void HIDSysex::sendStateIfChanged(bool force) {
 	if (midiStateCable == nullptr || AudioEngine::audioSampleTimer > midiStateUntil) {
 		return;
 	}
-	if (midiStateCable->sendBufferSpace() < 256) {
+	// Room for a full burst (STATE, KIT_ROWS, TEXT and a PICKER are up to about 360 USB MIDI messages)
+	if (midiStateCable->sendBufferSpace() < 400) {
 		uiTimerManager.setTimer(TimerName::SYSEX_DISPLAY, 100);
 		return;
 	}
@@ -332,6 +467,13 @@ void HIDSysex::sendStateIfChanged(bool force) {
 		sendFramed(*midiStateCable, kTextHeader, false, text, textLen);
 		memcpy(lastText, text, textLen);
 		lastTextLen = textLen;
+	}
+
+	if (force) {
+		pickerKeyMenu = nullptr; // Rebuild and resend whatever is open
+	}
+	if (updatePicker() || (force && pickerBodyLen > 0)) {
+		sendFramed(*midiStateCable, kPickerHeader, false, pickerBody, pickerBodyLen);
 	}
 }
 
@@ -577,4 +719,29 @@ void HIDSysex::companionCopyText(char* dest, std::string_view text, int16_t& str
 
 int16_t HIDSysex::companionLookUp(std::string_view text) {
 	return stringIndexOf(text, true);
+}
+
+void HIDSysex::runPendingPick() {
+	const int32_t pick = pendingPick;
+	if (pick < 0) {
+		return;
+	}
+	deluge::gui::ContextMenu* menu = openPicker();
+	if (menu == nullptr || pick >= static_cast<int32_t>(menu->getOptions().size())) {
+		pendingPick = -1;
+		return;
+	}
+	const int32_t oldOption = menu->currentOption;
+	menu->currentOption = pick;
+	if (!menu->isCurrentOptionAvailable()) {
+		menu->currentOption = oldOption;
+		pendingPick = -1;
+		return;
+	}
+	const ActionResult result = menu->buttonAction(deluge::hid::button::SELECT_ENC, true, sdRoutineLock);
+	if (result == ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE) {
+		uiTimerManager.setTimer(TimerName::COMPANION_PICK, 20); // Try again once the card routine is done
+		return;
+	}
+	pendingPick = -1;
 }
