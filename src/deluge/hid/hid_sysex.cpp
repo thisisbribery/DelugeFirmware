@@ -21,6 +21,9 @@
 #include "gui/waveform/waveform_basic_navigator.h"
 #include "gui/waveform/waveform_render_data.h"
 #include "gui/waveform/waveform_renderer.h"
+#include "modulation/patch/patch_cable_set.h"
+#include "gui/views/view.h"
+#include "util/functions.h"
 #include "hid/button.h"
 #include "hid/buttons.h"
 #include "hid/display/oled.h"
@@ -988,31 +991,31 @@ struct KnobDef {
 };
 namespace P = deluge::modulation::params;
 constexpr KnobDef kKnobs[] = {
-    {2, 0, 0, false, P::LOCAL_OSC_A_VOLUME, "Osc 1 level", KnobRule::NOT_RINGMOD},
-    {3, 0, 0, false, P::LOCAL_OSC_B_VOLUME, "Osc 2 level", KnobRule::NOT_RINGMOD},
-    {2, 3, 0, false, P::LOCAL_OSC_A_START_OFFSET, "Osc 1 start offset", KnobRule::OFFSET_A},
-    {3, 3, 0, false, P::LOCAL_OSC_B_START_OFFSET, "Osc 2 start offset", KnobRule::OFFSET_B},
+    {2, 0, 0, false, P::LOCAL_OSC_A_VOLUME, "Osc1 level", KnobRule::NOT_RINGMOD},
+    {3, 0, 0, false, P::LOCAL_OSC_B_VOLUME, "Osc2 level", KnobRule::NOT_RINGMOD},
+    {2, 3, 0, false, P::LOCAL_OSC_A_START_OFFSET, "Start offset", KnobRule::OFFSET_A},
+    {3, 3, 0, false, P::LOCAL_OSC_B_START_OFFSET, "Start offset", KnobRule::OFFSET_B},
     {2, 7, 0, false, P::LOCAL_NOISE_VOLUME, "Noise level", KnobRule::NOT_FM},
     {8, 7, 1, false, P::LOCAL_LPF_FREQ, "LPF frequency", KnobRule::LPF},
     {8, 6, 1, false, P::LOCAL_LPF_RESONANCE, "LPF resonance", KnobRule::LPF},
     {8, 4, 1, false, P::LOCAL_LPF_MORPH, "LPF morph", KnobRule::LPF},
     {9, 7, 1, false, P::LOCAL_HPF_FREQ, "HPF frequency", KnobRule::HPF},
     {9, 6, 1, false, P::LOCAL_HPF_RESONANCE, "HPF resonance", KnobRule::HPF},
-    {9, 4, 1, false, P::LOCAL_HPF_MORPH, "HPF morph", KnobRule::HPF},
-    {8, 3, 2, false, P::LOCAL_ENV_0_ATTACK, "Attack"},
-    {8, 2, 2, false, P::LOCAL_ENV_0_DECAY, "Decay"},
-    {8, 1, 2, false, P::LOCAL_ENV_0_SUSTAIN, "Sustain"},
-    {8, 0, 2, false, P::LOCAL_ENV_0_RELEASE, "Release"},
-    {9, 3, 3, false, P::LOCAL_ENV_1_ATTACK, "Attack"},
-    {9, 2, 3, false, P::LOCAL_ENV_1_DECAY, "Decay"},
-    {9, 1, 3, false, P::LOCAL_ENV_1_SUSTAIN, "Sustain"},
-    {9, 0, 3, false, P::LOCAL_ENV_1_RELEASE, "Release"},
-    {6, 0, 4, false, P::GLOBAL_VOLUME_POST_FX, "Level"},
+    {9, 4, 1, false, P::LOCAL_HPF_MORPH, "HPF Morph", KnobRule::HPF},
+    {8, 3, 2, false, P::LOCAL_ENV_0_ATTACK, "Env1 attack"},
+    {8, 2, 2, false, P::LOCAL_ENV_0_DECAY, "Env1 decay"},
+    {8, 1, 2, false, P::LOCAL_ENV_0_SUSTAIN, "Env1 sustain"},
+    {8, 0, 2, false, P::LOCAL_ENV_0_RELEASE, "Env1 release"},
+    {9, 3, 3, false, P::LOCAL_ENV_1_ATTACK, "Env2 attack"},
+    {9, 2, 3, false, P::LOCAL_ENV_1_DECAY, "Env2 decay"},
+    {9, 1, 3, false, P::LOCAL_ENV_1_SUSTAIN, "Env2 sustain"},
+    {9, 0, 3, false, P::LOCAL_ENV_1_RELEASE, "Env2 release"},
+    {6, 0, 4, false, P::GLOBAL_VOLUME_POST_FX, "Master level"},
     {6, 3, 4, false, P::LOCAL_PAN, "Pan"},
     {7, 0, 4, true, P::UNPATCHED_PORTAMENTO, "Portamento"},
-    {12, 7, 5, false, P::GLOBAL_MOD_FX_RATE, "Mod FX rate", KnobRule::MOD_FX_RATE},
-    {12, 6, 5, false, P::GLOBAL_MOD_FX_DEPTH, "Mod FX depth", KnobRule::MOD_FX_DEPTH},
-    {12, 5, 5, true, P::UNPATCHED_MOD_FX_FEEDBACK, "Mod FX feedback", KnobRule::MOD_FX_FB},
+    {12, 7, 5, false, P::GLOBAL_MOD_FX_RATE, "MOD-FX rate", KnobRule::MOD_FX_RATE},
+    {12, 6, 5, false, P::GLOBAL_MOD_FX_DEPTH, "MOD-FX depth", KnobRule::MOD_FX_DEPTH},
+    {12, 5, 5, true, P::UNPATCHED_MOD_FX_FEEDBACK, "MOD-FX feedback", KnobRule::MOD_FX_FB},
     {13, 3, 5, false, P::GLOBAL_REVERB_AMOUNT, "Reverb amount"},
     {14, 0, 5, false, P::GLOBAL_DELAY_RATE, "Delay rate"},
     {14, 3, 5, false, P::GLOBAL_DELAY_FEEDBACK, "Delay amount"},
@@ -1020,8 +1023,8 @@ constexpr KnobDef kKnobs[] = {
     {6, 5, 5, true, P::UNPATCHED_SAMPLE_RATE_REDUCTION, "Decimation"},
     {10, 6, 5, true, P::UNPATCHED_BASS, "Bass"},
     {11, 6, 5, true, P::UNPATCHED_TREBLE, "Treble"},
-    {12, 0, 6, false, P::GLOBAL_LFO_FREQ_1, "LFO 1 rate"},
-    {13, 0, 6, false, P::LOCAL_LFO_LOCAL_FREQ_1, "LFO 2 rate"},
+    {12, 0, 6, false, P::GLOBAL_LFO_FREQ_1, "LFO1 rate"},
+    {13, 0, 6, false, P::LOCAL_LFO_LOCAL_FREQ_1, "LFO2 rate"},
 };
 constexpr int32_t kNumKnobs = sizeof(kKnobs) / sizeof(kKnobs[0]);
 constexpr int32_t kKnobNameMax = 18;
@@ -1030,6 +1033,12 @@ constexpr int32_t kKnobTextMax = 10;
 constexpr int32_t kParamsBodyMax = 4 + (kNumKnobs + kMaxEngineKnobs) * (8 + kKnobNameMax + kKnobTextMax);
 
 uint8_t paramsBody[kParamsBodyMax];
+struct EngineName {
+	uint32_t param;
+	char name[kKnobNameMax + 1];
+};
+EngineName engineNames[kMaxEngineKnobs]; ///< The engine controls sent in the last PARAMS, by param
+int32_t numEngineNames = 0;
 int32_t paramsBodyLen = 0;
 uint8_t lastParams[kParamsBodyMax];
 int32_t lastParamsLen = 0;
@@ -1170,9 +1179,19 @@ int32_t buildParams(uint8_t* out) {
 		                             : computeCurrentValueForStandardMenuItem(value);
 		const bool open =
 		    editing && soundEditor.currentParamShortcutX == knob.x && soundEditor.currentParamShortcutY == knob.y;
+		// The names are the Deluge's own English titles for these pads. MOD-FX depth and feedback are named by the
+		// Mod FX type, as on the Deluge.
+		std::string_view name = knob.name;
+		if (knob.rule == KnobRule::MOD_FX_DEPTH || knob.rule == KnobRule::MOD_FX_FB) {
+			const deluge::l10n::Language* language = deluge::l10n::chosenLanguage;
+			deluge::l10n::chosenLanguage = &deluge::l10n::built_in::english;
+			name = modfx::getParamName(sound->getModFXType(),
+			                           knob.rule == KnobRule::MOD_FX_DEPTH ? ModFXParam::DEPTH : ModFXParam::FEEDBACK);
+			deluge::l10n::chosenLanguage = language;
+		}
 		i += putKnob(out + i, knob.x, knob.y, knob.group,
-		             ((pan || offset) ? 1 : 0) | (open ? 2 : 0) | (available ? 0 : 4), (value >> 25) + 64, shown,
-		             knob.name, {});
+		             ((pan || offset) ? 1 : 0) | (open ? 2 : 0) | (available ? 0 : 4), (value >> 25) + 64, shown, name,
+		             {});
 		count++;
 	}
 
@@ -1181,6 +1200,7 @@ int32_t buildParams(uint8_t* out) {
 		return editing && soundEditor.currentParamShortcutX == x && soundEditor.currentParamShortcutY == y;
 	};
 	int32_t engineCount = 0;
+	numEngineNames = 0;
 	if (drumEngine && patched != nullptr) {
 		// Drum and synth engines: every pad of the engine's layout that holds one of its controls
 		const auto engine = sound->sources[0].drumPatch.engine();
@@ -1199,8 +1219,34 @@ int32_t buildParams(uint8_t* out) {
 				const int32_t raw = patched->getValue(param);
 				const int32_t knob = std::clamp<int32_t>(
 				    (deluge::dsp::drum_synth::DrumControls::toKnob(raw) + 0x80) >> 8, 0, 127); // 0-127, as its menu
-				i += putKnob(out + i, x, y, 7, (isOpen(x, y) ? 2 : 0) | 8, knob, knob,
-				             englishOf(deluge::dsp::drum_synth::cycKnobName(engine, slot)), {});
+				// Its name as the Deluge gives it: the English title of the control on that pad (what the 7-seg
+				// scrolls when the pad is held). Only drum control items get here, whose titles read nothing but
+				// the sound being edited, so the editor is pointed at this one meanwhile.
+				char title[kKnobNameMax + 1];
+				std::string_view name = englishOf(deluge::dsp::drum_synth::cycKnobName(engine, slot));
+				if (isDrumLayoutPad(sound, x, y)) {
+					if (MenuItem* item = soundShortcutFor(sound, x, y); item != nullptr) {
+						const deluge::l10n::Language* language = deluge::l10n::chosenLanguage;
+						Sound* editorSound = soundEditor.currentSound;
+						deluge::l10n::chosenLanguage = &deluge::l10n::built_in::english;
+						soundEditor.currentSound = sound;
+						const std::string_view itemTitle = item->getTitle();
+						const size_t n = std::min<size_t>(itemTitle.size(), kKnobNameMax);
+						memcpy(title, itemTitle.data(), n);
+						title[n] = 0;
+						soundEditor.currentSound = editorSound;
+						deluge::l10n::chosenLanguage = language;
+						if (n > 0) {
+							name = std::string_view(title, n);
+						}
+					}
+				}
+				i += putKnob(out + i, x, y, 7, (isOpen(x, y) ? 2 : 0) | 8, knob, knob, name, {});
+				EngineName& kept = engineNames[numEngineNames++];
+				kept.param = param;
+				const size_t keptLen = std::min<size_t>(name.size(), kKnobNameMax);
+				memcpy(kept.name, name.data(), keptLen);
+				kept.name[keptLen] = 0;
 				count++;
 				engineCount++;
 			}
@@ -1272,6 +1318,129 @@ int32_t buildParams(uint8_t* out) {
 		count++;
 	}
 	out[countAt] = count;
+	return i;
+}
+
+// ---- Gold knobs: what each of the 8 mod buttons puts on the two gold knobs ----
+constexpr uint8_t kGoldHeader[7] = {0xF0, 0x00, 0x21, 0x7B, 0x01, 0x02, 0x55};
+constexpr int32_t kGoldBodyMax = 4 + 16 * (6 + kStateNameMax);
+uint8_t lastGold[kGoldBodyMax];
+int32_t lastGoldLen = 0;
+
+/// A gold knob's name as the Deluge's OLED popup gives it, in English. Engine controls take the name of their pad.
+void goldKnobName(Sound* sound, ParamDescriptor descriptor, char* out, size_t size) {
+	out[0] = 0;
+	if (descriptor.isNull()) {
+		strncpy(out, englishOf(deluge::l10n::String::STRING_FOR_NONE).data(), size - 1);
+		out[size - 1] = 0;
+		return;
+	}
+	const deluge::l10n::Language* language = deluge::l10n::chosenLanguage;
+	deluge::l10n::chosenLanguage = &deluge::l10n::built_in::english;
+	if (descriptor.isJustAParam()) {
+		const int32_t p = descriptor.getJustTheParam();
+		char const* name = nullptr;
+		for (int32_t e = 0; e < numEngineNames; e++) {
+			if (engineNames[e].param == static_cast<uint32_t>(p)) {
+				name = engineNames[e].name;
+				break;
+			}
+		}
+		if (name == nullptr) {
+			name = p >= P::UNPATCHED_START
+			           ? deluge::modulation::params::getParamDisplayName(P::Kind::UNPATCHED_SOUND,
+			                                                             p - P::UNPATCHED_START, sound)
+			           : deluge::modulation::params::getParamDisplayName(P::Kind::PATCHED, p, sound);
+		}
+		snprintf(out, size, "%s", name != nullptr ? name : "");
+	}
+	else {
+		// As the OLED: the source, an arrow, and the param's short name
+		const PatchSource source1 = descriptor.getBottomLevelSource();
+		const int32_t p = descriptor.getJustTheParam();
+		char const* param = deluge::modulation::params::getPatchedParamShortName(p, sound);
+		if (descriptor.hasJustOneSource()) {
+			snprintf(out, size, "%s -> %s", getSourceDisplayNameForOLED(source1), param);
+		}
+		else {
+			snprintf(out, size, "%s -> %s -> %s", sourceToStringShort(source1),
+			         sourceToStringShort(descriptor.getTopLevelSource()), param);
+		}
+	}
+	deluge::l10n::chosenLanguage = language;
+}
+
+/// GOLD body: version, open, the mod button lit (127 if none), then for each mod button 0-7 its upper knob and its
+/// lower knob: flags (1 bipolar, 4 nothing assigned), position (0 to 127), the value the Deluge shows (2 bytes, plus
+/// 8192) and the English name
+int32_t buildGold(uint8_t* out) {
+	int32_t i = 0;
+	out[i++] = kStateVersion;
+	Sound* sound = nullptr;
+	ParamManagerForTimeline* params = nullptr;
+	if (!currentSoundAndParams(sound, params)) {
+		out[i++] = 0;
+		return i;
+	}
+	out[i++] = 1;
+	uint8_t* modeAt = sound->getModKnobMode();
+	out[i++] = (modeAt != nullptr && *modeAt < kNumModButtons) ? *modeAt : 127;
+	PatchedParamSet* patched = params->getPatchedParamSet();
+	UnpatchedParamSet* unpatched = params->getUnpatchedParamSet();
+	auto* cables = static_cast<PatchCableSet*>(params->getPatchCableSetSummary()->paramCollection);
+	for (int32_t button = 0; button < kNumModButtons; button++) {
+		for (int32_t w = 1; w >= 0; w--) {
+			const ParamDescriptor descriptor = sound->modKnobs[button][w].paramDescriptor;
+			int32_t knobPos = 0;
+			bool found = false;
+			P::Kind kind = P::Kind::NONE;
+			int32_t paramId = 0;
+			if (descriptor.isNull()) {}
+			else if (descriptor.isJustAParam()) {
+				const int32_t p = descriptor.getJustTheParam();
+				if (p >= P::UNPATCHED_START) {
+					kind = P::Kind::UNPATCHED_SOUND;
+					paramId = p - P::UNPATCHED_START;
+					if (unpatched != nullptr && paramId < P::kMaxNumUnpatchedParams) {
+						const int32_t value = unpatched->getValue(paramId);
+						knobPos = value >= static_cast<int32_t>(0x80000000u - (1u << 24)) ? 64 : (value + (1 << 24)) >> 25;
+						found = true;
+					}
+				}
+				else if (patched != nullptr && p < P::kNumParams) {
+					kind = P::Kind::PATCHED;
+					paramId = p;
+					const int32_t value = patched->getValue(p);
+					if (p == P::LOCAL_OSC_A_PHASE_WIDTH || p == P::LOCAL_OSC_B_PHASE_WIDTH) {
+						knobPos = (value >> 24) - 64;
+					}
+					else {
+						knobPos = value >= static_cast<int32_t>(0x80000000u - (1u << 24)) ? 64 : (value + (1 << 24)) >> 25;
+					}
+					found = true;
+				}
+			}
+			else if (cables != nullptr) {
+				kind = P::Kind::PATCH_CABLE;
+				paramId = static_cast<int32_t>(descriptor.data);
+				const uint8_t c =
+				    cables->getPatchCableIndex(descriptor.getBottomLevelSource(), descriptor.getDestination());
+				knobPos = c == 255 ? 0 : (cables->patchCables[c].param.getCurrentValue() >> 23) - 64;
+				found = true;
+			}
+			knobPos = std::clamp<int32_t>(knobPos, -64, 64);
+			const int32_t shown = found ? view.calculateKnobPosForDisplay(kind, paramId, knobPos + 64) : 0;
+			const bool bipolar = found && view.calculateKnobPosForDisplay(kind, paramId, 0) < 0;
+			out[i++] = (bipolar ? 1 : 0) | (descriptor.isNull() ? 4 : 0);
+			out[i++] = static_cast<uint8_t>(std::clamp<int32_t>(knobPos + 64, 0, 127));
+			const int32_t v = std::clamp<int32_t>(shown + 8192, 0, 16383);
+			out[i++] = (v >> 7) & 0x7F;
+			out[i++] = v & 0x7F;
+			char name[kStateNameMax + 1];
+			goldKnobName(sound, descriptor, name, sizeof(name));
+			i += putName(out + i, name);
+		}
+	}
 	return i;
 }
 
@@ -1648,6 +1817,12 @@ bool sendSongAndKnobs(bool force) {
 
 	paramsBodyLen = buildParams(paramsBody);
 	sendIfChanged(kParamsHeader, paramsBody, paramsBodyLen, lastParams, lastParamsLen, force, 320);
+	if (force) {
+		lastGoldLen = 0;
+	}
+	uint8_t gold[kGoldBodyMax];
+	const int32_t goldLen = buildGold(gold);
+	sendIfChanged(kGoldHeader, gold, goldLen, lastGold, lastGoldLen, force, 0);
 
 	if (force) {
 		lastKitSamplesLen = lastKitActiveLen = 0;
@@ -1718,6 +1893,7 @@ int32_t pendingCommand = -1; ///< Top bar: 0 play, 1 record, 2 select, 3 back, 4
 bool pendingCommandDown = false;
 int32_t pendingClip = -1;    ///< Session clip to launch or stop
 int32_t pendingSection = -1; ///< Section to launch
+int32_t pendingModButton = -1; ///< Gold knob tap: the mod button to press
 } // namespace
 
 void HIDSysex::requestState(MIDICable& cable, uint8_t* data, int32_t len) {
@@ -1739,6 +1915,14 @@ void HIDSysex::requestState(MIDICable& cable, uint8_t* data, int32_t len) {
 		}
 		pendingButtonDown = false;
 		uiTimerManager.setTimer(TimerName::COMPANION_PICK, 1);
+		return;
+	}
+	if (data[2] == 12) {
+		// 12 <button> = press that mod button, so the gold knobs turn its pair
+		if (len >= 4 && data[3] < kNumModButtons) {
+			pendingModButton = data[3];
+			uiTimerManager.setTimer(TimerName::COMPANION_PICK, 1);
+		}
 		return;
 	}
 	if (data[2] == 11) {
@@ -2256,9 +2440,14 @@ namespace {
 bool runPendingActions() {
 	if (sdRoutineLock) {
 		return pendingMarkerType >= 0 || pendingKnobX >= 0 || pendingCommand >= 0 || pendingClip >= 0
-		       || pendingSection >= 0 || pendingKitRow >= 0;
+		       || pendingSection >= 0 || pendingKitRow >= 0 || pendingModButton >= 0;
 	}
 	bool again = false;
+	if (pendingModButton >= 0) {
+		view.modButtonAction(pendingModButton, true);
+		view.modButtonAction(pendingModButton, false);
+		pendingModButton = -1;
+	}
 	if (pendingMarkerType >= 0) {
 		const int32_t type = pendingMarkerType;
 		pendingMarkerType = -1;
