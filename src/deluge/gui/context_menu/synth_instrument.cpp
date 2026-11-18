@@ -18,9 +18,14 @@
 #include "gui/context_menu/synth_instrument.h"
 #include "definitions_cxx.hpp"
 #include "dsp/drum_synth/drum_synth.h"
+#include "dsp/dx/dx7note.h"
 #include "fatfs/ff.h"
 #include "gui/l10n/l10n.h"
+#include "gui/menu_item/drum_synth/param.h"
+#include "gui/menu_item/synth_mode.h"
 #include "gui/ui/load/load_instrument_preset_ui.h"
+#include "gui/ui/menus.h"
+#include "gui/ui/sound_editor.h"
 #include "gui/views/instrument_clip_view.h"
 #include "gui/views/view.h"
 #include "hid/buttons.h"
@@ -30,9 +35,13 @@
 #include "model/settings/runtime_feature_settings.h"
 #include "model/song/song.h"
 #include "processing/sound/sound_instrument.h"
+#include "storage/flash_storage.h"
+#include <array>
 #include <cstdio>
 #include <cstring>
 #include <strings.h>
+
+extern deluge::gui::menu_item::SynthModeSelection synthModeMenu;
 
 namespace deluge::gui::context_menu {
 
@@ -115,28 +124,127 @@ size_t typeOf(SoundInstrument* synth) {
 	return 0;
 }
 
-/// A blank synth of the type, saving into its folder (the type has no presets yet)
-void makeBlankSynth(const SynthInstrument& type) {
-	if (instrumentClipView.createNewInstrument(OutputType::SYNTH, type.dx)
-	    && getCurrentOutputType() == OutputType::SYNTH) {
-		auto* synth = static_cast<SoundInstrument*>(getCurrentOutput());
-		synth->dirPath.set(type.folder);
-		if (type.mode != synth->getSynthMode()) {
-			synth->setSynthMode(type.mode, currentSong);
+/// The picker's pads: the audition pads play what the clip plays now (the type's init synth once the picker has moved),
+/// as in the preset browser. Other pads do nothing, so a stray press doesn't throw the picker away.
+ActionResult pickerPadAction(int32_t x, int32_t y, int32_t velocity) {
+	if (x == kDisplayWidth + 1 && getRootUI() == &instrumentClipView) {
+		if (sdRoutineLock) {
+			return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 		}
+		return instrumentClipView.padAction(x, y, velocity);
 	}
+	return ActionResult::DEALT_WITH;
+}
+
+/// Grey out everything but the audition pads
+bool pickerGreyout(uint32_t* cols) {
+	*cols = (getRootUI() == &instrumentClipView) ? 0xFFFFFFFE : 0xFFFFFFFF;
+	return true;
 }
 
 } // namespace
 
-bool openSynthPresetFolder(char const* folder, int32_t backTo) {
-	InstrumentClip* clip = getCurrentInstrumentClip();
-	if (clip == nullptr) {
-		return false;
+/// The DX7 type's init: a plain two-operator FM voice (algorithm 1, operator 2 on operator 1 at the same ratio, its
+/// envelope settling so the attack is brighter, velocity on both), so the pads play something DX7-like from the start.
+/// The DX7's own blank voice is a bare sine.
+void setDx7InitVoice(Source& source) {
+	DxPatch* patch = source.ensureDxPatch();
+	if (patch == nullptr) {
+		return;
 	}
-	loadInstrumentPresetUI.setupLoadInstrument(OutputType::SYNTH, static_cast<Instrument*>(clip->output), clip);
-	loadInstrumentPresetUI.setPickerFolder(folder, backTo);
-	return openUI(&loadInstrumentPresetUI);
+	uint8_t* p = patch->params;
+	// Each operator is 21 bytes, operator 6 first: rates 1-4, levels 1-4, scaling (break point, depths, curves), rate
+	// scaling, amp mod sensitivity, velocity sensitivity, output level, mode, coarse, fine, detune
+	auto setOp = [p](int32_t op, std::array<uint8_t, 4> rates, std::array<uint8_t, 4> levels, uint8_t velocity,
+	                 uint8_t output) {
+		uint8_t* o = p + (6 - op) * 21;
+		for (int32_t i = 0; i < 4; i++) {
+			o[i] = rates[i];
+			o[4 + i] = levels[i];
+		}
+		o[13] = 2; // a little rate scaling: higher notes a touch quicker
+		o[15] = velocity;
+		o[16] = output;
+		o[17] = 0; // ratio
+		o[18] = 1; // coarse 1
+		o[19] = 0;
+		o[20] = 7; // detune centre
+	};
+	setOp(1, {99, 45, 30, 55}, {99, 90, 82, 0}, 2, 99);
+	setOp(2, {99, 50, 28, 55}, {99, 72, 58, 0}, 3, 80);
+	for (int32_t op = 3; op <= 6; op++) {
+		p[(6 - op) * 21 + 16] = 0;
+	}
+	p[134] = 0; // algorithm 1
+	p[135] = 0; // no feedback
+	p[155] = 0x3F;
+	patch->updateEngineMode();
+	source.dxPatchChanged = true;
+}
+
+bool previewSynthInit(size_t type) {
+	using PickerInit = LoadInstrumentPresetUI::PickerInit;
+	const PickerInit result = loadInstrumentPresetUI.pickerPreviewInit(type);
+	if (result != PickerInit::BUILT_IN) {
+		return result != PickerInit::FAILED;
+	}
+	// A blank synth: set up as the type plays
+	const SynthInstrument& synthType = kSynthInstruments[type];
+	InstrumentClip* clip = getCurrentInstrumentClip();
+	if (clip == nullptr || clip->output->type != OutputType::SYNTH) {
+		return true;
+	}
+	auto* synth = static_cast<SoundInstrument*>(clip->output);
+	if (synthType.dx && synth->sources[0].oscType == OscType::DX7) {
+		setDx7InitVoice(synth->sources[0]);
+	}
+	if (synthType.mode == SynthMode::TB303) {
+		synth->setSynthMode(SynthMode::TB303, currentSong);
+		if (synth->isTb303()) {
+			synth->setupTb303Defaults(&clip->paramManager);
+			clip->ensureMonoScaleMode(currentSong);
+		}
+	}
+	else if (synthType.mode != synth->getSynthMode()) {
+		synth->setSynthMode(synthType.mode, currentSong);
+	}
+	if (synthType.rings || synthType.brophet || synthType.bruno106) {
+		using dsp::drum_synth::Engine;
+		const Engine engine = synthType.rings ? Engine::RINGS : synthType.brophet ? Engine::BROPHET : Engine::BRUNO106;
+		// The engine is set up as SYNTH MODE sets it, which goes through the sound editor's sound
+		if (soundEditor.setup(clip, &synthModeMenu, 0)) {
+			gui::menu_item::drum_synth::setDrumEngine(engine, 0, true);
+		}
+	}
+	// Still nobody's preset: it goes when something else takes its place
+	synth->editedByUser = false;
+	view.setKnobIndicatorLevels();
+	return true;
+}
+
+namespace {
+/// The type the track's own synth plays (-1: the track had no synth). The picker plays that synth on its type, and each
+/// other type's init synth.
+int32_t pickerHomeType = -1;
+
+/// What the audition pads play on type: the track's own synth on its type, else the type's init synth
+void showSynthType(size_t type) {
+	if (static_cast<int32_t>(type) == pickerHomeType && loadInstrumentPresetUI.pickerRestoreOriginal()) {
+		return;
+	}
+	previewSynthInit(type);
+}
+} // namespace
+
+void returnToSynthPicker(size_t type) {
+	showSynthType(type);
+	if (synthCategoryMenu.setupFor(type)) {
+		openUI(&synthCategoryMenu);
+	}
+	else {
+		synthInstrumentMenu.setupFor(type);
+		openUI(&synthInstrumentMenu);
+	}
 }
 
 // ---- Types ----
@@ -158,26 +266,43 @@ bool SynthInstrumentMenu::isCurrentOptionAvailable() {
 }
 
 bool SynthInstrumentMenu::setupAndCheckAvailability() {
+	InstrumentClip* clip = getCurrentInstrumentClip();
+	if (clip == nullptr) {
+		return false;
+	}
+	pickerHomeType = -1;
+	// No synth on the track yet: start on the default synth type (Defaults > Synth instrument)
+	const size_t defaultType = (FlashStorage::defaultSynthInstrument < synth_instruments::kNumDefaultSynthInstruments)
+	                               ? FlashStorage::defaultSynthInstrument
+	                               : 0;
 	switch (getCurrentOutputType()) {
 	case OutputType::SYNTH:
 		setupFor(typeOf(static_cast<SoundInstrument*>(getCurrentOutput())));
-		return true;
+		pickerHomeType = currentOption;
+		break;
 	case OutputType::KIT: {
 		// As stock: a kit clip only turns into a synth clip while it has no notes or sounds
-		InstrumentClip* clip = getCurrentInstrumentClip();
-		if (clip == nullptr || !clip->isEmpty() || !clip->output->isEmpty()) {
+		if (!clip->isEmpty() || !clip->output->isEmpty()) {
 			return false;
 		}
-		setupFor(0);
-		return true;
+		setupFor(defaultType);
+		break;
 	}
 	case OutputType::MIDI_OUT:
 	case OutputType::CV:
-		setupFor(0);
-		return true;
+		setupFor(defaultType);
+		break;
 	default:
 		return false;
 	}
+	// The picker's session: from here on, BACK puts this track's instrument back
+	loadInstrumentPresetUI.pickerBegin(clip);
+	// A track with its own synth plays it until the picker moves; any other starts on an init synth straight away,
+	// so the audition pads have a synth to play
+	if (pickerHomeType < 0) {
+		previewSynthInit(currentOption);
+	}
+	return true;
 }
 
 void SynthInstrumentMenu::setupFor(size_t type) {
@@ -194,8 +319,16 @@ ActionResult SynthInstrumentMenu::buttonAction(deluge::hid::Button b, bool on, b
 			do {
 				next = (next + 1) % numOptions;
 			} while (next != currentOption && !typeAvailable(next));
+			if (inCardRoutine) {
+				return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
+			}
+			const bool moved = next != currentOption;
 			currentOption = next;
 			scrollPos = currentOption;
+			if (moved) {
+				showSynthType(currentOption);
+			}
+			// After the swap: a loading message mustn't leave the type's name covered
 			if (display->haveOLED()) {
 				renderUIsForOled();
 			}
@@ -205,7 +338,41 @@ ActionResult SynthInstrumentMenu::buttonAction(deluge::hid::Button b, bool on, b
 		}
 		return ActionResult::DEALT_WITH;
 	}
+	// BACK: the track's old instrument back, and out
+	if (b == deluge::hid::button::BACK) {
+		if (on) {
+			if (inCardRoutine) {
+				return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
+			}
+			loadInstrumentPresetUI.pickerCancel();
+			display->setNextTransitionDirection(-1);
+			close();
+		}
+		return ActionResult::DEALT_WITH;
+	}
 	return ContextMenu::buttonAction(b, on, inCardRoutine);
+}
+
+void SynthInstrumentMenu::selectEncoderAction(int8_t offset) {
+	const int32_t before = currentOption;
+	ContextMenu::selectEncoderAction(offset);
+	if (currentOption != before) {
+		showSynthType(currentOption);
+		if (display->haveOLED()) {
+			renderUIsForOled();
+		}
+		else {
+			drawCurrentOption();
+		}
+	}
+}
+
+ActionResult SynthInstrumentMenu::padAction(int32_t x, int32_t y, int32_t velocity) {
+	return pickerPadAction(x, y, velocity);
+}
+
+bool SynthInstrumentMenu::getGreyoutColsAndRows(uint32_t* cols, uint32_t* rows) {
+	return pickerGreyout(cols);
 }
 
 bool SynthInstrumentMenu::acceptCurrentOption() {
@@ -214,16 +381,17 @@ bool SynthInstrumentMenu::acceptCurrentOption() {
 	display->setNextTransitionDirection(-1);
 	close();
 
-	// INIT: the stock blank synth
+	// INIT: the stock blank synth (or the card's SYNTHS/INIT/INIT.XML), as the audition pads have been playing
 	if (type.init) {
-		instrumentClipView.createNewInstrument(OutputType::SYNTH);
+		previewSynthInit(typeIndex);
+		loadInstrumentPresetUI.pickerKeepInit(getInstrumentFolder(OutputType::SYNTH));
 		return true;
 	}
 
 	// Make the folders if they're missing, ready to save presets into, as the Deluge can't make folders when saving
 	f_mkdir("SYNTHS");
 	f_mkdir(type.folder);
-	if (!type.dx) {
+	{
 		char folder[48];
 		for (size_t c = 0; c < numCategories(typeIndex); c++) {
 			categoryFolder(typeIndex, c, folder, sizeof(folder));
@@ -231,16 +399,26 @@ bool SynthInstrumentMenu::acceptCurrentOption() {
 		}
 	}
 
-	if (synthCategoryMenu.setupFor(typeIndex)) {
+	// From here on the audition pads play the type's init synth (the categories first look at where the track's synth
+	// came from)
+	const bool hasCategories = synthCategoryMenu.setupFor(typeIndex);
+	showSynthType(typeIndex);
+	if (hasCategories) {
 		openUI(&synthCategoryMenu);
 	}
 	// No categories in use (DX7, or presets kept loose in the type's folder): its folder
 	else if (folderHasPresets(type.folder)) {
-		openSynthPresetFolder(type.folder, -1);
+		if (!loadInstrumentPresetUI.pickerOpenFolder(type.folder, typeIndex)) {
+			loadInstrumentPresetUI.pickerCancel();
+		}
 	}
-	// Nothing saved there yet: a blank synth of that type, which saves into the folder
+	// Nothing saved there yet: keep the init synth, which saves into the folder
 	else {
-		makeBlankSynth(type);
+		loadInstrumentPresetUI.pickerKeepInit(type.folder);
+		if (type.dx && getCurrentOutputType() == OutputType::SYNTH
+		    && soundEditor.setup(getCurrentInstrumentClip(), &dxMenu, 0)) {
+			openUI(&soundEditor);
+		}
 	}
 	return true;
 }
@@ -262,7 +440,7 @@ std::span<char const*> SynthCategoryMenu::getOptions() {
 
 bool SynthCategoryMenu::setupFor(size_t type) {
 	type_ = type;
-	if (kSynthInstruments[type].dx || kSynthInstruments[type].init) {
+	if (kSynthInstruments[type].init) {
 		return false;
 	}
 	char folder[48];
@@ -287,6 +465,11 @@ bool SynthCategoryMenu::setupFor(size_t type) {
 				current = static_cast<int32_t>(c);
 			}
 		}
+	}
+	// Back from a category's presets: on that category
+	if (current < 0 && lastType_ == static_cast<int32_t>(type) && lastCategory_ >= 0
+	    && lastCategory_ < static_cast<int32_t>(numCategories(type)) && hasPresets_[lastCategory_]) {
+		current = lastCategory_;
 	}
 	for (size_t c = 0; c < numCategories(type) && current < 0; c++) {
 		if (hasPresets_[c]) {
@@ -315,12 +498,24 @@ ActionResult SynthCategoryMenu::buttonAction(deluge::hid::Button b, bool on, boo
 	return ContextMenu::buttonAction(b, on, inCardRoutine);
 }
 
+ActionResult SynthCategoryMenu::padAction(int32_t x, int32_t y, int32_t velocity) {
+	return pickerPadAction(x, y, velocity);
+}
+
+bool SynthCategoryMenu::getGreyoutColsAndRows(uint32_t* cols, uint32_t* rows) {
+	return pickerGreyout(cols);
+}
+
 bool SynthCategoryMenu::acceptCurrentOption() {
 	char folder[48];
 	categoryFolder(type_, currentOption, folder, sizeof(folder));
+	lastType_ = static_cast<int32_t>(type_);
+	lastCategory_ = currentOption;
 	display->setNextTransitionDirection(1);
 	close();
-	openSynthPresetFolder(folder, static_cast<int32_t>(type_));
+	if (!loadInstrumentPresetUI.pickerOpenFolder(folder, type_)) {
+		loadInstrumentPresetUI.pickerCancel();
+	}
 	return true;
 }
 

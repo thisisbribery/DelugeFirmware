@@ -100,13 +100,27 @@ inline constexpr std::array<SynthCategory, 9> kBrophetCategories{{
     {l10n::String::STRING_FOR_SYNTH_CATEGORY_MISC, "BRIB", "BRIB"},
 }};
 
+/// DX7's categories: the usual four, with its keys (pianos, organs, clavs) and bells (mallets, chimes) in their own
+inline constexpr std::array<SynthCategory, 6> kDx7Categories{{
+    {l10n::String::STRING_FOR_SYNTH_CATEGORY_LEAD, "LEAD"},
+    {l10n::String::STRING_FOR_SYNTH_CATEGORY_BASS, "BASS"},
+    {l10n::String::STRING_FOR_SYNTH_CATEGORY_PAD, "PAD"},
+    {l10n::String::STRING_FOR_SYNTH_CATEGORY_MISC, "KEYS", "KEYS"},
+    {l10n::String::STRING_FOR_SYNTH_CATEGORY_MISC, "BELL", "BELL"},
+    {l10n::String::STRING_FOR_SYNTH_CATEGORY_MISC, "MISC"},
+}};
+
 /// The most categories any type has
 inline constexpr size_t kMaxSynthCategories = kBrophetCategories.size();
+static_assert(kDx7Categories.size() <= kMaxSynthCategories);
 
 /// A type's categories
 inline std::span<const SynthCategory> categoriesFor(const SynthInstrument& type) {
 	if (type.brophet) {
 		return kBrophetCategories;
+	}
+	if (type.dx) {
+		return kDx7Categories;
 	}
 	return kSynthCategories;
 }

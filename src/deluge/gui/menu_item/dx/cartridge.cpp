@@ -102,6 +102,7 @@ void DxCartridge::loadPatch() {
 		return;
 	}
 	pd->unpackProgram(patch->params, currentValue);
+	patch->updateEngineMode(); // the core for this voice's algorithm and feedback
 	soundEditor.currentSound->killAllVoices();
 	Instrument* instrument = getCurrentInstrument();
 	if (instrument->type == OutputType::SYNTH && !instrument->mightExistOnCard) {

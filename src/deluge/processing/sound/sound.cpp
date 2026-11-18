@@ -4092,6 +4092,7 @@ Error Sound::readSourceFromFile(Deserializer& reader, int32_t s, ParamManagerFor
 				return Error::INSUFFICIENT_RAM;
 			}
 			int len = reader.readTagOrAttributeValueHexBytes(patch->params, 156);
+			patch->updateEngineMode(); // the core for this voice's algorithm and feedback
 			reader.exitTag("dx7patch");
 		}
 		else if (!strcmp(tagName, "dx7randomdetune")) {

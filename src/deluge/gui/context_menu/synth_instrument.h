@@ -25,8 +25,10 @@ namespace deluge::gui::context_menu {
 
 /// Shown by SHIFT + SYNTH on any instrument track, as SHIFT + KIT shows the kit types: the synth types (see
 /// model/instrument/synth_instruments.h), opening on the one the track plays. SHIFT + SYNTH again or turning SELECT
-/// moves on. SELECT or SYNTH opens the type's categories (BASS, LEAD, PAD, MISC); INIT makes the stock blank synth.
-/// BACK cancels. DX7 is only offered with the DX7 engine on.
+/// moves on. The audition pads always have a synth to play: on a synth track, its own synth on its own type and each
+/// other type's init synth; on any other track, the init synth of the type the cursor is on, from the moment the menu
+/// opens. SELECT or SYNTH opens the type's categories (LEAD, BASS, PAD, MISC; DX7 adds KEYS and BELL); INIT keeps the
+/// stock blank synth. BACK puts the track's old instrument back.
 class SynthInstrumentMenu final : public ContextMenu {
 public:
 	SynthInstrumentMenu() = default;
@@ -41,14 +43,18 @@ public:
 	bool isCurrentOptionAvailable() override;
 	bool canSeeViewUnderneath() override { return true; }
 	bool acceptCurrentOption() override;
+	void selectEncoderAction(int8_t offset) override;
 	ActionResult buttonAction(deluge::hid::Button b, bool on, bool inCardRoutine) override;
+	ActionResult padAction(int32_t x, int32_t y, int32_t velocity) override;
+	bool getGreyoutColsAndRows(uint32_t* cols, uint32_t* rows) override;
 	deluge::hid::Button getAcceptButton() override { return deluge::hid::button::SYNTH; }
 };
 
 /// The categories inside a synth type's folder (BASS, LEAD, PAD, MISC; BROPHET's are Pro-53's files, BNK1 to BNK8),
-/// each one offered only if it holds presets. SELECT or SYNTH opens the preset browser in that folder playing its first
-/// preset: turning SELECT previews the others, SELECT keeps one, BACK there puts the old synth back and returns here.
-/// BACK here returns to the types.
+/// each one offered only if it holds presets. The audition pads play the type's init synth. SELECT or SYNTH opens the
+/// preset browser in that folder, still playing the init until another preset is highlighted (SELECT straight away
+/// loads the one shown): turning SELECT previews the presets, SELECT keeps one, BACK there returns here playing the
+/// init again. BACK here returns to the types.
 class SynthCategoryMenu final : public ContextMenu {
 public:
 	SynthCategoryMenu() = default;
@@ -64,18 +70,26 @@ public:
 	bool canSeeViewUnderneath() override { return true; }
 	bool acceptCurrentOption() override;
 	ActionResult buttonAction(deluge::hid::Button b, bool on, bool inCardRoutine) override;
+	ActionResult padAction(int32_t x, int32_t y, int32_t velocity) override;
+	bool getGreyoutColsAndRows(uint32_t* cols, uint32_t* rows) override;
 	deluge::hid::Button getAcceptButton() override { return deluge::hid::button::SYNTH; }
 
 	size_t type() const { return type_; }
 
 private:
 	size_t type_ = 0;
+	// The category last opened, to come back onto it
+	int32_t lastType_ = -1;
+	int32_t lastCategory_ = -1;
 	std::array<bool, synth_instruments::kMaxSynthCategories> hasPresets_{};
 };
 
-/// Open the preset browser on folder for the current clip, playing its first preset. backTo is the category menu's
-/// type to return to on BACK from that folder (-1: BACK leaves as usual). False if it couldn't open.
-bool openSynthPresetFolder(char const* folder, int32_t backTo);
+/// Put type's init synth on the current clip for the SHIFT + SYNTH picker (its mode or engine set as the type plays).
+/// False if it couldn't.
+bool previewSynthInit(size_t type);
+/// Back from the picker's preset browser: type's init synth on the clip, its categories open (or the types, if it has
+/// none)
+void returnToSynthPicker(size_t type);
 
 extern SynthInstrumentMenu synthInstrumentMenu;
 extern SynthCategoryMenu synthCategoryMenu;

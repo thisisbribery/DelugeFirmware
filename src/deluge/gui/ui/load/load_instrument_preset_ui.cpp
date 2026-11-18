@@ -20,6 +20,7 @@
 #include "extern.h"
 #include "gui/context_menu/load_instrument_preset.h"
 #include "gui/context_menu/synth_instrument.h"
+#include "gui/l10n/l10n.h"
 #include "gui/ui/keyboard/keyboard_screen.h"
 #include "gui/ui/root_ui.h"
 #include "gui/views/arranger_view.h"
@@ -46,6 +47,7 @@
 #include "storage/storage_manager.h"
 #include "util/functions.h"
 #include "util/try.h"
+#include <cstring>
 #include <strings.h>
 
 using namespace deluge;
@@ -65,16 +67,7 @@ bool LoadInstrumentPresetUI::getGreyoutColsAndRows(uint32_t* cols, uint32_t* row
 	return true;
 }
 
-bool LoadInstrumentPresetUI::opened() {
-
-	// The QWERTY keyboard is always shown in this UI (qwertyAlwaysVisible stays true), so the favourites row should
-	// be too. The static qwertyVisible flag can be left false by another browser (e.g. song load with the keyboard
-	// toggled off); without resetting it here the favourites row would stay hidden until something else set it. #4674
-	qwertyVisible = true;
-
-	if (getRootUI() == &keyboardScreen) {
-		PadLEDs::skipGreyoutFade();
-	}
+void LoadInstrumentPresetUI::captureInitialInstrument() {
 	if (instrumentToReplace) {
 		initialOutputType = instrumentToReplace->type;
 		initialName.set(&instrumentToReplace->name);
@@ -108,17 +101,36 @@ bool LoadInstrumentPresetUI::opened() {
 	case OutputType::KIT:
 	case OutputType::NONE:;
 	}
+}
 
-	changedInstrumentForClip = false;
-	replacedWholeInstrument = false;
+bool LoadInstrumentPresetUI::opened() {
+
+	// The QWERTY keyboard is always shown in this UI (qwertyAlwaysVisible stays true), so the favourites row should
+	// be too. The static qwertyVisible flag can be left false by another browser (e.g. song load with the keyboard
+	// toggled off); without resetting it here the favourites row would stay hidden until something else set it. #4674
+	qwertyVisible = true;
+
+	if (getRootUI() == &keyboardScreen) {
+		PadLEDs::skipGreyoutFade();
+	}
+	// Opening on a SHIFT + SYNTH picker folder carries its session on: the instrument to go back to is the one the
+	// session started on, not the init synth playing now
+	const bool continuingPicker = pickerOpening_ && pickerSession_;
+	pickerOpening_ = false;
+	if (!continuingPicker) {
+		endPickerSession();
+		captureInitialInstrument();
+		changedInstrumentForClip = false;
+		replacedWholeInstrument = false;
+	}
 
 	pickerStartDir.clear();
-	if (pickerFolder != nullptr && !loadingSynthToKitRow && outputTypeToLoad == OutputType::SYNTH) {
+	if (continuingPicker && pickerFolder != nullptr && !loadingSynthToKitRow && outputTypeToLoad == OutputType::SYNTH) {
 		pickerStartDir.set(pickerFolder);
 	}
 	pickerFolder = nullptr;
 
-	if (instrumentClipToLoadFor) {
+	if (instrumentClipToLoadFor && !continuingPicker) {
 		instrumentClipToLoadFor
 		    ->backupPresetSlot(); // Store this now cos we won't be storing it between each navigation we do
 	}
@@ -132,7 +144,10 @@ gotError:
 
 	actionLogger.deleteAllLogs();
 
+	// The picker's folder: show its first (or last browsed) preset without loading it, the init playing on
+	pickerHoldOnArrival_ = !pickerStartDir.isEmpty();
 	error = setupForOutputType(); // Sets currentDir.
+	pickerHoldOnArrival_ = false;
 	if (error != Error::NONE) {
 		renderingNeededRegardlessOfUI(); // Because unlike many UIs we've already gone and drawn the QWERTY interface on
 		                                 // the pads, in call to setupForOutputType().
@@ -140,11 +155,6 @@ gotError:
 	}
 
 	focusRegained();
-
-	// From the SHIFT + SYNTH picker: play the folder's first preset straight away
-	if (!pickerStartDir.isEmpty() && fileIndexSelected >= 0) {
-		currentFileChanged(0);
-	}
 	return true;
 }
 
@@ -314,6 +324,10 @@ useDefaultFolder:
 }
 
 void LoadInstrumentPresetUI::folderContentsReady(int32_t entryDirection) {
+	if (pickerHoldOnArrival_) {
+		pickerNotLoaded_ = true;
+		return;
+	}
 	currentFileChanged(0);
 }
 
@@ -322,6 +336,7 @@ void LoadInstrumentPresetUI::currentFileChanged(int32_t movementDirection) {
 
 	// if (currentFileItem->instrument != instrumentToReplace) {
 
+	pickerNotLoaded_ = false;
 	currentUIMode = UI_MODE_LOADING_BUT_ABORT_IF_SELECT_ENCODER_TURNED;
 	if (loadingSynthToKitRow) {
 		currentInstrumentLoadError = performLoadSynthToKit();
@@ -354,6 +369,12 @@ void LoadInstrumentPresetUI::enterKeyPress() {
 
 	else {
 
+		// From the SHIFT + SYNTH picker, the preset on screen may not be loaded yet: load it now
+		if (pickerNotLoaded_) {
+			pickerNotLoaded_ = false;
+			currentInstrumentLoadError = Error::UNSPECIFIED;
+		}
+
 		if (currentInstrumentLoadError != Error::NONE) {
 			if (loadingSynthToKitRow) {
 				currentInstrumentLoadError = performLoadSynthToKit();
@@ -376,6 +397,7 @@ void LoadInstrumentPresetUI::enterKeyPress() {
 			instrumentClipView.recalculateColours();
 		}
 
+		endPickerSession();
 		close();
 	}
 }
@@ -1183,6 +1205,7 @@ Error LoadInstrumentPresetUI::performLoadSynthToKit() {
 void LoadInstrumentPresetUI::exitAction() {
 	pickerStartDir.clear();
 	revertToInitialPreset();
+	endPickerSession();
 	LoadUI::exitAction();
 }
 
@@ -1197,8 +1220,9 @@ void LoadInstrumentPresetUI::rememberPickerPlace() {
 	}
 }
 
-// From the SHIFT + SYNTH picker, BACK in the folder it opened on puts the old synth back and returns to the categories.
-// The preset it was on is remembered, so going into that category again picks up there.
+// From the SHIFT + SYNTH picker, BACK in the folder it opened on returns to the categories (or the types), playing the
+// type's init synth again; the session goes on, so BACK from the types still puts the old synth back. The preset it was
+// on is remembered, so going into that category again picks up there.
 ActionResult LoadInstrumentPresetUI::backButtonAction() {
 	if (!pickerStartDir.isEmpty() && !strcasecmp(currentDir.get(), pickerStartDir.get())) {
 		if (sdRoutineLock) {
@@ -1206,14 +1230,231 @@ ActionResult LoadInstrumentPresetUI::backButtonAction() {
 		}
 		rememberPickerPlace();
 		const int32_t backTo = pickerBackToType;
-		exitAction();
-		if (backTo >= 0 && getCurrentUI() == getRootUI()
-		    && deluge::gui::context_menu::synthCategoryMenu.setupFor(static_cast<size_t>(backTo))) {
-			openUI(&deluge::gui::context_menu::synthCategoryMenu);
+		if (!pickerSession_ || backTo < 0) {
+			exitAction();
+			return ActionResult::DEALT_WITH;
+		}
+		pickerStartDir.clear();
+		pickerNotLoaded_ = false;
+		display->setNextTransitionDirection(-1);
+		close();
+		if (getCurrentUI() == getRootUI()) {
+			deluge::gui::context_menu::returnToSynthPicker(static_cast<size_t>(backTo));
+		}
+		else {
+			pickerCancel();
 		}
 		return ActionResult::DEALT_WITH;
 	}
 	return LoadUI::backButtonAction();
+}
+
+// ---- The SHIFT + SYNTH picker session ----
+
+void LoadInstrumentPresetUI::endPickerSession() {
+	pickerSession_ = false;
+	pickerInit_ = nullptr;
+	pickerInitType_ = -1;
+	pickerNotLoaded_ = false;
+	pickerStartDir.clear();
+}
+
+void LoadInstrumentPresetUI::pickerBegin(InstrumentClip* clip) {
+	endPickerSession();
+	setupLoadInstrument(OutputType::SYNTH, static_cast<Instrument*>(clip->output), clip);
+	captureInitialInstrument();
+	changedInstrumentForClip = false;
+	replacedWholeInstrument = false;
+	clip->backupPresetSlot();
+	pickerSession_ = true;
+}
+
+LoadInstrumentPresetUI::PickerInit LoadInstrumentPresetUI::pickerPreviewInit(size_t type) {
+	using deluge::synth_instruments::kSynthInstruments;
+	if (!pickerSession_ || instrumentClipToLoadFor == nullptr || type >= kSynthInstruments.size()
+	    || instrumentClipToLoadFor->output != instrumentToReplace) {
+		return PickerInit::FAILED;
+	}
+	if (pickerInit_ != nullptr && pickerInit_ == instrumentToReplace && pickerInitType_ == static_cast<int32_t>(type)) {
+		return PickerInit::ALREADY_ON;
+	}
+	const auto& synthType = kSynthInstruments[type];
+	// As stock, a kit clip only becomes a synth clip while it has no notes or sounds
+	if (instrumentToReplace->type == OutputType::KIT
+	    && (!instrumentClipToLoadFor->isEmpty() || !instrumentClipToLoadFor->output->isEmpty())) {
+		return PickerInit::FAILED;
+	}
+
+	// The card's own init for this type, if it has one: SYNTHS/INIT/<type>.XML (INIT.XML for INIT)
+	char const* leaf = synthType.init ? "INIT" : strrchr(synthType.folder, '/') + 1;
+	String filePath;
+	filePath.set("SYNTHS/INIT/");
+	filePath.concatenate(leaf);
+	filePath.concatenate(".XML");
+	String initName;
+	initName.set("INIT");
+	String initDir;
+	initDir.set(synthType.folder);
+
+	Instrument* init = nullptr;
+	ParamManagerForTimeline paramManager;
+	bool fromFile = false;
+	FilePointer filePointer;
+	if (StorageManager::fileExists(filePath.get(), &filePointer)) {
+		Error error = StorageManager::loadInstrumentFromFile(currentSong, instrumentClipToLoadFor, OutputType::SYNTH,
+		                                                     false, &init, &filePointer, &initName, &initDir);
+		if (error == Error::NONE && init != nullptr) {
+			display->displayLoadingAnimationText("Loading", false, true);
+			error = init->loadAllAudioFiles(true);
+			display->removeLoadingAnimation();
+			if (error != Error::NONE) {
+				currentSong->deleteOutput(init);
+				init = nullptr;
+			}
+			else {
+				fromFile = true;
+			}
+		}
+		else {
+			init = nullptr;
+		}
+	}
+	if (init == nullptr) {
+		init = StorageManager::createNewInstrument(OutputType::SYNTH, &paramManager);
+		if (init == nullptr) {
+			display->displayError(Error::INSUFFICIENT_RAM);
+			return PickerInit::FAILED;
+		}
+		static_cast<SoundInstrument*>(init)->setupAsBlankSynth(&paramManager, synthType.dx);
+		init->name.set(&initName);
+		init->dirPath.set(&initDir);
+	}
+	// Not a preset of anyone's yet: when something else takes its place, it's deleted rather than kept
+	init->editedByUser = false;
+	init->mightExistOnCard = false;
+
+	// Notes held on the old instrument would hang
+	if (getRootUI() == &instrumentClipView) {
+		instrumentClipView.cancelAllAuditioning();
+	}
+	actionLogger.deleteAllLogs();
+
+	char modelStackMemory[MODEL_STACK_MAX_SIZE];
+	ModelStackWithTimelineCounter* modelStack =
+	    setupModelStackWithTimelineCounter(modelStackMemory, currentSong, instrumentClipToLoadFor);
+
+	if (currentSong->shouldOldOutputBeReplaced(instrumentClipToLoadFor)) {
+		if (!fromFile) {
+			currentSong->backUpParamManager((ModControllableAudio*)init->toModControllable(), nullptr, &paramManager,
+			                                true);
+		}
+		currentSong->replaceInstrument(instrumentToReplace, init);
+		replacedWholeInstrument = true;
+	}
+	else {
+		init->defaultVelocity = instrumentToReplace->defaultVelocity;
+		instrumentClipToLoadFor->changeInstrument(modelStack, init, fromFile ? nullptr : &paramManager,
+		                                          InstrumentRemoval::DELETE_OR_HIBERNATE_IF_UNUSED, nullptr, true);
+		currentSong->addOutput(init);
+		changedInstrumentForClip = true;
+	}
+
+	instrumentToReplace = init;
+	currentInstrument = init;
+	pickerInit_ = init;
+	pickerInitType_ = static_cast<int32_t>(type);
+	view.instrumentChanged(modelStack, init);
+	if (showingAuditionPads()) {
+		instrumentClipView.recalculateColours();
+	}
+	uiNeedsRendering(getRootUI());
+	return fromFile ? PickerInit::FROM_FILE : PickerInit::BUILT_IN;
+}
+
+void LoadInstrumentPresetUI::pickerCancel() {
+	if (!pickerSession_) {
+		return;
+	}
+	if (getRootUI() == &instrumentClipView) {
+		instrumentClipView.cancelAllAuditioning();
+	}
+	revertToInitialPreset();
+	endPickerSession();
+	if (instrumentClipToLoadFor != nullptr) {
+		char modelStackMemory[MODEL_STACK_MAX_SIZE];
+		ModelStackWithTimelineCounter* modelStack =
+		    setupModelStackWithTimelineCounter(modelStackMemory, currentSong, instrumentClipToLoadFor);
+		view.instrumentChanged(modelStack, static_cast<Instrument*>(instrumentClipToLoadFor->output));
+		if (showingAuditionPads()) {
+			instrumentClipView.recalculateColours();
+		}
+	}
+	uiNeedsRendering(getRootUI());
+}
+
+bool LoadInstrumentPresetUI::pickerRestoreOriginal() {
+	if (!pickerSession_ || instrumentClipToLoadFor == nullptr) {
+		return false;
+	}
+	// Nothing swapped yet: it's still on
+	if (!changedInstrumentForClip && !replacedWholeInstrument) {
+		return true;
+	}
+	if (getRootUI() == &instrumentClipView) {
+		instrumentClipView.cancelAllAuditioning();
+	}
+	revertToInitialPreset();
+	auto* now = static_cast<Instrument*>(instrumentClipToLoadFor->output);
+	if (now == instrumentToReplace || now->type != initialOutputType || strcmp(now->name.get(), initialName.get())
+	    || strcasecmp(now->dirPath.get(), initialDirPath.get())) {
+		return false;
+	}
+	// As at the start of the session: nothing swapped
+	instrumentToReplace = now;
+	currentInstrument = now;
+	changedInstrumentForClip = false;
+	replacedWholeInstrument = false;
+	pickerInit_ = nullptr;
+	pickerInitType_ = -1;
+	char modelStackMemory[MODEL_STACK_MAX_SIZE];
+	ModelStackWithTimelineCounter* modelStack =
+	    setupModelStackWithTimelineCounter(modelStackMemory, currentSong, instrumentClipToLoadFor);
+	view.instrumentChanged(modelStack, now);
+	if (showingAuditionPads()) {
+		instrumentClipView.recalculateColours();
+	}
+	uiNeedsRendering(getRootUI());
+	return true;
+}
+
+void LoadInstrumentPresetUI::pickerKeepInit(char const* folder) {
+	Instrument* synth = pickerInit();
+	endPickerSession();
+	if (synth == nullptr) {
+		return;
+	}
+	// Named as SHIFT + SYNTH names a new synth, saving into folder
+	String newName;
+	if (currentDir.set(getInstrumentFolder(OutputType::SYNTH)) == Error::NONE
+	    && getUnusedSlot(OutputType::SYNTH, &newName, "SYNT") == Error::NONE && !newName.isEmpty()) {
+		synth->name.set(&newName);
+	}
+	synth->dirPath.set(folder);
+	synth->editedByUser = true;
+	synth->mightExistOnCard = false;
+	display->consoleText(deluge::l10n::get(deluge::l10n::String::STRING_FOR_NEW_SYNTH_CREATED));
+}
+
+bool LoadInstrumentPresetUI::pickerOpenFolder(char const* folder, size_t type) {
+	if (!pickerSession_ || instrumentClipToLoadFor == nullptr) {
+		return false;
+	}
+	pickerFolder = folder;
+	pickerBackToType = static_cast<int32_t>(type);
+	pickerOpening_ = true;
+	const bool opened = openUI(this);
+	pickerOpening_ = false;
+	return opened;
 }
 
 ActionResult LoadInstrumentPresetUI::padAction(int32_t x, int32_t y, int32_t on) {

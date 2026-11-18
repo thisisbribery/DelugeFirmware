@@ -61,6 +61,10 @@ void DxParam::setValue(int val) {
 	}
 	if (param >= 0 && param <= MAX_PARAM_IDX) {
 		patch->params[param] = val;
+		// Algorithm 4 and 6 with feedback need the MkI core
+		if (param == 134 || param == 135) {
+			patch->updateEngineMode();
+		}
 	}
 	else if (param == -1) {
 		patch->random_detune = val;

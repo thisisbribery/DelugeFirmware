@@ -67,13 +67,33 @@ public:
 		noteRowIndex = 255; // (not set value for note rows)
 		noteRow = nullptr;
 	}
-	/// Call after setupLoadInstrument, before openUI (the SHIFT + SYNTH picker): start in folder and play its first
-	/// preset. BACK in that folder puts the old instrument back and returns to the picker's categories for backToType
-	/// (-1: BACK leaves as usual).
-	void setPickerFolder(char const* folder, int32_t backToType) {
-		pickerFolder = folder;
-		pickerBackToType = backToType;
-	}
+	// ---- The SHIFT + SYNTH picker ----
+	// One session runs from the type menu, through the category menu, to this browser on a category's folder. As the
+	// menus move, the clip plays each type's init synth, so the audition pads always have something to play; the
+	// browser keeps playing it until another preset is highlighted. BACK from the type menu (or leaving the browser any
+	// way but BACK in the folder it opened on) puts the clip's old instrument back.
+
+	/// What putting a type's init synth on the clip did
+	enum class PickerInit : uint8_t { FAILED, ALREADY_ON, FROM_FILE, BUILT_IN };
+	/// Start a session on clip's instrument, before the type menu opens
+	void pickerBegin(InstrumentClip* clip);
+	/// Put type's init synth on the clip: SYNTHS/INIT/<type>.XML if the card has one, else a blank synth (BUILT_IN:
+	/// the caller sets its mode or engine, see context_menu::previewSynthInit)
+	PickerInit pickerPreviewInit(size_t type);
+	/// Put the old instrument back and end the session
+	void pickerCancel();
+	/// Put the old instrument back on the clip and carry the session on (its own type in the picker). False if it
+	/// couldn't be put back.
+	bool pickerRestoreOriginal();
+	/// Keep the init synth on the clip (INIT, or a type with no presets yet): named as a new synth, saving into folder
+	void pickerKeepInit(char const* folder);
+	/// Open this browser on folder for type, the clip playing what it plays now until a preset is highlighted. BACK in
+	/// that folder returns to type's categories (or the types, if it has none), playing its init.
+	bool pickerOpenFolder(char const* folder, size_t type);
+	bool pickerActive() const { return pickerSession_; }
+	/// The init synth the session put on the clip, if it's still there
+	Instrument* pickerInit() const { return (pickerInit_ == instrumentToReplace) ? pickerInit_ : nullptr; }
+
 	void setupLoadSynthToKit(Instrument* kit, InstrumentClip* clip, SoundDrum* drum, NoteRow* row, int32_t rowIndex) {
 		Browser::outputTypeToLoad = OutputType::SYNTH;
 		instrumentToReplace = kit;
@@ -127,6 +147,14 @@ private:
 	char const* pickerFolder = nullptr;
 	int32_t pickerBackToType = -1;
 	String pickerStartDir;
+	bool pickerSession_ = false;
+	bool pickerOpening_ = false;       // opened() from pickerOpenFolder: the session's old instrument stays the one
+	bool pickerHoldOnArrival_ = false; // arriving in the picker's folder: don't load the highlighted preset
+	bool pickerNotLoaded_ = false;     // the highlighted preset isn't loaded: the clip plays the init (or the old one)
+	Instrument* pickerInit_ = nullptr; // the last init synth the session put on the clip
+	int32_t pickerInitType_ = -1;
+	void captureInitialInstrument();
+	void endPickerSession();
 	// The preset last browsed from the picker and its folder, to pick up there next time
 	String pickerLastDir;
 	String pickerLastName;

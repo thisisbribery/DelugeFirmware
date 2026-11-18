@@ -164,8 +164,9 @@ void DX7Cartridge::unpackProgram(std::span<std::uint8_t> unpackPgm, size_t idx) 
 		std::uint8_t* bulk_op = &bulk[op * 17];
 		std::uint8_t* unpack_op = &unpackPgm[op * 21];
 
-		// eg rate and level, brk pt, depth, scaling
-		for (size_t i = 0; i < 10; ++i) {
+		// eg rate and level, brk pt, left and right depth (11 bytes: the right depth used to be skipped, so it kept
+		// whatever the previous patch had there)
+		for (size_t i = 0; i < 11; ++i) {
 			unpack_op[i] = normparm(clearTopBit(bulk_op[i]), 99, i); // mask BIT7 (don't care per sysex spec)
 		}
 
