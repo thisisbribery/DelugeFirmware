@@ -1,7 +1,7 @@
 /*
- * The TIA and IIA engines, shown on the Deluge as DXIA and DIIA. They come from the XIA engine set for the
- * Model:Cycles, whose author released them as open source; they are distributed here under the GPL-3.0 with the
- * rest of this firmware.
+ * The TIA and IIA engines, shown on the Deluge as DXIA and DIIA. They were written from scratch, from the manuals
+ * and published descriptions of Noise Engineering's BIA and IIA modules, first for the Model:Cycles (the XIA engine
+ * set) and then ported here; they are distributed under the GPL-3.0 with the rest of this firmware.
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
