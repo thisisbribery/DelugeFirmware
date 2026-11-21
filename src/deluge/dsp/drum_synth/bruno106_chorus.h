@@ -31,7 +31,9 @@ public:
 	/// Start clean: memory is the delay memory, cleared by the caller
 	void reset();
 	/// Chorus the buffer in place. mode 1 to 3 (anything else is I). Switching modes fades out and back in over 5 ms.
-	void process(std::span<StereoSample> buffer, float* memory, uint8_t mode);
+	/// rate and depth 0 to 127, 64 = the mode's own: rate two octaves each way, depth none to twice the mode's.
+	void process(std::span<StereoSample> buffer, float* memory, uint8_t mode, uint8_t rateKnob = 64,
+	             uint8_t depthKnob = 64);
 	/// Whether it has been reset since it was last off
 	bool started = false;
 
@@ -43,6 +45,7 @@ private:
 		float q;
 	};
 	void configure(uint8_t mode);
+	void scale(uint8_t rate, uint8_t depth);
 
 	Line l0_{}, l1_{};
 	int32_t write_ = 0;
@@ -54,6 +57,10 @@ private:
 	bool sine_ = false;       ///< I+II's LFO is a sine (a fast vibrato); I and II are triangles
 	uint8_t mode_ = 0;        ///< Running
 	uint8_t pending_ = 0;     ///< Asked for: the running mode fades out first
+	float baseInc_ = 0.f;     ///< The mode's own LFO step and sweep, before rate and depth
+	float baseDepth_ = 0.f;
+	uint8_t rate_ = 64;    ///< The rate and depth inc_ and depthTarget_ were scaled by
+	uint8_t depth_k_ = 64; ///< (depth_ is the smoothed sweep)
 };
 
 } // namespace deluge::dsp::drum_synth::bruno106

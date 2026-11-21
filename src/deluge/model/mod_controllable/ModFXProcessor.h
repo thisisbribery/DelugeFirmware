@@ -71,6 +71,10 @@ public:
 	/// BRUNO CHORUS: its state (its delay lines are modFXBuffer) and mode, 1 to 3 (I, II, I+II)
 	deluge::dsp::drum_synth::bruno106::Chorus brunoChorus;
 	uint8_t brunoChorusMode{1};
+	/// BRUNO CHORUS's rate and depth, 0 to 127; 64 = the mode's own (the synth's fixed values), so older sounds are
+	/// unchanged
+	uint8_t brunoChorusRate{64};
+	uint8_t brunoChorusDepth{64};
 	void processModFX(std::span<StereoSample> buffer, const ModFXType& modFXType, int32_t modFXRate, int32_t modFXDepth,
 	                  int32_t* postFXVolume, UnpatchedParamSet* unpatchedParams, bool anySoundComingIn);
 	void resetMemory();

@@ -41,7 +41,8 @@ void ModFXProcessor::processModFX(std::span<StereoSample> buffer, const ModFXTyp
 		}
 		static_assert(kModFXBufferSize * sizeof(StereoSample)
 		              >= deluge::dsp::drum_synth::bruno106::Chorus::kMemoryFloats * sizeof(float));
-		brunoChorus.process(buffer, reinterpret_cast<float*>(modFXBuffer), brunoChorusMode);
+		brunoChorus.process(buffer, reinterpret_cast<float*>(modFXBuffer), brunoChorusMode, brunoChorusRate,
+		                    brunoChorusDepth);
 		*postFXVolume = multiply_32x32_rshift32(*postFXVolume, 1518500250) << 1; // Divide by sqrt(2), as the chorus
 		return;
 	}

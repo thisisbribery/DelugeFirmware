@@ -92,6 +92,9 @@ void ModControllableAudio::cloneFrom(ModControllableAudio* other) {
 	crushTypeInFile = other->crushTypeInFile;
 	loadedSaturationDrive = other->loadedSaturationDrive;
 	modFXType_ = other->modFXType_;
+	modfx.brunoChorusMode = other->modfx.brunoChorusMode;
+	modfx.brunoChorusRate = other->modfx.brunoChorusRate;
+	modfx.brunoChorusDepth = other->modfx.brunoChorusDepth;
 	bassFreq = other->bassFreq; // Eventually, these shouldn't be variables like this
 	trebleFreq = other->trebleFreq;
 	filterRoute = other->filterRoute;
@@ -469,6 +472,12 @@ void ModControllableAudio::writeAttributesToFile(Serializer& writer) {
 	writer.writeAttribute("filterRoute", (char*)filterRouteToString(filterRoute));
 	if (modFXType_ == ModFXType::BRUNO_CHORUS) {
 		writer.writeAttribute("brunoChorusMode", modfx.brunoChorusMode);
+		if (modfx.brunoChorusRate != 64) {
+			writer.writeAttribute("brunoChorusRate", modfx.brunoChorusRate);
+		}
+		if (modfx.brunoChorusDepth != 64) {
+			writer.writeAttribute("brunoChorusDepth", modfx.brunoChorusDepth);
+		}
 	}
 	// The drive is a param now, written with the others
 	if (saturation.type != deluge::dsp::SaturationSettings{}.type) {
@@ -797,6 +806,14 @@ Error ModControllableAudio::readTagFromFile(Deserializer& reader, char const* ta
 	else if (!strcmp(tagName, "brunoChorusMode")) {
 		modfx.brunoChorusMode = static_cast<uint8_t>(std::clamp<int32_t>(reader.readTagOrAttributeValueInt(), 1, 3));
 		reader.exitTag("brunoChorusMode");
+	}
+	else if (!strcmp(tagName, "brunoChorusRate")) {
+		modfx.brunoChorusRate = static_cast<uint8_t>(std::clamp<int32_t>(reader.readTagOrAttributeValueInt(), 0, 127));
+		reader.exitTag("brunoChorusRate");
+	}
+	else if (!strcmp(tagName, "brunoChorusDepth")) {
+		modfx.brunoChorusDepth = static_cast<uint8_t>(std::clamp<int32_t>(reader.readTagOrAttributeValueInt(), 0, 127));
+		reader.exitTag("brunoChorusDepth");
 	}
 	else if (!strcmp(tagName, "hpfMode")) {
 		hpfMode = stringToLPFType(reader.readTagOrAttributeValue());

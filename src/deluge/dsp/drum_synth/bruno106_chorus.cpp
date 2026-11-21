@@ -109,25 +109,38 @@ void Chorus::reset() {
 void Chorus::configure(uint8_t mode) {
 	switch (mode) {
 	case 2:
-		inc_ = kRateII / kFs;
-		depthTarget_ = kDepthII;
+		baseInc_ = kRateII / kFs;
+		baseDepth_ = kDepthII;
 		sine_ = false;
 		break;
 	case 3:
-		inc_ = kRateI_II / kFs;
-		depthTarget_ = kDepthI_II;
+		baseInc_ = kRateI_II / kFs;
+		baseDepth_ = kDepthI_II;
 		sine_ = true;
 		break;
 	default:
-		inc_ = kRateI / kFs;
-		depthTarget_ = kDepthI;
+		baseInc_ = kRateI / kFs;
+		baseDepth_ = kDepthI;
 		sine_ = false;
 		break;
 	}
+	scale(rate_, depth_k_);
 }
 
-void Chorus::process(std::span<StereoSample> buffer, float* memory, uint8_t mode) {
+void Chorus::scale(uint8_t rate, uint8_t depth) {
+	rate_ = rate;
+	depth_k_ = depth;
+	// Rate: two octaves each way of 64. Depth: none to just under twice. The deepest sweep (I: 2.13 ms x 2 around
+	// 3.3 ms) stays well inside the 11.6 ms lines.
+	inc_ = baseInc_ * std::exp2((static_cast<float>(std::min<uint8_t>(rate, 127)) - 64.f) / 32.f);
+	depthTarget_ = baseDepth_ * static_cast<float>(std::min<uint8_t>(depth, 127)) / 64.f;
+}
+
+void Chorus::process(std::span<StereoSample> buffer, float* memory, uint8_t mode, uint8_t rateKnob, uint8_t depthKnob) {
 	mode = (mode >= 1 && mode <= 3) ? mode : 1;
+	if (rateKnob != rate_ || depthKnob != depth_k_) {
+		scale(rateKnob, depthKnob); // The sweep glides to its new depth (below); the rate changes at once
+	}
 	if (mode_ == 0) { // Just switched on: straight to this mode, fading in
 		mode_ = pending_ = mode;
 		configure(mode);

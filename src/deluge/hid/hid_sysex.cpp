@@ -18,12 +18,10 @@
 #include "gui/views/arranger_view.h"
 #include "gui/views/audio_clip_view.h"
 #include "gui/views/instrument_clip_view.h"
+#include "gui/views/view.h"
 #include "gui/waveform/waveform_basic_navigator.h"
 #include "gui/waveform/waveform_render_data.h"
 #include "gui/waveform/waveform_renderer.h"
-#include "modulation/patch/patch_cable_set.h"
-#include "gui/views/view.h"
-#include "util/functions.h"
 #include "hid/button.h"
 #include "hid/buttons.h"
 #include "hid/display/oled.h"
@@ -46,6 +44,7 @@
 #include "model/song/song.h"
 #include "model/voice/voice.h"
 #include "model/voice/voice_sample.h"
+#include "modulation/patch/patch_cable_set.h"
 #include "playback/mode/arrangement.h"
 #include "playback/mode/session.h"
 #include "playback/playback_handler.h"
@@ -59,8 +58,10 @@
 #include "storage/multi_range/multisample_range.h"
 #include "util/comparison.h"
 #include "util/d_stringbuf.h"
+#include "util/functions.h"
 #include "util/pack.h"
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 MIDICable* midiDisplayCable = nullptr;
@@ -1403,7 +1404,8 @@ int32_t buildGold(uint8_t* out) {
 					paramId = p - P::UNPATCHED_START;
 					if (unpatched != nullptr && paramId < P::kMaxNumUnpatchedParams) {
 						const int32_t value = unpatched->getValue(paramId);
-						knobPos = value >= static_cast<int32_t>(0x80000000u - (1u << 24)) ? 64 : (value + (1 << 24)) >> 25;
+						knobPos =
+						    value >= static_cast<int32_t>(0x80000000u - (1u << 24)) ? 64 : (value + (1 << 24)) >> 25;
 						found = true;
 					}
 				}
@@ -1415,7 +1417,8 @@ int32_t buildGold(uint8_t* out) {
 						knobPos = (value >> 24) - 64;
 					}
 					else {
-						knobPos = value >= static_cast<int32_t>(0x80000000u - (1u << 24)) ? 64 : (value + (1 << 24)) >> 25;
+						knobPos =
+						    value >= static_cast<int32_t>(0x80000000u - (1u << 24)) ? 64 : (value + (1 << 24)) >> 25;
 					}
 					found = true;
 				}
@@ -1442,6 +1445,578 @@ int32_t buildGold(uint8_t* out) {
 		}
 	}
 	return i;
+}
+
+// ---- BRUNO106 panel: the tablet's sliders and switches, laid out as the synth the engine comes from, both ways ----
+// Each control is a 14-bit position (0 to 16383; switches send their choice). The Deluge sends PANEL when they change
+// (polled with the knobs); the tablet sends 13 <id> <hi> <lo>, applied from the UI timer like a knob turn.
+constexpr uint8_t kPanelHeader[7] = {0xF0, 0x00, 0x21, 0x7B, 0x01, 0x02, 0x56};
+enum PanelControl : uint8_t {
+	PANEL_LFO_RATE,
+	PANEL_RANGE,    ///< 0 16', 1 8', 2 4': osc 1 transpose -12, 0, +12
+	PANEL_DCO_LFO,  ///< LFO 1 to pitch, up to 4 semitones
+	PANEL_PWM,      ///< Pulse width; with PWM on LFO, LFO 1 sweeps it from square to there
+	PANEL_PWM_MODE, ///< 0 LFO, 1 MAN
+	PANEL_PULSE,
+	PANEL_SAW,
+	PANEL_SUB,
+	PANEL_NOISE,
+	PANEL_SLOP,
+	PANEL_HPF, ///< 0 bass boost, 1 flat, 2 236 Hz, 3 754 Hz (the slider's order)
+	PANEL_VCF_FREQ,
+	PANEL_VCF_RES,
+	PANEL_ENV_POL,  ///< 0 normal, 1 inverted: the sign of envelope 2 (and 3) into the cutoff
+	PANEL_VCF_ENV,  ///< Envelope 2 into the cutoff, up to a cable's full 8 octaves
+	PANEL_VCF_LFO,  ///< LFO 1 into the cutoff, up to 3.5 octaves
+	PANEL_KYBD,     ///< Note into the cutoff, up to full tracking
+	PANEL_VCA_MODE, ///< 0 ENV, 1 GATE (envelope 1 an organ gate)
+	PANEL_LEVEL,
+	PANEL_ENV_A, ///< Envelope 1 (the amp's)
+	PANEL_ENV_D,
+	PANEL_ENV_S,
+	PANEL_ENV_R,
+	PANEL_CHORUS, ///< 0 off, 1 I, 2 II, 3 I+II
+	// The second layer
+	PANEL_ENV2_A, ///< Envelope 2 (the filter's), and envelope 3 wherever it matched it (KR presets' extra sweep)
+	PANEL_ENV2_D,
+	PANEL_ENV2_S,
+	PANEL_ENV2_R,
+	PANEL_CHORUS_RATE, ///< BRUNO CHORUS rate and depth, 0 to 127 (64 = the mode's own)
+	PANEL_CHORUS_DEPTH,
+	PANEL_DRIVE, ///< The LPF's morph: the BRUNO106 filter's drive
+	PANEL_CRUSH,
+	PANEL_DECI,
+	PANEL_SATURATION,
+	PANEL_DELAY_AMOUNT,
+	PANEL_DELAY_RATE,
+	PANEL_DELAY_FEEDBACK,
+	PANEL_REVERB,
+	NUM_PANEL,
+};
+constexpr int32_t kPanelMax = 16383;
+// Patched units per octave are 2^26, and a patch cable's amount is doubled into them: 2^27 per octave. Pitch cables are
+// squared first (PatchCableSet::getModifiedPatchCableAmount: a^2 / 2^31 / sqrt 2), which also gives the slider its
+// fine bottom end.
+constexpr int32_t kDcoLfoMax = 368609688;         ///< 4 semitones: sqrt(2^27 / 3 * 2^31 * sqrt 2)
+constexpr int32_t kVcfLfoMax = (1 << 27) * 7 / 2; ///< 42 semitones
+constexpr int32_t kKybdMax = static_cast<int32_t>((int64_t{1} << 33) / 12); ///< Full tracking (as gen_bruno106_kr.py)
+constexpr int32_t kVcfEnvMax = 1 << 30;
+constexpr int32_t kPwFull = 0x7F00;              ///< The PW control's top, in DrumControls' 8.8 knob units
+constexpr uint8_t kHpfToPanel[4] = {1, 0, 2, 3}; ///< Saved FLAT, BOOST, 236, 754 to the slider's order, and back
+constexpr int32_t kRangeTranspose[3] = {-12, 0, 12};
+constexpr int32_t kNotQuiteFull = INT32_MAX - (1 << 18); ///< One slider step below full
+constexpr int32_t kNotQuiteZero = INT32_MIN + (1 << 18); ///< One slider step above none
+
+static_assert(NUM_PANEL <= 64);
+uint16_t pendingPanel[NUM_PANEL]; ///< Tablet moves not yet applied: the latest position for each bit set below
+uint64_t pendingPanelMask = 0;
+uint8_t lastPanel[3 + 2 * NUM_PANEL];
+int32_t lastPanelLen = 0;
+// What the panel shows for a setting a zero amount leaves open (the Deluge deletes a cable set to 0): kept per sound
+Sound* panelFlagsSound = nullptr;
+bool panelPwmLfo = false;
+bool panelEnvInverted = false;
+bool panelNegative[3] = {}; ///< DCO LFO, VCF LFO, KYBD cables that pointed down: kept through a pass by 0
+
+void panelFlagsFor(Sound* sound) {
+	if (sound != panelFlagsSound) {
+		panelFlagsSound = sound;
+		panelPwmLfo = false;
+		panelEnvInverted = false;
+		panelNegative[0] = panelNegative[1] = panelNegative[2] = false;
+	}
+}
+/// Forget them: the next sound may be a new one at the same address (a preset load frees and allocates)
+void panelForgetFlags() {
+	panelFlagsSound = nullptr;
+}
+
+bool isBrunoSound(Sound* sound) {
+	return sound->sources[0].oscType == OscType::DRUM_SYNTH
+	       && deluge::dsp::drum_synth::isBruno106(sound->sources[0].drumPatch.engine());
+}
+
+int32_t panelFromStandard(int32_t value) {
+	return std::clamp<int32_t>((value >> 18) + 8192, 0, kPanelMax);
+}
+int32_t standardFromPanel(int32_t pos) {
+	return pos >= kPanelMax ? INT32_MAX : static_cast<int32_t>((static_cast<int64_t>(pos) - 8192) << 18);
+}
+int32_t panelFromByte(int32_t value) {
+	return (std::clamp<int32_t>(value, 0, 127) * kPanelMax + 63) / 127;
+}
+int32_t byteFromPanel(int32_t pos) {
+	return (pos * 127 + kPanelMax / 2) / kPanelMax;
+}
+int32_t panelFromControl(int32_t raw) {
+	const int32_t knob = std::clamp<int32_t>(deluge::dsp::drum_synth::DrumControls::toKnob(raw), 0, kPwFull);
+	return (knob * kPanelMax + kPwFull / 2) / kPwFull;
+}
+int32_t controlKnobFromPanel(int32_t pos) {
+	return static_cast<int32_t>((static_cast<int64_t>(pos) * kPwFull + kPanelMax / 2) / kPanelMax);
+}
+/// A cable amount as a slider position, 0 at none to the top at max
+int32_t panelFromAmount(int32_t amount, int32_t max) {
+	const float f = std::min(1.0f, std::abs(static_cast<float>(amount)) / static_cast<float>(max));
+	return static_cast<int32_t>(f * kPanelMax + 0.5f);
+}
+int32_t amountFromPanel(int32_t pos, int32_t max) {
+	const float f = static_cast<float>(pos) / kPanelMax;
+	const int32_t amount = static_cast<int32_t>(f * static_cast<float>(max) + 0.5f);
+	return (pos > 0) ? std::max<int32_t>(amount, 1) : 0; // A raised slider always leaves a cable
+}
+
+int32_t envParam(int32_t envelope, int32_t stage) {
+	static constexpr int32_t kFirst[4] = {P::LOCAL_ENV_0_ATTACK, P::LOCAL_ENV_0_DECAY, P::LOCAL_ENV_0_SUSTAIN,
+	                                      P::LOCAL_ENV_0_RELEASE};
+	return kFirst[stage] + envelope;
+}
+/// Envelope 1 set as an organ gate: no attack, decay or release, full sustain
+bool envelope1IsGate(PatchedParamSet* patched) {
+	return patched->getValue(P::LOCAL_ENV_0_ATTACK) == INT32_MIN && patched->getValue(P::LOCAL_ENV_0_DECAY) == INT32_MIN
+	       && patched->getValue(P::LOCAL_ENV_0_SUSTAIN) == INT32_MAX
+	       && patched->getValue(P::LOCAL_ENV_0_RELEASE) == INT32_MIN;
+}
+
+struct PanelCable {
+	PatchSource source;
+	int32_t param;
+};
+
+PatchCableSet* cablesOf(ParamManagerForTimeline* params) {
+	ParamCollectionSummary* summary = params->getPatchCableSetSummary();
+	return summary == nullptr ? nullptr : static_cast<PatchCableSet*>(summary->paramCollection);
+}
+int32_t cableAmount(PatchCableSet* cables, PatchSource source, int32_t param) {
+	if (cables == nullptr) {
+		return 0;
+	}
+	ParamDescriptor destination;
+	destination.setToHaveParamOnly(param);
+	const uint8_t c = cables->getPatchCableIndex(source, destination);
+	return c == 255 ? 0 : cables->patchCables[c].param.getCurrentValue();
+}
+
+/// Every control's position, from the sound
+void readPanel(Sound* sound, ParamManagerForTimeline* params, int32_t* v) {
+	using deluge::dsp::drum_synth::DrumControls;
+	using deluge::dsp::drum_synth::Patch;
+	PatchedParamSet* patched = params->getPatchedParamSet();
+	PatchCableSet* cables = cablesOf(params);
+	const auto& patch = sound->sources[0].drumPatch;
+	panelFlagsFor(sound);
+
+	v[PANEL_LFO_RATE] = panelFromStandard(patched->getValue(P::GLOBAL_LFO_FREQ_1));
+	const int32_t transpose = sound->sources[0].transpose;
+	v[PANEL_RANGE] = transpose <= -6 ? 0 : transpose >= 6 ? 2 : 1;
+	// A cable seen fixes the switch it stands for, so the switch stays put when its slider later reaches 0 (the Deluge
+	// deletes a cable at 0)
+	static constexpr PanelCable kSigned[3] = {{PatchSource::LFO_GLOBAL_1, P::LOCAL_PITCH_ADJUST},
+	                                          {PatchSource::LFO_GLOBAL_1, P::LOCAL_LPF_FREQ},
+	                                          {PatchSource::NOTE, P::LOCAL_LPF_FREQ}};
+	for (int32_t k = 0; k < 3; k++) {
+		const int32_t amount = cableAmount(cables, kSigned[k].source, kSigned[k].param);
+		if (amount != 0) {
+			panelNegative[k] = amount < 0;
+		}
+	}
+	v[PANEL_DCO_LFO] =
+	    panelFromAmount(cableAmount(cables, PatchSource::LFO_GLOBAL_1, P::LOCAL_PITCH_ADJUST), kDcoLfoMax);
+	const int32_t pwmCable = cableAmount(cables, PatchSource::LFO_GLOBAL_1, P::LOCAL_MODULATOR_0_VOLUME);
+	if (pwmCable != 0) {
+		panelPwmLfo = true;
+	}
+	const bool pwmLfo = panelPwmLfo;
+	// In LFO mode the knob holds half the width (the LFO swings it from square to the slider)
+	const int32_t pwKnob =
+	    std::clamp<int32_t>(DrumControls::toKnob(patched->getValue(P::LOCAL_MODULATOR_0_VOLUME)), 0, kPwFull);
+	const int32_t pw = !pwmLfo         ? pwKnob
+	                   : pwmCable != 0 ? std::clamp<int32_t>(pwmCable >> 15, 0, kPwFull)
+	                                   : std::min<int32_t>(pwKnob * 2, kPwFull);
+	v[PANEL_PWM] = (pw * kPanelMax + kPwFull / 2) / kPwFull;
+	v[PANEL_PWM_MODE] = pwmLfo ? 0 : 1;
+	v[PANEL_PULSE] = patch.get(Patch::BRUNO_PULSE) != 0;
+	v[PANEL_SAW] = patch.get(Patch::BRUNO_SAW) != 0;
+	v[PANEL_SUB] = panelFromControl(patched->getValue(P::LOCAL_MODULATOR_1_VOLUME));
+	v[PANEL_NOISE] = panelFromControl(patched->getValue(P::LOCAL_MODULATOR_0_FEEDBACK));
+	v[PANEL_SLOP] = panelFromControl(patched->getValue(P::LOCAL_MODULATOR_1_FEEDBACK));
+	v[PANEL_HPF] = kHpfToPanel[std::min<uint8_t>(patch.get(Patch::BRUNO_HPF), 3)];
+	v[PANEL_VCF_FREQ] = panelFromStandard(patched->getValue(P::LOCAL_LPF_FREQ));
+	v[PANEL_VCF_RES] = panelFromStandard(patched->getValue(P::LOCAL_LPF_RESONANCE));
+	const int32_t env = cableAmount(cables, PatchSource::ENVELOPE_1, P::LOCAL_LPF_FREQ);
+	if (env != 0) {
+		panelEnvInverted = env < 0;
+	}
+	v[PANEL_ENV_POL] = panelEnvInverted;
+	v[PANEL_VCF_ENV] = panelFromAmount(env, kVcfEnvMax);
+	v[PANEL_VCF_LFO] = panelFromAmount(cableAmount(cables, PatchSource::LFO_GLOBAL_1, P::LOCAL_LPF_FREQ), kVcfLfoMax);
+	v[PANEL_KYBD] = panelFromAmount(cableAmount(cables, PatchSource::NOTE, P::LOCAL_LPF_FREQ), kKybdMax);
+	const bool gate = envelope1IsGate(patched);
+	v[PANEL_VCA_MODE] = gate;
+	v[PANEL_LEVEL] = panelFromStandard(patched->getValue(P::GLOBAL_VOLUME_POST_FX));
+	for (int32_t stage = 0; stage < 4; stage++) {
+		v[PANEL_ENV_A + stage] = panelFromStandard(patched->getValue(envParam(0, stage)));
+		v[PANEL_ENV2_A + stage] = panelFromStandard(patched->getValue(envParam(1, stage)));
+	}
+	v[PANEL_CHORUS] =
+	    sound->getModFXType() == ModFXType::BRUNO_CHORUS ? std::clamp<int32_t>(sound->modfx.brunoChorusMode, 1, 3) : 0;
+	v[PANEL_CHORUS_RATE] = panelFromByte(sound->modfx.brunoChorusRate);
+	v[PANEL_CHORUS_DEPTH] = panelFromByte(sound->modfx.brunoChorusDepth);
+	v[PANEL_DRIVE] = panelFromStandard(patched->getValue(P::LOCAL_LPF_MORPH));
+	v[PANEL_DELAY_AMOUNT] = panelFromStandard(patched->getValue(P::GLOBAL_DELAY_FEEDBACK));
+	v[PANEL_DELAY_RATE] = panelFromStandard(patched->getValue(P::GLOBAL_DELAY_RATE));
+	v[PANEL_REVERB] = panelFromStandard(patched->getValue(P::GLOBAL_REVERB_AMOUNT));
+	UnpatchedParamSet* unpatched = params->getUnpatchedParamSet();
+	auto fromUnpatched = [&](int32_t param) {
+		return unpatched != nullptr ? panelFromStandard(unpatched->getValue(param)) : 0;
+	};
+	v[PANEL_CRUSH] = fromUnpatched(P::UNPATCHED_BITCRUSHING);
+	v[PANEL_DECI] = fromUnpatched(P::UNPATCHED_SAMPLE_RATE_REDUCTION);
+	v[PANEL_SATURATION] = fromUnpatched(P::UNPATCHED_SATURATION);
+	v[PANEL_DELAY_FEEDBACK] = fromUnpatched(P::UNPATCHED_DELAY_FEEDBACK);
+}
+
+/// PANEL body: version, open (1 when the sound is a BRUNO106), count, then each control's position (2 bytes)
+int32_t buildPanel(uint8_t* out) {
+	out[0] = kStateVersion;
+	Sound* sound = nullptr;
+	ParamManagerForTimeline* params = nullptr;
+	if (!currentSoundAndParams(sound, params) || !isBrunoSound(sound) || params->getPatchedParamSet() == nullptr) {
+		panelForgetFlags();
+		out[1] = 0;
+		return 2;
+	}
+	int32_t v[NUM_PANEL];
+	readPanel(sound, params, v);
+	out[1] = 1;
+	out[2] = NUM_PANEL;
+	int32_t i = 3;
+	for (int32_t c = 0; c < NUM_PANEL; c++) {
+		const int32_t pos = std::clamp<int32_t>(v[c], 0, kPanelMax);
+		out[i++] = (pos >> 7) & 0x7F;
+		out[i++] = pos & 0x7F;
+	}
+	return i;
+}
+
+/// The sound and its params as a knob turn sees them: in its clip, and on its note row for a kit row
+ModelStackWithThreeMainThings* panelModelStack(void* memory, Sound* sound, ParamManagerForTimeline* params) {
+	Clip* clip = getCurrentClip();
+	NoteRow* row = nullptr;
+	int32_t rowIndex = 0;
+	if (clip->output->type == OutputType::KIT) {
+		row = static_cast<InstrumentClip*>(clip)->getNoteRowForDrum(static_cast<SoundDrum*>(sound), &rowIndex);
+	}
+	return setupModelStackWithThreeMainThingsIncludingNoteRow(memory, currentSong, clip, rowIndex, row, sound, params);
+}
+
+void setUnpatched(ModelStackWithThreeMainThings* modelStack, int32_t param, int32_t value) {
+	ModelStackWithAutoParam* withParam = modelStack->getUnpatchedAutoParamFromId(param);
+	if (withParam->autoParam != nullptr && withParam->autoParam->getCurrentValue() != value) {
+		withParam->autoParam->setCurrentValueInResponseToUserInput(value, withParam);
+	}
+}
+
+void setPatched(ModelStackWithThreeMainThings* modelStack, int32_t param, int32_t value) {
+	ModelStackWithAutoParam* withParam = modelStack->getPatchedAutoParamFromId(param);
+	if (withParam->autoParam != nullptr && withParam->autoParam->getCurrentValue() != value) {
+		withParam->autoParam->setCurrentValueInResponseToUserInput(value, withParam);
+	}
+}
+
+/// Set a patch cable's amount as its menu does: made if needed, and deleted by the Deluge at 0
+void setCable(ModelStackWithThreeMainThings* modelStack, PatchSource source, int32_t param, int32_t amount) {
+	ParamCollectionSummary* summary = modelStack->paramManager->getPatchCableSetSummary();
+	if (summary == nullptr || summary->paramCollection == nullptr) {
+		return;
+	}
+	ParamDescriptor destination;
+	destination.setToHaveParamOnly(param);
+	ModelStackWithParamCollection* withCollection = modelStack->addParamCollectionSummary(summary);
+	ModelStackWithParamId* withId = withCollection->addParamId(PatchCableSet::getParamId(destination, source));
+	auto* cables = static_cast<PatchCableSet*>(summary->paramCollection);
+	const bool existed = cables->getPatchCableIndex(source, destination) != 255;
+	ModelStackWithAutoParam* withParam = summary->paramCollection->getAutoParamFromId(withId, amount != 0);
+	if (withParam->autoParam == nullptr) {
+		return;
+	}
+	if (!existed) {
+		// As the synth's presets make them (gen_bruno106_kr.py), not the user's default polarity: envelopes
+		// unipolar, LFO and note bipolar
+		const uint8_t c = cables->getPatchCableIndex(source, destination);
+		if (c != 255 && PatchCable::hasPolarity(source)) {
+			cables->patchCables[c].polarity = (source == PatchSource::ENVELOPE_1 || source == PatchSource::ENVELOPE_2)
+			                                      ? Polarity::UNIPOLAR
+			                                      : Polarity::BIPOLAR;
+		}
+	}
+	if (withParam->autoParam->getCurrentValue() != amount) {
+		withParam->autoParam->setCurrentValueInResponseToUserInput(amount, withParam);
+	}
+}
+
+/// One tablet move, as a knob turn or menu change on the Deluge would make it
+void applyPanel(ModelStackWithThreeMainThings* modelStack, Sound* sound, ParamManagerForTimeline* params,
+                int32_t control, int32_t pos) {
+	using deluge::dsp::drum_synth::DrumControls;
+	using deluge::dsp::drum_synth::Patch;
+	PatchedParamSet* patched = params->getPatchedParamSet();
+	PatchCableSet* cables = cablesOf(params);
+	auto& patch = sound->sources[0].drumPatch;
+	pos = std::clamp<int32_t>(pos, 0, kPanelMax);
+	// A cable's new amount, keeping the way it points (remembered through 0, see readPanel)
+	auto signed_ = [&](int32_t which, PatchSource source, int32_t param, int32_t amount) {
+		const int32_t now = cableAmount(cables, source, param);
+		const bool negative = now != 0 ? now < 0 : panelNegative[which];
+		panelNegative[which] = negative;
+		return negative ? -amount : amount;
+	};
+
+	switch (control) {
+	case PANEL_LFO_RATE:
+		setPatched(modelStack, P::GLOBAL_LFO_FREQ_1, standardFromPanel(pos));
+		break;
+	case PANEL_RANGE: {
+		Source& source = sound->sources[0];
+		const int32_t transpose = kRangeTranspose[std::min<int32_t>(pos, 2)];
+		if (source.transpose != transpose) {
+			source.transpose = transpose;
+			char memory[MODEL_STACK_MAX_SIZE];
+			sound->recalculateAllVoicePhaseIncrements(panelModelStack(memory, sound, params)->addSoundFlags());
+		}
+		break;
+	}
+	case PANEL_DCO_LFO:
+		setCable(modelStack, PatchSource::LFO_GLOBAL_1, P::LOCAL_PITCH_ADJUST,
+		         signed_(0, PatchSource::LFO_GLOBAL_1, P::LOCAL_PITCH_ADJUST, amountFromPanel(pos, kDcoLfoMax)));
+		break;
+	case PANEL_PWM: {
+		const int32_t pw = controlKnobFromPanel(pos);
+		const bool lfo =
+		    cableAmount(cables, PatchSource::LFO_GLOBAL_1, P::LOCAL_MODULATOR_0_VOLUME) != 0 || panelPwmLfo;
+		panelPwmLfo = lfo; // Stays LFO when the slider reaches 0 and the cable goes
+		if (lfo) {
+			// As KR-106's PWM on LFO: the width swings between square and the slider
+			setPatched(modelStack, P::LOCAL_MODULATOR_0_VOLUME, DrumControls::fromKnob(pw / 2));
+			setCable(modelStack, PatchSource::LFO_GLOBAL_1, P::LOCAL_MODULATOR_0_VOLUME, pw << 15);
+		}
+		else {
+			setPatched(modelStack, P::LOCAL_MODULATOR_0_VOLUME, DrumControls::fromKnob(pw));
+		}
+		break;
+	}
+	case PANEL_PWM_MODE: {
+		const int32_t cable = cableAmount(cables, PatchSource::LFO_GLOBAL_1, P::LOCAL_MODULATOR_0_VOLUME);
+		const bool wasLfo = cable != 0 || panelPwmLfo;
+		const bool toLfo = pos == 0;
+		const int32_t knob =
+		    std::clamp<int32_t>(DrumControls::toKnob(patched->getValue(P::LOCAL_MODULATOR_0_VOLUME)), 0, kPwFull);
+		if (toLfo && !wasLfo) {
+			// The knob's width becomes the top of the sweep: knob at half, LFO swinging it from square to there
+			setPatched(modelStack, P::LOCAL_MODULATOR_0_VOLUME, DrumControls::fromKnob(knob / 2));
+			setCable(modelStack, PatchSource::LFO_GLOBAL_1, P::LOCAL_MODULATOR_0_VOLUME, knob << 15);
+		}
+		else if (!toLfo && wasLfo) {
+			// Back to a fixed width: the top of the sweep
+			const int32_t pw =
+			    cable != 0 ? std::clamp<int32_t>(cable >> 15, 0, kPwFull) : std::min<int32_t>(knob * 2, kPwFull);
+			setPatched(modelStack, P::LOCAL_MODULATOR_0_VOLUME, DrumControls::fromKnob(pw));
+			setCable(modelStack, PatchSource::LFO_GLOBAL_1, P::LOCAL_MODULATOR_0_VOLUME, 0);
+		}
+		panelPwmLfo = toLfo;
+		break;
+	}
+	case PANEL_PULSE:
+		patch.set(Patch::BRUNO_PULSE, pos != 0);
+		break;
+	case PANEL_SAW:
+		patch.set(Patch::BRUNO_SAW, pos != 0);
+		break;
+	case PANEL_SUB:
+		setPatched(modelStack, P::LOCAL_MODULATOR_1_VOLUME, DrumControls::fromKnob(controlKnobFromPanel(pos)));
+		break;
+	case PANEL_NOISE:
+		setPatched(modelStack, P::LOCAL_MODULATOR_0_FEEDBACK, DrumControls::fromKnob(controlKnobFromPanel(pos)));
+		break;
+	case PANEL_SLOP:
+		setPatched(modelStack, P::LOCAL_MODULATOR_1_FEEDBACK, DrumControls::fromKnob(controlKnobFromPanel(pos)));
+		break;
+	case PANEL_HPF:
+		patch.set(Patch::BRUNO_HPF, kHpfToPanel[std::min<int32_t>(pos, 3)]);
+		break;
+	case PANEL_VCF_FREQ:
+		setPatched(modelStack, P::LOCAL_LPF_FREQ, standardFromPanel(pos));
+		break;
+	case PANEL_VCF_RES:
+		setPatched(modelStack, P::LOCAL_LPF_RESONANCE, standardFromPanel(pos));
+		break;
+	case PANEL_ENV_POL: {
+		const bool inverted = pos != 0;
+		for (PatchSource source : {PatchSource::ENVELOPE_1, PatchSource::ENVELOPE_2}) {
+			const int32_t amount = cableAmount(cables, source, P::LOCAL_LPF_FREQ);
+			if (amount != 0 && (amount < 0) != inverted) {
+				setCable(modelStack, source, P::LOCAL_LPF_FREQ, -amount);
+			}
+		}
+		panelEnvInverted = inverted;
+		break;
+	}
+	case PANEL_VCF_ENV: {
+		const int32_t env = cableAmount(cables, PatchSource::ENVELOPE_1, P::LOCAL_LPF_FREQ);
+		const bool inverted = env != 0 ? env < 0 : panelEnvInverted;
+		panelEnvInverted = inverted; // Stays inverted when the slider reaches 0 and the cable goes
+		const int32_t amount = amountFromPanel(pos, kVcfEnvMax);
+		setCable(modelStack, PatchSource::ENVELOPE_1, P::LOCAL_LPF_FREQ, inverted ? -amount : amount);
+		break;
+	}
+	case PANEL_VCF_LFO:
+		setCable(modelStack, PatchSource::LFO_GLOBAL_1, P::LOCAL_LPF_FREQ,
+		         signed_(1, PatchSource::LFO_GLOBAL_1, P::LOCAL_LPF_FREQ, amountFromPanel(pos, kVcfLfoMax)));
+		break;
+	case PANEL_KYBD:
+		setCable(modelStack, PatchSource::NOTE, P::LOCAL_LPF_FREQ,
+		         signed_(2, PatchSource::NOTE, P::LOCAL_LPF_FREQ, amountFromPanel(pos, kKybdMax)));
+		break;
+	case PANEL_VCA_MODE: {
+		const bool gate = envelope1IsGate(patched);
+		if (pos != 0 && !gate) {
+			setPatched(modelStack, P::LOCAL_ENV_0_ATTACK, INT32_MIN);
+			setPatched(modelStack, P::LOCAL_ENV_0_DECAY, INT32_MIN);
+			setPatched(modelStack, P::LOCAL_ENV_0_SUSTAIN, INT32_MAX);
+			setPatched(modelStack, P::LOCAL_ENV_0_RELEASE, INT32_MIN);
+		}
+		else if (pos == 0 && gate) {
+			// Back to ENV: envelope 1 takes the ADSR (envelope 2's) again
+			int32_t adsr[4];
+			for (int32_t stage = 0; stage < 4; stage++) {
+				adsr[stage] = patched->getValue(envParam(1, stage));
+			}
+			if (adsr[0] == INT32_MIN && adsr[1] == INT32_MIN && adsr[2] == INT32_MAX && adsr[3] == INT32_MIN) {
+				adsr[2] = kNotQuiteFull; // Envelope 2 is a gate too: one step off, so ENV doesn't read back as GATE
+			}
+			for (int32_t stage = 0; stage < 4; stage++) {
+				setPatched(modelStack, envParam(0, stage), adsr[stage]);
+			}
+		}
+		break;
+	}
+	case PANEL_LEVEL:
+		setPatched(modelStack, P::GLOBAL_VOLUME_POST_FX, standardFromPanel(pos));
+		break;
+	case PANEL_ENV_A:
+	case PANEL_ENV_D:
+	case PANEL_ENV_S:
+	case PANEL_ENV_R: {
+		// Envelope 1. GATE is envelope 1 set exactly to A0 D0 S full R0: from ENV, stop one step short of making it
+		const int32_t stage = control - PANEL_ENV_A;
+		int32_t value = standardFromPanel(pos);
+		if (!envelope1IsGate(patched)) {
+			int32_t would[4];
+			for (int32_t k = 0; k < 4; k++) {
+				would[k] = (k == stage) ? value : patched->getValue(envParam(0, k));
+			}
+			if (would[0] == INT32_MIN && would[1] == INT32_MIN && would[2] == INT32_MAX && would[3] == INT32_MIN) {
+				value = (stage == 2) ? kNotQuiteFull : kNotQuiteZero;
+			}
+		}
+		setPatched(modelStack, envParam(0, stage), value);
+		break;
+	}
+	case PANEL_ENV2_A:
+	case PANEL_ENV2_D:
+	case PANEL_ENV2_S:
+	case PANEL_ENV2_R: {
+		// Envelope 2, and envelope 3 where it matched (the KR presets copy the ADSR there for sweeps past 8 octaves)
+		const int32_t stage = control - PANEL_ENV2_A;
+		const int32_t old = patched->getValue(envParam(1, stage));
+		const int32_t value = standardFromPanel(pos);
+		if (value == old) {
+			break;
+		}
+		const bool linked = patched->getValue(envParam(2, stage)) == old;
+		setPatched(modelStack, envParam(1, stage), value);
+		if (linked) {
+			setPatched(modelStack, envParam(2, stage), value);
+		}
+		break;
+	}
+	case PANEL_CHORUS_RATE:
+		sound->modfx.brunoChorusRate = static_cast<uint8_t>(byteFromPanel(pos));
+		break;
+	case PANEL_CHORUS_DEPTH:
+		sound->modfx.brunoChorusDepth = static_cast<uint8_t>(byteFromPanel(pos));
+		break;
+	case PANEL_DRIVE:
+		setPatched(modelStack, P::LOCAL_LPF_MORPH, standardFromPanel(pos));
+		break;
+	case PANEL_CRUSH:
+		setUnpatched(modelStack, P::UNPATCHED_BITCRUSHING, standardFromPanel(pos));
+		break;
+	case PANEL_DECI:
+		setUnpatched(modelStack, P::UNPATCHED_SAMPLE_RATE_REDUCTION, standardFromPanel(pos));
+		break;
+	case PANEL_SATURATION:
+		setUnpatched(modelStack, P::UNPATCHED_SATURATION, standardFromPanel(pos));
+		break;
+	case PANEL_DELAY_AMOUNT:
+		setPatched(modelStack, P::GLOBAL_DELAY_FEEDBACK, standardFromPanel(pos));
+		break;
+	case PANEL_DELAY_RATE:
+		setPatched(modelStack, P::GLOBAL_DELAY_RATE, standardFromPanel(pos));
+		break;
+	case PANEL_DELAY_FEEDBACK:
+		setUnpatched(modelStack, P::UNPATCHED_DELAY_FEEDBACK, standardFromPanel(pos));
+		break;
+	case PANEL_REVERB:
+		setPatched(modelStack, P::GLOBAL_REVERB_AMOUNT, standardFromPanel(pos));
+		break;
+	case PANEL_CHORUS:
+		if (pos == 0) {
+			if (sound->getModFXType() == ModFXType::BRUNO_CHORUS) {
+				sound->setModFXType(ModFXType::NONE);
+			}
+		}
+		else {
+			if (sound->getModFXType() != ModFXType::BRUNO_CHORUS && !sound->setModFXType(ModFXType::BRUNO_CHORUS)) {
+				display->displayError(Error::INSUFFICIENT_RAM);
+				break;
+			}
+			sound->modfx.brunoChorusMode = static_cast<uint8_t>(std::min<int32_t>(pos, 3));
+		}
+		break;
+	default:
+		break;
+	}
+}
+
+/// Apply the tablet's waiting moves to the sound being played, if it's still a BRUNO106
+void runPendingPanel() {
+	Sound* sound = nullptr;
+	ParamManagerForTimeline* params = nullptr;
+	// Not while a browser is open: loading a preset swaps the sound over several steps
+	if (browserIsOpen() || !currentSoundAndParams(sound, params) || !isBrunoSound(sound)
+	    || params->getPatchedParamSet() == nullptr) {
+		pendingPanelMask = 0;
+		return;
+	}
+	panelFlagsFor(sound);
+	char memory[MODEL_STACK_MAX_SIZE];
+	ModelStackWithThreeMainThings* modelStack = panelModelStack(memory, sound, params);
+	bool any = false;
+	for (int32_t c = 0; c < NUM_PANEL; c++) {
+		if (!(pendingPanelMask & (uint64_t{1} << c))) {
+			continue;
+		}
+		pendingPanelMask &= ~(uint64_t{1} << c);
+		applyPanel(modelStack, sound, params, c, pendingPanel[c]);
+		any = true;
+	}
+	if (any) {
+		static_cast<Instrument*>(getCurrentClip()->output)->beenEdited();
+		// The gold knob lights and an open menu follow, as they do for automation
+		view.notifyParamAutomationOccurred(params);
+		uiTimerManager.setTimer(TimerName::COMPANION_WAVE, 10); // Answer soon with where everything landed
+	}
 }
 
 // ---- Transport, song (session clips and outputs), arranger ----
@@ -1805,6 +2380,9 @@ bool sendSongAndKnobs(bool force) {
 	// Never while the card routine runs or a browser is open: loading a preset or song swaps sounds, params and outputs
 	// over several steps, and redraws during it would read them half-built
 	if (currentSong == nullptr || sdRoutineLock || browserIsOpen()) {
+		if (browserIsOpen()) {
+			panelForgetFlags(); // A preset load may put a new sound where the old one was
+		}
 		return false;
 	}
 	if (force) {
@@ -1823,6 +2401,12 @@ bool sendSongAndKnobs(bool force) {
 	uint8_t gold[kGoldBodyMax];
 	const int32_t goldLen = buildGold(gold);
 	sendIfChanged(kGoldHeader, gold, goldLen, lastGold, lastGoldLen, force, 0);
+	if (force) {
+		lastPanelLen = 0;
+	}
+	uint8_t panel[sizeof(lastPanel)];
+	const int32_t panelLen = buildPanel(panel);
+	sendIfChanged(kPanelHeader, panel, panelLen, lastPanel, lastPanelLen, force, 0);
 
 	if (force) {
 		lastKitSamplesLen = lastKitActiveLen = 0;
@@ -1891,8 +2475,8 @@ int32_t pendingKnobX = -1; ///< Knob tap: its shortcut pad
 int32_t pendingKnobY = 0;
 int32_t pendingCommand = -1; ///< Top bar: 0 play, 1 record, 2 select, 3 back, 4 select left, 5 select right
 bool pendingCommandDown = false;
-int32_t pendingClip = -1;    ///< Session clip to launch or stop
-int32_t pendingSection = -1; ///< Section to launch
+int32_t pendingClip = -1;      ///< Session clip to launch or stop
+int32_t pendingSection = -1;   ///< Section to launch
 int32_t pendingModButton = -1; ///< Gold knob tap: the mod button to press
 } // namespace
 
@@ -1915,6 +2499,15 @@ void HIDSysex::requestState(MIDICable& cable, uint8_t* data, int32_t len) {
 		}
 		pendingButtonDown = false;
 		uiTimerManager.setTimer(TimerName::COMPANION_PICK, 1);
+		return;
+	}
+	if (data[2] == 13) {
+		// 13 <control> <hi> <lo> = move a BRUNO106 panel control there (latest move wins until the UI timer runs)
+		if (len >= 6 && data[3] < NUM_PANEL) {
+			pendingPanel[data[3]] = (data[4] << 7) | data[5];
+			pendingPanelMask |= uint64_t{1} << data[3];
+			uiTimerManager.setTimer(TimerName::COMPANION_PICK, 1);
+		}
 		return;
 	}
 	if (data[2] == 12) {
@@ -2440,9 +3033,12 @@ namespace {
 bool runPendingActions() {
 	if (sdRoutineLock) {
 		return pendingMarkerType >= 0 || pendingKnobX >= 0 || pendingCommand >= 0 || pendingClip >= 0
-		       || pendingSection >= 0 || pendingKitRow >= 0 || pendingModButton >= 0;
+		       || pendingSection >= 0 || pendingKitRow >= 0 || pendingModButton >= 0 || pendingPanelMask != 0;
 	}
 	bool again = false;
+	if (pendingPanelMask != 0) {
+		runPendingPanel();
+	}
 	if (pendingModButton >= 0) {
 		view.modButtonAction(pendingModButton, true);
 		view.modButtonAction(pendingModButton, false);
