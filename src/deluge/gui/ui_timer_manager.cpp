@@ -265,6 +265,10 @@ void UITimerManager::routine() {
 					HIDSysex::sendStateIfChanged();
 					break;
 
+				case TimerName::COMPANION_PANEL:
+					HIDSysex::sendPanelIfChanged();
+					break;
+
 				// explicit fallthrough cases
 				case TimerName::METER_INDICATOR_BLINK: // really nothing for this?
 				case TimerName::NUM_TIMERS:;

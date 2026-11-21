@@ -18,6 +18,8 @@ void readBlock(MIDICable& cable);
 /// Replies: 0x42 STATE, 0x43 KIT_ROWS, 0x44 TEXT, 0x45 PICKER (any open context menu), 0x46 BROWSER, 0x47 BROWSER_SEL.
 void requestState(MIDICable& cable, uint8_t* data, int32_t len);
 void sendStateIfChanged(bool force = false);
+/// Just the engine panel (BRUNO106 / BROPHET), from the COMPANION_PANEL UI timer while one is showing
+void sendPanelIfChanged();
 /// Copy display text for the companion screen (up to 40 characters) and find which l10n string it is, by pointer
 void companionCopyText(char* dest, std::string_view text, int16_t& stringIndex);
 /// Remember the OLED's popup text, for the companion screen in OLED mode

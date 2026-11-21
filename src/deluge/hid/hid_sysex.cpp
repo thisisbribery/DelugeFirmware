@@ -1510,8 +1510,10 @@ constexpr int32_t kNotQuiteZero = INT32_MIN + (1 << 18); ///< One slider step ab
 static_assert(NUM_PANEL <= 64);
 uint16_t pendingPanel[NUM_PANEL]; ///< Tablet moves not yet applied: the latest position for each bit set below
 uint64_t pendingPanelMask = 0;
-uint8_t lastPanel[3 + 2 * NUM_PANEL];
+constexpr int32_t kMaxPanelControls = 48; ///< The most any engine's panel has
+uint8_t lastPanel[3 + 2 * kMaxPanelControls];
 int32_t lastPanelLen = 0;
+constexpr int32_t kPanelPollMs = 15; ///< How often an open engine panel is checked for knob turns
 // What the panel shows for a setting a zero amount leaves open (the Deluge deletes a cable set to 0): kept per sound
 Sound* panelFlagsSound = nullptr;
 bool panelPwmLfo = false;
@@ -1676,22 +1678,46 @@ void readPanel(Sound* sound, ParamManagerForTimeline* params, int32_t* v) {
 	v[PANEL_DELAY_FEEDBACK] = fromUnpatched(P::UNPATCHED_DELAY_FEEDBACK);
 }
 
-/// PANEL body: version, open (1 when the sound is a BRUNO106), count, then each control's position (2 bytes)
+void readBrophetPanel(Sound* sound, ParamManagerForTimeline* params, int32_t* v);
+bool isBrophetSound(Sound* sound);
+
+/// A different panel than last time (the same sound switched engine in place, say): its remembered switches go
+void notePanelKind(uint8_t kind) {
+	static uint8_t lastKind = 0;
+	if (kind != lastKind) {
+		panelForgetFlags();
+		lastKind = kind;
+	}
+}
+constexpr int32_t kNumBrophetPanel = 43;
+
+/// PANEL body: version, which panel (0 none, 1 BRUNO106, 2 BROPHET), count, then each control's position (2 bytes)
 int32_t buildPanel(uint8_t* out) {
 	out[0] = kStateVersion;
 	Sound* sound = nullptr;
 	ParamManagerForTimeline* params = nullptr;
-	if (!currentSoundAndParams(sound, params) || !isBrunoSound(sound) || params->getPatchedParamSet() == nullptr) {
+	const bool found = currentSoundAndParams(sound, params) && params->getPatchedParamSet() != nullptr;
+	const uint8_t kind = !found ? 0 : isBrunoSound(sound) ? 1 : isBrophetSound(sound) ? 2 : 0;
+	notePanelKind(kind);
+	if (kind == 0) {
 		panelForgetFlags();
 		out[1] = 0;
 		return 2;
 	}
-	int32_t v[NUM_PANEL];
-	readPanel(sound, params, v);
-	out[1] = 1;
-	out[2] = NUM_PANEL;
+	int32_t v[kMaxPanelControls];
+	int32_t count;
+	if (kind == 1) {
+		readPanel(sound, params, v);
+		count = NUM_PANEL;
+	}
+	else {
+		readBrophetPanel(sound, params, v);
+		count = kNumBrophetPanel;
+	}
+	out[1] = kind;
+	out[2] = count;
 	int32_t i = 3;
-	for (int32_t c = 0; c < NUM_PANEL; c++) {
+	for (int32_t c = 0; c < count; c++) {
 		const int32_t pos = std::clamp<int32_t>(v[c], 0, kPanelMax);
 		out[i++] = (pos >> 7) & 0x7F;
 		out[i++] = pos & 0x7F;
@@ -1989,16 +2015,225 @@ void applyPanel(ModelStackWithThreeMainThings* modelStack, Sound* sound, ParamMa
 	}
 }
 
-/// Apply the tablet's waiting moves to the sound being played, if it's still a BRUNO106
+// ---- BROPHET panel: knobs and buttons laid out as the poly synth the engine comes from, both ways. The same
+// PANEL message (panel 2) and the tablet's 03 0E <id> <hi> <lo>. Most controls are one setting each, in a table.
+enum class BKind : uint8_t {
+	STANDARD,  ///< A patched param on the Deluge's standard 0-50 scale
+	UNPATCHED, ///< An unpatched one, the same scale
+	CONTROL,   ///< An engine control (DrumControls slot), 0-127
+	CABLE,     ///< A patch cable's amount, 0 to max, keeping the way it points
+	BYTE,      ///< A patch byte switch, 0 or 1
+	TRANSPOSE, ///< Osc A's frequency: osc 1 transpose, -24 to +24 semitones
+	LFO_SHAPE, ///< LFO 1's wave type (LFOType)
+	WAVE_A,    ///< brophet::WaveA
+	WAVE_B,    ///< brophet::WaveB
+	KEYS_B,    ///< Osc B on the keys: the patch's FIXED_B, inverted
+	PM_DEST,   ///< brophet::PolyModDest
+};
+struct BrophetControl {
+	BKind kind;
+	int32_t param;                          ///< Param, control slot or patch byte
+	PatchSource source = PatchSource::NONE; ///< CABLE: from
+	int32_t max = 0;                        ///< CABLE: the amount at the top
+	int8_t sign = -1;                       ///< CABLE: which panelNegative[] keeps its sign through 0 (-1: env's flag)
+};
+using DP = deluge::dsp::drum_synth::Patch;
+using DC = deluge::dsp::drum_synth::DrumControls;
+constexpr int32_t kLfoFreqMax = 638450709; ///< LFO 1 to pitch: 12 semitones (pitch cables are squared, see kDcoLfoMax)
+constexpr int32_t kLfoFilterMax = 1 << 29; ///< LFO 1 to cutoff: 4 octaves
+constexpr BrophetControl kBrophet[kNumBrophetPanel] = {
+    {BKind::UNPATCHED, P::UNPATCHED_PORTAMENTO},                                      // 0 glide
+    {BKind::STANDARD, P::GLOBAL_LFO_FREQ_1},                                          // 1 LFO rate
+    {BKind::LFO_SHAPE, 0},                                                            // 2 LFO shape
+    {BKind::CABLE, P::LOCAL_PITCH_ADJUST, PatchSource::LFO_GLOBAL_1, kLfoFreqMax, 0}, // 3 LFO to freq
+    {BKind::CABLE, P::LOCAL_LPF_FREQ, PatchSource::LFO_GLOBAL_1, kLfoFilterMax, 1},   // 4 LFO to filter
+    {BKind::CONTROL, DC::BROPHET_PM_ENV},                                             // 5 poly mod: filter env
+    {BKind::CONTROL, DC::BROPHET_PM_OSC_B},                                           // 6 poly mod: osc B
+    {BKind::PM_DEST, 0},                                                              // 7 poly mod destination
+    {BKind::TRANSPOSE, 0},                                                            // 8 osc A frequency
+    {BKind::WAVE_A, 0},                                                               // 9 osc A waves
+    {BKind::CONTROL, DC::BROPHET_PW_A},                                               // 10 osc A pulse width
+    {BKind::BYTE, DP::BROPHET_SYNC},                                                  // 11 sync
+    {BKind::CONTROL, DC::BROPHET_FREQ_B},                                             // 12 osc B frequency
+    {BKind::CONTROL, DC::BROPHET_FINE_B},                                             // 13 osc B fine
+    {BKind::WAVE_B, 0},                                                               // 14 osc B waves
+    {BKind::CONTROL, DC::BROPHET_PW_B},                                               // 15 osc B pulse width
+    {BKind::BYTE, DP::BROPHET_LOW_B},                                                 // 16 osc B low freq
+    {BKind::KEYS_B, 0},                                                               // 17 osc B keyboard
+    {BKind::CONTROL, DC::BROPHET_MIX_A},                                              // 18 mixer osc A
+    {BKind::CONTROL, DC::BROPHET_MIX_B},                                              // 19 mixer osc B
+    {BKind::CONTROL, DC::BROPHET_NOISE},                                              // 20 mixer noise
+    {BKind::STANDARD, P::LOCAL_LPF_FREQ},                                             // 21 cutoff
+    {BKind::STANDARD, P::LOCAL_LPF_RESONANCE},                                        // 22 resonance
+    {BKind::CABLE, P::LOCAL_LPF_FREQ, PatchSource::ENVELOPE_1, kVcfEnvMax, -1},       // 23 filter env amount
+    {BKind::CABLE, P::LOCAL_LPF_FREQ, PatchSource::NOTE, kKybdMax, 2},                // 24 filter keyboard
+    {BKind::STANDARD, P::LOCAL_LPF_MORPH},                                            // 25 filter drive
+    {BKind::STANDARD, P::LOCAL_ENV_1_ATTACK},                                         // 26-29 filter envelope
+    {BKind::STANDARD, P::LOCAL_ENV_1_DECAY},
+    {BKind::STANDARD, P::LOCAL_ENV_1_SUSTAIN},
+    {BKind::STANDARD, P::LOCAL_ENV_1_RELEASE},
+    {BKind::STANDARD, P::LOCAL_ENV_0_ATTACK}, // 30-33 amp envelope
+    {BKind::STANDARD, P::LOCAL_ENV_0_DECAY},
+    {BKind::STANDARD, P::LOCAL_ENV_0_SUSTAIN},
+    {BKind::STANDARD, P::LOCAL_ENV_0_RELEASE},
+    {BKind::CONTROL, DC::BROPHET_ANALOG},                   // 34 analog
+    {BKind::STANDARD, P::GLOBAL_VOLUME_POST_FX},            // 35 volume
+    {BKind::UNPATCHED, P::UNPATCHED_BITCRUSHING},           // 36 crush
+    {BKind::UNPATCHED, P::UNPATCHED_SAMPLE_RATE_REDUCTION}, // 37 decimation
+    {BKind::UNPATCHED, P::UNPATCHED_SATURATION},            // 38 saturation
+    {BKind::STANDARD, P::GLOBAL_DELAY_FEEDBACK},            // 39 delay amount
+    {BKind::STANDARD, P::GLOBAL_DELAY_RATE},                // 40 delay rate
+    {BKind::UNPATCHED, P::UNPATCHED_DELAY_FEEDBACK},        // 41 delay feedback
+    {BKind::STANDARD, P::GLOBAL_REVERB_AMOUNT},             // 42 reverb
+};
+static_assert(kNumBrophetPanel <= kMaxPanelControls && kNumBrophetPanel <= 64);
+// Osc B's waves: the three buttons as bits (saw 1, triangle 2, pulse 4) to and from brophet::WaveB
+constexpr uint8_t kWaveBToBits[7] = {1, 2, 4, 3, 5, 6, 7};
+constexpr uint8_t kBitsToWaveB[8] = {0, 0, 1, 3, 2, 4, 5, 6}; ///< 0 (none) can't be: kept as saw
+
+uint16_t pendingBrophet[kNumBrophetPanel];
+uint64_t pendingBrophetMask = 0;
+
+bool isBrophetSound(Sound* sound) {
+	return sound->sources[0].oscType == OscType::DRUM_SYNTH
+	       && deluge::dsp::drum_synth::isBrophet(sound->sources[0].drumPatch.engine());
+}
+
+/// A cable's sign, remembered through 0 (the Deluge deletes a cable at 0)
+bool cableNegative(PatchCableSet* cables, const BrophetControl& c) {
+	const int32_t now = cableAmount(cables, c.source, c.param);
+	bool& kept = c.sign < 0 ? panelEnvInverted : panelNegative[c.sign];
+	if (now != 0) {
+		kept = now < 0;
+	}
+	return kept;
+}
+
+void readBrophetPanel(Sound* sound, ParamManagerForTimeline* params, int32_t* v) {
+	PatchedParamSet* patched = params->getPatchedParamSet();
+	UnpatchedParamSet* unpatched = params->getUnpatchedParamSet();
+	PatchCableSet* cables = cablesOf(params);
+	const auto& patch = sound->sources[0].drumPatch;
+	panelFlagsFor(sound);
+	for (int32_t id = 0; id < kNumBrophetPanel; id++) {
+		const BrophetControl& c = kBrophet[id];
+		int32_t pos = 0;
+		switch (c.kind) {
+		case BKind::STANDARD:
+			pos = panelFromStandard(patched->getValue(c.param));
+			break;
+		case BKind::UNPATCHED:
+			pos = unpatched != nullptr ? panelFromStandard(unpatched->getValue(c.param)) : 0;
+			break;
+		case BKind::CONTROL:
+			pos = panelFromControl(patched->getValue(deluge::dsp::drum_synth::kDrumControlParams[c.param]));
+			break;
+		case BKind::CABLE:
+			cableNegative(cables, c); // Keeps the sign
+			pos = panelFromAmount(cableAmount(cables, c.source, c.param), c.max);
+			break;
+		case BKind::BYTE:
+			pos = patch.get(static_cast<DP::Param>(c.param)) != 0;
+			break;
+		case BKind::TRANSPOSE:
+			pos = ((std::clamp<int32_t>(sound->sources[0].transpose, -24, 24) + 24) * kPanelMax + 24) / 48;
+			break;
+		case BKind::LFO_SHAPE:
+			pos = static_cast<int32_t>(sound->lfoConfig[LFO1_ID].waveType);
+			break;
+		case BKind::WAVE_A:
+			pos = std::min<int32_t>(patch.get(DP::BROPHET_WAVE_A), 2);
+			break;
+		case BKind::WAVE_B:
+			pos = kWaveBToBits[std::min<int32_t>(patch.get(DP::BROPHET_WAVE_B), 6)];
+			break;
+		case BKind::KEYS_B:
+			pos = patch.get(DP::BROPHET_FIXED_B) == 0;
+			break;
+		case BKind::PM_DEST:
+			pos = std::min<int32_t>(patch.get(DP::BROPHET_PM_DEST), 2);
+			break;
+		}
+		v[id] = pos;
+	}
+}
+
+void applyBrophet(ModelStackWithThreeMainThings* modelStack, Sound* sound, ParamManagerForTimeline* params, int32_t id,
+                  int32_t pos) {
+	const BrophetControl& c = kBrophet[id];
+	auto& patch = sound->sources[0].drumPatch;
+	pos = std::clamp<int32_t>(pos, 0, kPanelMax);
+	switch (c.kind) {
+	case BKind::STANDARD:
+		setPatched(modelStack, c.param, standardFromPanel(pos));
+		break;
+	case BKind::UNPATCHED:
+		setUnpatched(modelStack, c.param, standardFromPanel(pos));
+		break;
+	case BKind::CONTROL:
+		setPatched(modelStack, deluge::dsp::drum_synth::kDrumControlParams[c.param],
+		           DC::fromKnob(controlKnobFromPanel(pos)));
+		break;
+	case BKind::CABLE: {
+		const int32_t amount = amountFromPanel(pos, c.max);
+		setCable(modelStack, c.source, c.param, cableNegative(cablesOf(params), c) ? -amount : amount);
+		break;
+	}
+	case BKind::BYTE:
+		patch.set(static_cast<DP::Param>(c.param), pos != 0);
+		break;
+	case BKind::TRANSPOSE: {
+		Source& source = sound->sources[0];
+		const int32_t transpose = (pos * 48 + kPanelMax / 2) / kPanelMax - 24;
+		if (source.transpose != transpose) {
+			source.transpose = transpose;
+			char memory[MODEL_STACK_MAX_SIZE];
+			sound->recalculateAllVoicePhaseIncrements(panelModelStack(memory, sound, params)->addSoundFlags());
+		}
+		break;
+	}
+	case BKind::LFO_SHAPE:
+		if (pos < kNumLFOTypes) {
+			sound->lfoConfig[LFO1_ID].waveType = static_cast<LFOType>(pos);
+			sound->resyncGlobalLFOs(); // As the LFO type menu does
+		}
+		break;
+	case BKind::WAVE_A:
+		patch.set(DP::BROPHET_WAVE_A, std::min<int32_t>(pos, 2));
+		break;
+	case BKind::WAVE_B:
+		patch.set(DP::BROPHET_WAVE_B, kBitsToWaveB[pos & 7]);
+		break;
+	case BKind::KEYS_B:
+		patch.set(DP::BROPHET_FIXED_B, pos == 0);
+		break;
+	case BKind::PM_DEST:
+		patch.set(DP::BROPHET_PM_DEST, std::min<int32_t>(pos, 2));
+		break;
+	}
+}
+
+/// Apply the tablet's waiting moves to the sound being played, if it's still the engine they were for
 void runPendingPanel() {
 	Sound* sound = nullptr;
 	ParamManagerForTimeline* params = nullptr;
 	// Not while a browser is open: loading a preset swaps the sound over several steps
-	if (browserIsOpen() || !currentSoundAndParams(sound, params) || !isBrunoSound(sound)
-	    || params->getPatchedParamSet() == nullptr) {
-		pendingPanelMask = 0;
+	if (browserIsOpen() || !currentSoundAndParams(sound, params) || params->getPatchedParamSet() == nullptr) {
+		pendingPanelMask = pendingBrophetMask = 0;
 		return;
 	}
+	const bool bruno = isBrunoSound(sound);
+	const bool brophet = isBrophetSound(sound);
+	if (!bruno) {
+		pendingPanelMask = 0; // Moves for a panel that isn't this sound's
+	}
+	if (!brophet) {
+		pendingBrophetMask = 0;
+	}
+	if (pendingPanelMask == 0 && pendingBrophetMask == 0) {
+		return;
+	}
+	notePanelKind(bruno ? 1 : 2);
 	panelFlagsFor(sound);
 	char memory[MODEL_STACK_MAX_SIZE];
 	ModelStackWithThreeMainThings* modelStack = panelModelStack(memory, sound, params);
@@ -2009,6 +2244,14 @@ void runPendingPanel() {
 		}
 		pendingPanelMask &= ~(uint64_t{1} << c);
 		applyPanel(modelStack, sound, params, c, pendingPanel[c]);
+		any = true;
+	}
+	for (int32_t c = 0; c < kNumBrophetPanel; c++) {
+		if (!(pendingBrophetMask & (uint64_t{1} << c))) {
+			continue;
+		}
+		pendingBrophetMask &= ~(uint64_t{1} << c);
+		applyBrophet(modelStack, sound, params, c, pendingBrophet[c]);
 		any = true;
 	}
 	if (any) {
@@ -2407,6 +2650,10 @@ bool sendSongAndKnobs(bool force) {
 	uint8_t panel[sizeof(lastPanel)];
 	const int32_t panelLen = buildPanel(panel);
 	sendIfChanged(kPanelHeader, panel, panelLen, lastPanel, lastPanelLen, force, 0);
+	// An engine panel is showing: watch it on its own fast timer, so a knob turned on the Deluge moves it right away
+	if (panel[1] != 0 && !uiTimerManager.isTimerSet(TimerName::COMPANION_PANEL)) {
+		uiTimerManager.setTimer(TimerName::COMPANION_PANEL, kPanelPollMs);
+	}
 
 	if (force) {
 		lastKitSamplesLen = lastKitActiveLen = 0;
@@ -2510,6 +2757,15 @@ void HIDSysex::requestState(MIDICable& cable, uint8_t* data, int32_t len) {
 		}
 		return;
 	}
+	if (data[2] == 14) {
+		// 14 <control> <hi> <lo> = move a BROPHET panel control there
+		if (len >= 6 && data[3] < kNumBrophetPanel) {
+			pendingBrophet[data[3]] = (data[4] << 7) | data[5];
+			pendingBrophetMask |= uint64_t{1} << data[3];
+			uiTimerManager.setTimer(TimerName::COMPANION_PICK, 1);
+		}
+		return;
+	}
 	if (data[2] == 12) {
 		// 12 <button> = press that mod button, so the gold knobs turn its pair
 		if (len >= 4 && data[3] < kNumModButtons) {
@@ -2585,6 +2841,23 @@ void HIDSysex::requestState(MIDICable& cable, uint8_t* data, int32_t len) {
 	sendStateIfChanged(data[2] == 0 || !wasActive);
 }
 
+/// The engine panel alone, every kPanelPollMs while one is showing: a few dozen param reads, sent only when one moved
+void HIDSysex::sendPanelIfChanged() {
+	if (midiStateCable == nullptr || AudioEngine::audioSampleTimer > midiStateUntil || currentSong == nullptr
+	    || sdRoutineLock || browserIsOpen()) {
+		return; // The full state pass starts it again when it's safe
+	}
+	if (midiStateCable->sendBufferSpace() >= 200) {
+		uint8_t panel[sizeof(lastPanel)];
+		const int32_t panelLen = buildPanel(panel);
+		sendIfChanged(kPanelHeader, panel, panelLen, lastPanel, lastPanelLen, false, 0);
+		if (panel[1] == 0) {
+			return; // Closed
+		}
+	}
+	uiTimerManager.setTimer(TimerName::COMPANION_PANEL, kPanelPollMs);
+}
+
 void HIDSysex::sendStateIfChanged(bool force) {
 	if (midiStateCable == nullptr || AudioEngine::audioSampleTimer > midiStateUntil || currentSong == nullptr) {
 		return;
@@ -2639,8 +2912,9 @@ void HIDSysex::sendStateIfChanged(bool force) {
 		}
 	}
 
-	// The browser window is up to about 1300 bytes: wait for room
-	if (midiStateCable->sendBufferSpace() < 1350) {
+	// The browser window is up to about 1300 bytes: wait for room (only when there is one, so knobs and panels aren't
+	// held back 100 ms behind a busy buffer for a window that isn't open)
+	if ((browserIsOpen() || browserWasOpen) && midiStateCable->sendBufferSpace() < 1350) {
 		uiTimerManager.setTimer(TimerName::SYSEX_DISPLAY, 100);
 		return;
 	}
@@ -3033,10 +3307,11 @@ namespace {
 bool runPendingActions() {
 	if (sdRoutineLock) {
 		return pendingMarkerType >= 0 || pendingKnobX >= 0 || pendingCommand >= 0 || pendingClip >= 0
-		       || pendingSection >= 0 || pendingKitRow >= 0 || pendingModButton >= 0 || pendingPanelMask != 0;
+		       || pendingSection >= 0 || pendingKitRow >= 0 || pendingModButton >= 0 || pendingPanelMask != 0
+		       || pendingBrophetMask != 0;
 	}
 	bool again = false;
-	if (pendingPanelMask != 0) {
+	if (pendingPanelMask != 0 || pendingBrophetMask != 0) {
 		runPendingPanel();
 	}
 	if (pendingModButton >= 0) {
